@@ -1,0 +1,43 @@
+import Foundation
+
+@MainActor
+final class MultiScreenPanelPresenter: OverlayPanelPresenting {
+    private let compositionRoot: AppCompositionRoot
+    private let interactions: OverlayPanelInteractions
+    private var controllers: [String: PanelWindowController] = [:]
+
+    init(
+        compositionRoot: AppCompositionRoot,
+        interactions: OverlayPanelInteractions
+    ) {
+        self.compositionRoot = compositionRoot
+        self.interactions = interactions
+    }
+
+    func present(state: OverlayState, geometry: TopAnchorGeometry) {
+        controller(for: geometry.screenID).present(state: state, geometry: geometry)
+    }
+
+    func retainPanels(for screenIDs: Set<String>) {
+        let disconnectedScreenIDs = Set(controllers.keys).subtracting(screenIDs)
+
+        for screenID in disconnectedScreenIDs {
+            controllers[screenID]?.dismiss()
+            controllers[screenID] = nil
+        }
+    }
+
+    private func controller(for screenID: String) -> PanelWindowController {
+        if let controller = controllers[screenID] {
+            return controller
+        }
+
+        let controller = PanelWindowController(
+            compositionRoot: compositionRoot,
+            interactions: interactions,
+            screenID: screenID
+        )
+        controllers[screenID] = controller
+        return controller
+    }
+}

@@ -1,0 +1,25 @@
+.DS_Store
+**/.DS_Store
+
+# Xcode user state
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+
+# Build output
+DerivedData/
+build/
+*.ipa
+*.dSYM
+
+# Swift Package Manager
+.build/
+Package.resolved
+
+# Local environment
+.env
+.env.*
+
+# Editor swap files
+*.swp
+*.swo
