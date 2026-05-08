@@ -246,6 +246,36 @@ struct MusicModuleTests {
         }
     }
 
+    @Test func systemMediaControlAdapterLaunchesTheTargetBundle() async throws {
+        let runner = MusicProcessRunnerSpy()
+        let adapter = SystemMediaControlAdapter(
+            capability: .neteaseMusic,
+            processRunner: runner
+        )
+
+        try await adapter.launch()
+
+        #expect(await runner.lastInvocation() == [
+            "/usr/bin/open",
+            "-b",
+            "com.netease.163music"
+        ])
+    }
+
+    @Test func systemMediaControlAdapterUsesAppleScriptMediaKeyControl() async throws {
+        let runner = MusicProcessRunnerSpy()
+        let adapter = SystemMediaControlAdapter(
+            capability: .kugouMusic,
+            processRunner: runner
+        )
+
+        try await adapter.perform(.nextTrack)
+
+        #expect(await runner.lastInvocation()?.first == "/usr/bin/osascript")
+        #expect(await runner.lastScript()?.contains("System Events") == true)
+        #expect(await runner.lastScript()?.contains("key code 124") == true)
+    }
+
     @Test func nowPlayingProviderParsesRawJSONIntoSnapshot() async throws {
         let runner = MusicProcessRunnerStub(
             stdout: """
