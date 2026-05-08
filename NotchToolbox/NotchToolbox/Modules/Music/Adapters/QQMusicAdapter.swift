@@ -82,5 +82,7 @@ private extension QQMusicAdapter {
         return normalized.contains("cannot be found")
             || normalized.contains("unable to find application named")
             || normalized.contains("does not exist")
+            || normalized.contains("lscopyapplicationurlsforbundleidentifier() failed")
+            || normalized.contains("failed while trying to determine the application with bundle identifier")
     }
 }

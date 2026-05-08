@@ -200,13 +200,18 @@ struct MusicModuleTests {
 
     @Test func qqAdapterLaunchMapsMissingPlayerToPlayerNotInstalled() async {
         let runner = MusicProcessRunnerSpy(
-            stderr: "The application cannot be opened because it cannot be found.",
+            stderr: "LSCopyApplicationURLsForBundleIdentifier() failed while trying to determine the application with bundle identifier com.tencent.QQMusicMac.",
             status: 1
         )
         let adapter = QQMusicAdapter(processRunner: runner)
 
-        await #expect(throws: MusicProviderError.playerNotInstalled) {
+        do {
             try await adapter.launch()
+            Issue.record("Expected player-not-installed error")
+        } catch let error as MusicProviderError {
+            #expect(error == .playerNotInstalled)
+        } catch {
+            Issue.record("Expected MusicProviderError, got \(error)")
         }
     }
 
@@ -217,8 +222,13 @@ struct MusicModuleTests {
         )
         let adapter = QQMusicAdapter(processRunner: runner)
 
-        await #expect(throws: MusicProviderError.permissionDenied(kind: .automation)) {
+        do {
             try await adapter.perform(.playPause)
+            Issue.record("Expected automation permission denial")
+        } catch let error as MusicProviderError {
+            #expect(error == .permissionDenied(kind: .automation))
+        } catch {
+            Issue.record("Expected MusicProviderError, got \(error)")
         }
     }
 
@@ -226,8 +236,13 @@ struct MusicModuleTests {
         let runner = MusicProcessRunnerSpy(stderr: "execution error: menu item missing", status: 1)
         let adapter = QQMusicAdapter(processRunner: runner)
 
-        await #expect(throws: MusicProviderError.controlCommandFailed(stderr: "execution error: menu item missing")) {
+        do {
             try await adapter.perform(.playPause)
+            Issue.record("Expected generic control failure")
+        } catch let error as MusicProviderError {
+            #expect(error == .controlCommandFailed(stderr: "execution error: menu item missing"))
+        } catch {
+            Issue.record("Expected MusicProviderError, got \(error)")
         }
     }
 
