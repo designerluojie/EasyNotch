@@ -400,6 +400,19 @@ struct MusicModuleTests {
     }
 
     @MainActor
+    @Test func runtimePreservesVisiblePollingScheduleAcrossStateUpdates() {
+        let runtime = MusicModuleRuntime()
+
+        runtime.updateEnergyMode(.visible)
+        runtime.updateModuleState(
+            .playing(MusicPlaybackSession(snapshot: makeVerifiedSnapshot(trackKey: "visible-refresh")))
+        )
+
+        #expect(runtime.pollSchedule == .expandedVisible)
+        #expect(runtime.isPollingSuspended == false)
+    }
+
+    @MainActor
     @Test func runtimeMapsLifecycleVisibilityEventsToPollingSchedule() {
         let runtime = MusicModuleRuntime(
             initialState: .playing(

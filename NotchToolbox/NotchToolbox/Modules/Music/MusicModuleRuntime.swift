@@ -69,6 +69,7 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
 
     private(set) var pollSchedule: MusicPollSchedule
     private(set) var isPollingSuspended: Bool
+    private var currentEnergyMode: EnergyMode
 
     init(
         initialState: MusicModuleState? = nil,
@@ -85,6 +86,7 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
         self.sessionResolver = sessionResolver ?? ActiveMusicSessionResolver(
             v1BundleIDs: Set(MusicPlayerCapability.v1Targets.map(\.bundleID))
         )
+        self.currentEnergyMode = energyPolicy.closedMode
         self.pollSchedule = .collapsedSummary(hasActivePlayback: resolvedState.collapsedSummary?.isPlaying == true)
         self.isPollingSuspended = false
         self.snapshotProvider = snapshotProvider ?? NoopMusicSnapshotProvider()
@@ -148,11 +150,12 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
     func updateModuleState(_ state: MusicModuleState) {
         moduleState = state
         if !isPollingSuspended {
-            pollSchedule = collapsedPollSchedule
+            pollSchedule = pollSchedule(for: currentEnergyMode)
         }
     }
 
     func updateEnergyMode(_ mode: EnergyMode) {
+        currentEnergyMode = mode
         switch mode {
         case .visible:
             isPollingSuspended = false
@@ -199,6 +202,19 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
 
     private func suspendPolling() {
         isPollingSuspended = true
+    }
+
+    private func pollSchedule(for mode: EnergyMode) -> MusicPollSchedule {
+        switch mode {
+        case .visible:
+            return .expandedVisible
+        case .collapsedSummary, .backgroundCore:
+            return collapsedPollSchedule
+        case .interactionBoost:
+            return .confirmationBurst
+        case .suspended:
+            return collapsedPollSchedule
+        }
     }
 
     private func applyControlError(_ error: MusicProviderError, action: MusicControlAction) {
