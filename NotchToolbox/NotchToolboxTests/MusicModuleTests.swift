@@ -225,8 +225,13 @@ struct MusicModuleTests {
         )
 
         runtime.handleLifecycle(.moduleDidAppear)
-        await Task.yield()
-        await Task.yield()
+
+        for _ in 0..<10 {
+            if case .playing = runtime.moduleState {
+                break
+            }
+            await Task.yield()
+        }
 
         guard case .playing(let session) = runtime.moduleState else {
             Issue.record("Expected playing state after moduleDidAppear, got \(runtime.moduleState)")
@@ -436,18 +441,40 @@ struct MusicModuleTests {
         ])
     }
 
-    @Test func systemMediaControlAdapterUsesAppleScriptMediaKeyControl() async throws {
+    @Test func systemMediaControlAdapterPostsSharedMediaKeysWithoutShellingOut() async throws {
         let runner = MusicProcessRunnerSpy()
+        let mediaKeyPoster = MediaKeyPosterSpy()
         let adapter = SystemMediaControlAdapter(
             capability: .kugouMusic,
-            processRunner: runner
+            processRunner: runner,
+            mediaKeyPoster: mediaKeyPoster,
+            accessibilityTrustChecker: AccessibilityTrustCheckerStub(isTrusted: true)
         )
 
+        try await adapter.perform(.playPause)
         try await adapter.perform(.nextTrack)
+        try await adapter.perform(.previousTrack)
 
-        #expect(await runner.lastInvocation()?.first == "/usr/bin/osascript")
-        #expect(await runner.lastScript()?.contains("System Events") == true)
-        #expect(await runner.lastScript()?.contains("key code 124") == true)
+        #expect(await runner.lastInvocation() == nil)
+        #expect(await mediaKeyPoster.recordedActions() == [.playPause, .next, .previous])
+    }
+
+    @Test func systemMediaControlAdapterMapsMissingAccessibilityTrustToPermissionDenied() async {
+        let runner = MusicProcessRunnerSpy()
+        let mediaKeyPoster = MediaKeyPosterSpy()
+        let adapter = SystemMediaControlAdapter(
+            capability: .neteaseMusic,
+            processRunner: runner,
+            mediaKeyPoster: mediaKeyPoster,
+            accessibilityTrustChecker: AccessibilityTrustCheckerStub(isTrusted: false)
+        )
+
+        await #expect(throws: MusicProviderError.permissionDenied(kind: .accessibility)) {
+            try await adapter.perform(.playPause)
+        }
+
+        #expect(await runner.lastInvocation() == nil)
+        #expect(await mediaKeyPoster.recordedActions().isEmpty)
     }
 
     @MainActor
@@ -477,6 +504,7 @@ struct MusicModuleTests {
 
         for capability in sharedPlayers {
             let runner = MusicProcessRunnerSpy()
+            let mediaKeyPoster = MediaKeyPosterSpy()
             let runtime = MusicModuleRuntime(
                 initialState: .playing(
                     MusicPlaybackSession(
@@ -488,14 +516,15 @@ struct MusicModuleTests {
                         )
                     )
                 ),
-                processRunner: runner
+                processRunner: runner,
+                mediaKeyPoster: mediaKeyPoster,
+                accessibilityTrustChecker: AccessibilityTrustCheckerStub(isTrusted: true)
             )
 
             await runtime.performControl(.nextTrack)
 
-            #expect(await runner.lastInvocation()?.first == "/usr/bin/osascript")
-            #expect(await runner.lastScript()?.contains("System Events") == true)
-            #expect(await runner.lastScript()?.contains("key code 124") == true)
+            #expect(await runner.lastInvocation() == nil)
+            #expect(await mediaKeyPoster.recordedActions() == [.next])
         }
     }
 
@@ -997,6 +1026,26 @@ private actor MusicProcessRunnerSpy: MusicProcessRunning {
         }
 
         return invocation[2]
+    }
+}
+
+private actor MediaKeyPosterSpy: MediaKeyPosting {
+    private var actions: [SystemMediaKeyAction] = []
+
+    func post(_ action: SystemMediaKeyAction) async throws {
+        actions.append(action)
+    }
+
+    func recordedActions() -> [SystemMediaKeyAction] {
+        actions
+    }
+}
+
+private struct AccessibilityTrustCheckerStub: AccessibilityTrustChecking {
+    let isTrusted: Bool
+
+    func isTrustedForMediaKeyPosting() -> Bool {
+        isTrusted
     }
 }
 

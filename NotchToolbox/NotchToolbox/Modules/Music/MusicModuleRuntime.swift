@@ -18,20 +18,30 @@ private struct NoopMusicPlayerController: MusicPlayerControlling {
 private struct DefaultMusicPlayerController: MusicPlayerControlling {
     private let adapters: [String: any MusicPlayerAdapter]
 
-    init(processRunner: any MusicProcessRunning) {
+    init(
+        processRunner: any MusicProcessRunning,
+        mediaKeyPoster: any MediaKeyPosting = SystemMediaKeyPoster(),
+        accessibilityTrustChecker: any AccessibilityTrustChecking = AccessibilityTrustChecker()
+    ) {
         adapters = [
             MusicPlayerCapability.qqMusic.bundleID: QQMusicAdapter(processRunner: processRunner),
             MusicPlayerCapability.neteaseMusic.bundleID: SystemMediaControlAdapter(
                 capability: .neteaseMusic,
-                processRunner: processRunner
+                processRunner: processRunner,
+                mediaKeyPoster: mediaKeyPoster,
+                accessibilityTrustChecker: accessibilityTrustChecker
             ),
             MusicPlayerCapability.kugouMusic.bundleID: SystemMediaControlAdapter(
                 capability: .kugouMusic,
-                processRunner: processRunner
+                processRunner: processRunner,
+                mediaKeyPoster: mediaKeyPoster,
+                accessibilityTrustChecker: accessibilityTrustChecker
             ),
             MusicPlayerCapability.qishuiMusic.bundleID: SystemMediaControlAdapter(
                 capability: .qishuiMusic,
-                processRunner: processRunner
+                processRunner: processRunner,
+                mediaKeyPoster: mediaKeyPoster,
+                accessibilityTrustChecker: accessibilityTrustChecker
             )
         ]
     }
@@ -99,6 +109,8 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
         snapshotProvider: (any MusicSnapshotProviding)? = nil,
         playerController: (any MusicPlayerControlling)? = nil,
         processRunner: (any MusicProcessRunning)? = nil,
+        mediaKeyPoster: (any MediaKeyPosting)? = nil,
+        accessibilityTrustChecker: (any AccessibilityTrustChecking)? = nil,
         sessionResolver: ActiveMusicSessionResolver? = nil,
         launchEstablishmentRetryLimit: Int = 4,
         launchEstablishmentDelayNanoseconds: UInt64 = 250_000_000
@@ -124,7 +136,9 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
             self.playerController = playerController
         } else {
             self.playerController = DefaultMusicPlayerController(
-                processRunner: resolvedProcessRunner
+                processRunner: resolvedProcessRunner,
+                mediaKeyPoster: mediaKeyPoster ?? SystemMediaKeyPoster(),
+                accessibilityTrustChecker: accessibilityTrustChecker ?? AccessibilityTrustChecker()
             )
         }
     }
