@@ -194,6 +194,50 @@ struct MusicModuleTests {
     }
 
     @MainActor
+    @Test func runtimeUsesNowPlayingProviderWhenProcessRunnerIsSupplied() async {
+        let runner = MusicProcessRunnerStub(
+            stdout: """
+            {"bundleIdentifier":"com.tencent.QQMusicMac","title":"反方向的钟","artist":"周杰伦","album":"Jay","duration":245,"elapsedTime":15,"playbackRate":1}
+            """
+        )
+        let runtime = MusicModuleRuntime(processRunner: runner)
+
+        await runtime.refreshSnapshot()
+
+        guard case .playing(let session) = runtime.moduleState else {
+            Issue.record("Expected playing state after refresh, got \(runtime.moduleState)")
+            return
+        }
+
+        #expect(session.displayName == "QQ 音乐")
+        #expect(session.title == "反方向的钟")
+        #expect(session.artist == "周杰伦")
+        #expect(session.duration == 245)
+        #expect(session.elapsedTime == 15)
+    }
+
+    @MainActor
+    @Test func moduleDidAppearRefreshesSnapshotIntoPlaybackState() async {
+        let runtime = MusicModuleRuntime(
+            snapshotProvider: SequencedSnapshotProviderStub(
+                snapshots: [makeVerifiedSnapshot(playbackState: .playing, trackKey: "appear-track")]
+            )
+        )
+
+        runtime.handleLifecycle(.moduleDidAppear)
+        await Task.yield()
+        await Task.yield()
+
+        guard case .playing(let session) = runtime.moduleState else {
+            Issue.record("Expected playing state after moduleDidAppear, got \(runtime.moduleState)")
+            return
+        }
+
+        #expect(session.bundleID == MusicPlayerCapability.qqMusic.bundleID)
+        #expect(session.trackKey == "appear-track")
+    }
+
+    @MainActor
     @Test func viewModelBuildsPlaybackPresentation() {
         let runtime = MusicModuleRuntime(
             initialState: .playing(
