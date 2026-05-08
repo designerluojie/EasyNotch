@@ -37,7 +37,7 @@ extension MusicPlayerCapability {
     )
 
     static let kugouMusic = MusicPlayerCapability(
-        bundleID: "com.kugou.client",
+        bundleID: "com.kugou.mac.Music",
         displayName: "酷狗音乐",
         symbolIdentifier: "kugou",
         launch: .verified,
@@ -48,7 +48,7 @@ extension MusicPlayerCapability {
     )
 
     static let qishuiMusic = MusicPlayerCapability(
-        bundleID: "com.bytedance.qishui",
+        bundleID: "com.soda.music",
         displayName: "汽水音乐",
         symbolIdentifier: "qishui",
         launch: .verified,
