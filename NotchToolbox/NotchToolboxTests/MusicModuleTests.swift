@@ -276,6 +276,55 @@ struct MusicModuleTests {
         #expect(await runner.lastScript()?.contains("key code 124") == true)
     }
 
+    @MainActor
+    @Test func runtimeRoutesQQControlsThroughQQAdapterRegistry() async {
+        let runner = MusicProcessRunnerSpy()
+        let runtime = MusicModuleRuntime(
+            initialState: .playing(
+                MusicPlaybackSession(snapshot: makeVerifiedSnapshot(trackKey: "qq-track"))
+            ),
+            processRunner: runner
+        )
+
+        await runtime.performControl(.nextTrack)
+
+        #expect(await runner.lastInvocation()?.first == "/usr/bin/osascript")
+        #expect(await runner.lastScript()?.contains("QQ音乐") == true)
+        #expect(await runner.lastScript()?.contains("下一首") == true)
+    }
+
+    @MainActor
+    @Test func runtimeRoutesSharedPlayersThroughSystemMediaAdapterRegistry() async {
+        let sharedPlayers: [MusicPlayerCapability] = [
+            .neteaseMusic,
+            .kugouMusic,
+            .qishuiMusic
+        ]
+
+        for capability in sharedPlayers {
+            let runner = MusicProcessRunnerSpy()
+            let runtime = MusicModuleRuntime(
+                initialState: .playing(
+                    MusicPlaybackSession(
+                        snapshot: makeVerifiedSnapshot(
+                            bundleID: capability.bundleID,
+                            displayName: capability.displayName,
+                            capability: capability,
+                            trackKey: capability.bundleID
+                        )
+                    )
+                ),
+                processRunner: runner
+            )
+
+            await runtime.performControl(.nextTrack)
+
+            #expect(await runner.lastInvocation()?.first == "/usr/bin/osascript")
+            #expect(await runner.lastScript()?.contains("System Events") == true)
+            #expect(await runner.lastScript()?.contains("key code 124") == true)
+        }
+    }
+
     @Test func nowPlayingProviderParsesRawJSONIntoSnapshot() async throws {
         let runner = MusicProcessRunnerStub(
             stdout: """
@@ -512,6 +561,9 @@ struct MusicModuleTests {
     }
 
     private func makeVerifiedSnapshot(
+        bundleID: String = MusicPlayerCapability.qqMusic.bundleID,
+        displayName: String = MusicPlayerCapability.qqMusic.displayName,
+        capability: MusicPlayerCapability = .qqMusic,
         playbackState: MusicPlaybackState = .playing,
         trackKey: String? = "track-0",
         title: String? = "Track",
@@ -520,8 +572,8 @@ struct MusicModuleTests {
         permissionRequirement: MusicPermissionRequirement? = nil
     ) -> MusicPlayerSnapshot {
         MusicPlayerSnapshot(
-            bundleID: MusicPlayerCapability.qqMusic.bundleID,
-            displayName: MusicPlayerCapability.qqMusic.displayName,
+            bundleID: bundleID,
+            displayName: displayName,
             isRunning: true,
             playbackState: playbackState,
             trackKey: trackKey,
@@ -530,7 +582,7 @@ struct MusicModuleTests {
             artworkData: nil,
             duration: duration,
             elapsedTime: 30,
-            capability: .qqMusic,
+            capability: capability,
             permissionRequirement: permissionRequirement,
             source: .nowPlayingCLI,
             capturedAt: Date(timeIntervalSince1970: 1_700_000_000)
