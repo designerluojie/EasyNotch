@@ -16,6 +16,9 @@ struct QQMusicAdapter: MusicPlayerAdapter {
         )
 
         guard output.status == 0 else {
+            if Self.isMissingPlayerLaunchFailure(output.stderr) {
+                throw MusicProviderError.playerNotInstalled
+            }
             throw MusicProviderError.launchCommandFailed(stderr: output.stderr)
         }
     }
@@ -58,18 +61,26 @@ private extension QQMusicAdapter {
         let stderr = output.stderr
         let normalized = stderr.lowercased()
 
+        if normalized.contains("not authorized")
+            || normalized.contains("apple events")
+            || normalized.contains("automation")
+            || (normalized.contains("not permitted") && normalized.contains("apple events")) {
+            throw MusicProviderError.permissionDenied(kind: .automation)
+        }
+
         if stderr.contains("辅助功能")
             || normalized.contains("accessibility")
             || normalized.contains("not permitted") {
             throw MusicProviderError.permissionDenied(kind: .accessibility)
         }
 
-        if normalized.contains("not authorized")
-            || normalized.contains("apple events")
-            || normalized.contains("automation") {
-            throw MusicProviderError.permissionDenied(kind: .automation)
-        }
-
         throw MusicProviderError.controlCommandFailed(stderr: stderr)
+    }
+
+    static func isMissingPlayerLaunchFailure(_ stderr: String) -> Bool {
+        let normalized = stderr.lowercased()
+        return normalized.contains("cannot be found")
+            || normalized.contains("unable to find application named")
+            || normalized.contains("does not exist")
     }
 }
