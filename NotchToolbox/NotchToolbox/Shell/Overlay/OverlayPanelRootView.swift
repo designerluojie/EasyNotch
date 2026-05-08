@@ -25,18 +25,39 @@ struct OverlayPanelRootView: View {
     }
 
     private var collapsedBody: some View {
-        Button {
+        let presentation = CollapsedOverlayPresentation(
+            activeModule: compositionRoot.activeModule,
+            musicSummary: compositionRoot.musicRuntime.collapsedSummary
+        )
+
+        return Button {
             interactions.expand(screenID: panelModel.screenID)
         } label: {
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(Color.white.opacity(0.86))
-                    .frame(width: 6, height: 6)
+            HStack(spacing: 8) {
+                MusicPlayerMarkView(
+                    mark: .init(
+                        symbol: presentation.leadingMark.symbol,
+                        displayName: presentation.leadingMark.displayName ?? "Notch"
+                    ),
+                    size: 18
+                )
 
-                Text("Notch")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.92))
+                if let titleText = presentation.titleText {
+                    Text(titleText)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.92))
+                } else {
+                    Spacer(minLength: 0)
+                }
+
+                switch presentation.trailingAccessory {
+                case .none:
+                    EmptyView()
+                case .playback(let isPlaying):
+                    MusicPlaybackAccessoryView(isPlaying: isPlaying)
+                }
             }
+            .padding(.horizontal, 12)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(
                 Capsule()

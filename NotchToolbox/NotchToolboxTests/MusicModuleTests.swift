@@ -193,6 +193,87 @@ struct MusicModuleTests {
         #expect(MusicPollSchedule.interval(for: .confirmationBurst) == 0.35)
     }
 
+    @MainActor
+    @Test func viewModelBuildsPlaybackPresentation() {
+        let runtime = MusicModuleRuntime(
+            initialState: .playing(
+                MusicPlaybackSession(
+                    snapshot: makeVerifiedSnapshot(
+                        title: "淘金小镇",
+                        artist: "周杰伦",
+                        duration: 252
+                    )
+                )
+            )
+        )
+        let viewModel = MusicModuleViewModel(runtime: runtime)
+
+        guard case .playback(let playback) = viewModel.presentation else {
+            Issue.record("Expected playback presentation")
+            return
+        }
+
+        #expect(playback.playerMark.symbol == "qq")
+        #expect(playback.title == "淘金小镇")
+        #expect(playback.artist == "周杰伦")
+        #expect(playback.playPauseSymbol == "pause.fill")
+        #expect(playback.elapsedText == "0:30")
+        #expect(playback.durationText == "4:12")
+        #expect(playback.sourceText == "Now Playing CLI")
+        #expect(playback.progressFraction == 30.0 / 252.0)
+    }
+
+    @MainActor
+    @Test func viewModelPlaybackPresentationCarriesArtworkData() {
+        let artworkData = Data([0x89, 0x50, 0x4E, 0x47])
+        let runtime = MusicModuleRuntime(
+            initialState: .playing(
+                MusicPlaybackSession(
+                    snapshot: makeVerifiedSnapshot(artworkData: artworkData)
+                )
+            )
+        )
+        let viewModel = MusicModuleViewModel(runtime: runtime)
+
+        guard case .playback(let playback) = viewModel.presentation else {
+            Issue.record("Expected playback presentation")
+            return
+        }
+
+        #expect(playback.artworkData == artworkData)
+    }
+
+    @MainActor
+    @Test func viewModelEmptyStateShowsOnlyPhaseOneLaunchTargets() {
+        let runtime = MusicModuleRuntime(initialState: .empty(players: MusicPlayerCapability.v1Targets))
+        let viewModel = MusicModuleViewModel(runtime: runtime)
+
+        guard case .empty(let emptyState) = viewModel.presentation else {
+            Issue.record("Expected empty presentation")
+            return
+        }
+
+        #expect(emptyState.message == "美好的一天，从音乐开始")
+        #expect(emptyState.launchTargets.map(\.bundleID) == MusicPlayerCapability.v1Targets.map(\.bundleID))
+    }
+
+    @MainActor
+    @Test func viewModelPermissionStateIsExplicitAndGuided() {
+        let runtime = MusicModuleRuntime(
+            initialState: .permissionRequired(.automation(displayName: "QQ 音乐"))
+        )
+        let viewModel = MusicModuleViewModel(runtime: runtime)
+
+        guard case .message(let message) = viewModel.presentation else {
+            Issue.record("Expected message presentation")
+            return
+        }
+
+        #expect(message.title == "需要自动化权限")
+        #expect(message.body == "请允许控制 QQ 音乐，以执行播放控制。")
+        #expect(message.emphasis == .warning)
+    }
+
     @Test func qqAdapterLaunchesByBundleIdentifier() async throws {
         let runner = MusicProcessRunnerSpy()
         let adapter = QQMusicAdapter(processRunner: runner)
@@ -372,6 +453,69 @@ struct MusicModuleTests {
             #expect(await runner.lastScript()?.contains("System Events") == true)
             #expect(await runner.lastScript()?.contains("key code 124") == true)
         }
+    }
+
+    @MainActor
+    @Test func runtimeLaunchesVerifiedPlayerThroughAdapterRegistry() async {
+        let runner = MusicProcessRunnerSpy()
+        let runtime = MusicModuleRuntime(
+            snapshotProvider: SequencedSnapshotProviderStub(snapshots: [nil]),
+            processRunner: runner,
+            launchEstablishmentRetryLimit: 1,
+            launchEstablishmentDelayNanoseconds: 0
+        )
+
+        await runtime.launchPlayer(bundleID: MusicPlayerCapability.qqMusic.bundleID)
+
+        #expect(await runner.lastInvocation() == [
+            "/usr/bin/open",
+            "-b",
+            MusicPlayerCapability.qqMusic.bundleID
+        ])
+        #expect(runtime.moduleState == .launchFailed(displayName: "QQ 音乐"))
+    }
+
+    @MainActor
+    @Test func runtimeLaunchPromotesToPausedStateWhenSupportedSnapshotAppears() async {
+        let snapshot = makeVerifiedSnapshot(playbackState: .paused, title: "淘金小镇", artist: "周杰伦")
+        let runtime = MusicModuleRuntime(
+            snapshotProvider: SequencedSnapshotProviderStub(snapshots: [snapshot]),
+            playerController: RecordingMusicPlayerControllerStub(),
+            launchEstablishmentRetryLimit: 1,
+            launchEstablishmentDelayNanoseconds: 0
+        )
+
+        await runtime.launchPlayer(bundleID: MusicPlayerCapability.qqMusic.bundleID)
+
+        #expect(runtime.moduleState == .paused(MusicPlaybackSession(snapshot: snapshot)))
+    }
+
+    @MainActor
+    @Test func runtimeLaunchFallsBackToLaunchFailedWhenSessionNeverAppears() async {
+        let runtime = MusicModuleRuntime(
+            snapshotProvider: SequencedSnapshotProviderStub(snapshots: [nil, nil]),
+            playerController: RecordingMusicPlayerControllerStub(),
+            launchEstablishmentRetryLimit: 2,
+            launchEstablishmentDelayNanoseconds: 0
+        )
+
+        await runtime.launchPlayer(bundleID: MusicPlayerCapability.neteaseMusic.bundleID)
+
+        #expect(runtime.moduleState == .launchFailed(displayName: "网易云音乐"))
+    }
+
+    @MainActor
+    @Test func runtimeMapsLaunchFailureToLaunchFailedState() async {
+        let runtime = MusicModuleRuntime(
+            processRunner: MusicProcessRunnerSpy(
+                stderr: "LSOpen failed",
+                status: 1
+            )
+        )
+
+        await runtime.launchPlayer(bundleID: MusicPlayerCapability.neteaseMusic.bundleID)
+
+        #expect(runtime.moduleState == .launchFailed(displayName: "网易云音乐"))
     }
 
     @MainActor
@@ -725,6 +869,7 @@ struct MusicModuleTests {
         trackKey: String? = "track-0",
         title: String? = "Track",
         artist: String? = "Artist",
+        artworkData: Data? = nil,
         duration: TimeInterval? = 240,
         permissionRequirement: MusicPermissionRequirement? = nil
     ) -> MusicPlayerSnapshot {
@@ -736,7 +881,7 @@ struct MusicModuleTests {
             trackKey: trackKey,
             title: title,
             artist: artist,
-            artworkData: nil,
+            artworkData: artworkData,
             duration: duration,
             elapsedTime: 30,
             capability: capability,
@@ -825,12 +970,38 @@ private struct CancellingSnapshotProviderStub: MusicSnapshotProviding {
     }
 }
 
+private actor SequencedSnapshotProviderStub: MusicSnapshotProviding {
+    private var snapshots: [MusicPlayerSnapshot?]
+
+    init(snapshots: [MusicPlayerSnapshot?]) {
+        self.snapshots = snapshots
+    }
+
+    func snapshot() async throws -> MusicPlayerSnapshot? {
+        guard !snapshots.isEmpty else {
+            return nil
+        }
+
+        return snapshots.removeFirst()
+    }
+}
+
 private struct ThrowingMusicPlayerControllerStub: MusicPlayerControlling {
     let error: MusicProviderError
+
+    func launch(bundleID: String) async throws {
+        throw error
+    }
 
     func perform(_ action: MusicControlAction, for bundleID: String?) async throws {
         throw error
     }
+}
+
+private struct RecordingMusicPlayerControllerStub: MusicPlayerControlling {
+    func launch(bundleID: String) async throws {}
+
+    func perform(_ action: MusicControlAction, for bundleID: String?) async throws {}
 }
 
 private actor LaunchGate {

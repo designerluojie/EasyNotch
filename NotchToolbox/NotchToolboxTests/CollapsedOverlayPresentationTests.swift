@@ -15,6 +15,8 @@ struct CollapsedOverlayPresentationTests {
         )
 
         #expect(presentation.expansionModuleID == .music)
+        #expect(presentation.leadingMark.symbol == "qq")
+        #expect(presentation.trailingAccessory == .playback(isPlaying: true))
     }
 
     @Test func withoutMusicSummaryPreservesActiveModule() {
@@ -24,5 +26,7 @@ struct CollapsedOverlayPresentationTests {
         )
 
         #expect(presentation.expansionModuleID == .clipboard)
+        #expect(presentation.leadingMark.symbol == "notch")
+        #expect(presentation.trailingAccessory == .none)
     }
 }
