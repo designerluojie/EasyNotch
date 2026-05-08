@@ -144,6 +144,55 @@ struct MusicModuleTests {
         #expect(error == .permissionDenied(kind: .automation))
     }
 
+    @Test func resolverPrefersVerifiedPlayingSnapshot() {
+        let resolver = ActiveMusicSessionResolver(
+            v1BundleIDs: Set(MusicPlayerCapability.v1Targets.map(\.bundleID))
+        )
+        let result = resolver.resolve([
+            MusicPlayerSnapshot(
+                bundleID: "com.apple.Music",
+                displayName: "Apple Music",
+                isRunning: true,
+                playbackState: .playing,
+                trackKey: "apple-song",
+                title: "Song A",
+                artist: "Artist A",
+                artworkData: nil,
+                duration: 200,
+                elapsedTime: 10,
+                capability: .appleMusic,
+                permissionRequirement: nil,
+                source: .nowPlayingCLI,
+                capturedAt: Date(timeIntervalSince1970: 1_700_000_000)
+            ),
+            MusicPlayerSnapshot(
+                bundleID: "com.tencent.QQMusicMac",
+                displayName: "QQ 音乐",
+                isRunning: true,
+                playbackState: .playing,
+                trackKey: "qq-song",
+                title: "Song B",
+                artist: "Artist B",
+                artworkData: nil,
+                duration: 210,
+                elapsedTime: 25,
+                capability: .qqMusic,
+                permissionRequirement: nil,
+                source: .nowPlayingCLI,
+                capturedAt: Date(timeIntervalSince1970: 1_700_000_100)
+            )
+        ])
+
+        #expect(result?.bundleID == "com.tencent.QQMusicMac")
+    }
+
+    @Test func collapsedModeUsesLowFrequencyPolling() {
+        #expect(MusicPollSchedule.interval(for: .collapsedSummary(hasActivePlayback: true)) == 3.0)
+        #expect(MusicPollSchedule.interval(for: .collapsedSummary(hasActivePlayback: false)) == 8.0)
+        #expect(MusicPollSchedule.interval(for: .expandedVisible) == 1.0)
+        #expect(MusicPollSchedule.interval(for: .confirmationBurst) == 0.35)
+    }
+
     @Test func qqAdapterLaunchesByBundleIdentifier() async throws {
         let runner = MusicProcessRunnerSpy()
         let adapter = QQMusicAdapter(processRunner: runner)
@@ -323,6 +372,54 @@ struct MusicModuleTests {
             #expect(await runner.lastScript()?.contains("System Events") == true)
             #expect(await runner.lastScript()?.contains("key code 124") == true)
         }
+    }
+
+    @MainActor
+    @Test func runtimeTracksPollingScheduleFromEnergyMode() {
+        let runtime = MusicModuleRuntime()
+
+        runtime.updateEnergyMode(.visible)
+        #expect(runtime.pollSchedule == .expandedVisible)
+        #expect(runtime.isPollingSuspended == false)
+
+        runtime.updateEnergyMode(.backgroundCore)
+        #expect(runtime.pollSchedule == .collapsedSummary(hasActivePlayback: false))
+        #expect(runtime.isPollingSuspended == false)
+
+        runtime.updateModuleState(
+            .playing(MusicPlaybackSession(snapshot: makeVerifiedSnapshot(trackKey: "active-track")))
+        )
+        runtime.updateEnergyMode(.collapsedSummary)
+        #expect(runtime.pollSchedule == .collapsedSummary(hasActivePlayback: true))
+
+        runtime.updateEnergyMode(.interactionBoost)
+        #expect(runtime.pollSchedule == .confirmationBurst)
+
+        runtime.updateEnergyMode(.suspended)
+        #expect(runtime.isPollingSuspended == true)
+    }
+
+    @MainActor
+    @Test func runtimeMapsLifecycleVisibilityEventsToPollingSchedule() {
+        let runtime = MusicModuleRuntime(
+            initialState: .playing(
+                MusicPlaybackSession(snapshot: makeVerifiedSnapshot(trackKey: "visible-track"))
+            )
+        )
+
+        runtime.handleLifecycle(.panelDidExpand(screenID: "screen-1"))
+        #expect(runtime.pollSchedule == .expandedVisible)
+        #expect(runtime.isPollingSuspended == false)
+
+        runtime.handleLifecycle(.panelDidCollapse(reason: .pointerExit))
+        #expect(runtime.pollSchedule == .collapsedSummary(hasActivePlayback: true))
+
+        runtime.handleLifecycle(.appWillSleep)
+        #expect(runtime.isPollingSuspended == true)
+
+        runtime.handleLifecycle(.appDidWake)
+        #expect(runtime.pollSchedule == .collapsedSummary(hasActivePlayback: true))
+        #expect(runtime.isPollingSuspended == false)
     }
 
     @Test func nowPlayingProviderParsesRawJSONIntoSnapshot() async throws {
@@ -560,6 +657,38 @@ struct MusicModuleTests {
         #expect(runtime.moduleState == initialState)
     }
 
+    @MainActor
+    @Test func runtimeMapsControlPermissionFailuresToPermissionRequiredState() async {
+        let runtime = MusicModuleRuntime(
+            initialState: .playing(
+                MusicPlaybackSession(snapshot: makeVerifiedSnapshot(trackKey: "permission-track"))
+            ),
+            playerController: ThrowingMusicPlayerControllerStub(
+                error: .permissionDenied(kind: .automation)
+            )
+        )
+
+        await runtime.performControl(.playPause)
+
+        #expect(runtime.moduleState == .permissionRequired(.automation(displayName: "QQ 音乐")))
+    }
+
+    @MainActor
+    @Test func runtimeMapsGenericControlFailuresToControlFailedState() async {
+        let runtime = MusicModuleRuntime(
+            initialState: .playing(
+                MusicPlaybackSession(snapshot: makeVerifiedSnapshot(trackKey: "control-track"))
+            ),
+            playerController: ThrowingMusicPlayerControllerStub(
+                error: .controlCommandFailed(stderr: "execution error")
+            )
+        )
+
+        await runtime.performControl(.nextTrack)
+
+        #expect(runtime.moduleState == .controlFailed(displayName: "QQ 音乐", action: .nextTrack))
+    }
+
     private func makeVerifiedSnapshot(
         bundleID: String = MusicPlayerCapability.qqMusic.bundleID,
         displayName: String = MusicPlayerCapability.qqMusic.displayName,
@@ -665,6 +794,14 @@ private struct ThrowingSnapshotProviderStub: MusicSnapshotProviding {
 private struct CancellingSnapshotProviderStub: MusicSnapshotProviding {
     func snapshot() async throws -> MusicPlayerSnapshot? {
         throw CancellationError()
+    }
+}
+
+private struct ThrowingMusicPlayerControllerStub: MusicPlayerControlling {
+    let error: MusicProviderError
+
+    func perform(_ action: MusicControlAction, for bundleID: String?) async throws {
+        throw error
     }
 }
 

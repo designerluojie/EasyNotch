@@ -6,7 +6,7 @@ protocol MusicSnapshotProviding: Sendable {
 }
 
 protocol MusicPlayerControlling {
-    func perform(_ action: MusicControlAction, for bundleID: String?) async
+    func perform(_ action: MusicControlAction, for bundleID: String?) async throws
 }
 
 private struct NoopMusicSnapshotProvider: MusicSnapshotProviding {
@@ -16,7 +16,7 @@ private struct NoopMusicSnapshotProvider: MusicSnapshotProviding {
 }
 
 private struct NoopMusicPlayerController: MusicPlayerControlling {
-    func perform(_ action: MusicControlAction, for bundleID: String?) async {}
+    func perform(_ action: MusicControlAction, for bundleID: String?) async throws {}
 }
 
 private struct DefaultMusicPlayerController: MusicPlayerControlling {
@@ -40,12 +40,12 @@ private struct DefaultMusicPlayerController: MusicPlayerControlling {
         ]
     }
 
-    func perform(_ action: MusicControlAction, for bundleID: String?) async {
+    func perform(_ action: MusicControlAction, for bundleID: String?) async throws {
         guard let bundleID, let adapter = adapters[bundleID] else {
             return
         }
 
-        try? await adapter.perform(action)
+        try await adapter.perform(action)
     }
 }
 
@@ -65,18 +65,28 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
 
     private let snapshotProvider: any MusicSnapshotProviding
     private let playerController: any MusicPlayerControlling
+    private let sessionResolver: ActiveMusicSessionResolver
+
+    private(set) var pollSchedule: MusicPollSchedule
+    private(set) var isPollingSuspended: Bool
 
     init(
         initialState: MusicModuleState? = nil,
         snapshotProvider: (any MusicSnapshotProviding)? = nil,
         playerController: (any MusicPlayerControlling)? = nil,
-        processRunner: (any MusicProcessRunning)? = nil
+        processRunner: (any MusicProcessRunning)? = nil,
+        sessionResolver: ActiveMusicSessionResolver? = nil
     ) {
         let resolvedState = initialState ?? .empty(players: MusicPlayerCapability.v1Targets)
 
         self.moduleState = resolvedState
         self.collapsedSummary = resolvedState.collapsedSummary
         self.lastProviderError = nil
+        self.sessionResolver = sessionResolver ?? ActiveMusicSessionResolver(
+            v1BundleIDs: Set(MusicPlayerCapability.v1Targets.map(\.bundleID))
+        )
+        self.pollSchedule = .collapsedSummary(hasActivePlayback: resolvedState.collapsedSummary?.isPlaying == true)
+        self.isPollingSuspended = false
         self.snapshotProvider = snapshotProvider ?? NoopMusicSnapshotProvider()
         if let playerController {
             self.playerController = playerController
@@ -89,15 +99,31 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
         }
     }
 
-    func handleLifecycle(_ event: ModuleLifecycleEvent) {}
+    func handleLifecycle(_ event: ModuleLifecycleEvent) {
+        switch event {
+        case .panelWillExpand, .panelDidExpand, .moduleDidAppear:
+            updateEnergyMode(.visible)
+        case .moduleWillDisappear, .panelWillCollapse, .panelDidCollapse:
+            updateEnergyMode(.collapsedSummary)
+        case .appWillSleep:
+            updateEnergyMode(.suspended)
+        case .appDidWake:
+            updateEnergyMode(.collapsedSummary)
+        case .appDidLaunch, .screenWillMigrate, .screenDidMigrate:
+            break
+        }
+    }
 
     func refreshSnapshot() async {
         do {
             let snapshot = try await snapshotProvider.snapshot()
             lastProviderError = nil
-            updateModuleState(.fromResolvedSnapshot(snapshot))
+            updateModuleState(.fromResolvedSnapshot(sessionResolver.resolve(snapshot)))
         } catch is CancellationError {
             return
+        } catch let error as MusicProviderError where error.permissionRequirement(displayName: currentPlayerDisplayName) != nil {
+            lastProviderError = error
+            updateModuleState(.permissionRequired(error.permissionRequirement(displayName: currentPlayerDisplayName)!))
         } catch let error as MusicProviderError {
             lastProviderError = error
             updateModuleState(.empty(players: MusicPlayerCapability.v1Targets))
@@ -108,11 +134,38 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
     }
 
     func performControl(_ action: MusicControlAction) async {
-        await playerController.perform(action, for: activeControlBundleID)
+        do {
+            try await playerController.perform(action, for: activeControlBundleID)
+        } catch is CancellationError {
+            return
+        } catch let error as MusicProviderError {
+            applyControlError(error, action: action)
+        } catch {
+            applyControlError(.controlCommandFailed(stderr: error.localizedDescription), action: action)
+        }
     }
 
     func updateModuleState(_ state: MusicModuleState) {
         moduleState = state
+        if !isPollingSuspended {
+            pollSchedule = collapsedPollSchedule
+        }
+    }
+
+    func updateEnergyMode(_ mode: EnergyMode) {
+        switch mode {
+        case .visible:
+            isPollingSuspended = false
+            pollSchedule = .expandedVisible
+        case .collapsedSummary, .backgroundCore:
+            isPollingSuspended = false
+            pollSchedule = collapsedPollSchedule
+        case .suspended:
+            suspendPolling()
+        case .interactionBoost:
+            isPollingSuspended = false
+            pollSchedule = .confirmationBurst
+        }
     }
 
     private var activeControlBundleID: String? {
@@ -120,6 +173,70 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
         case .playing(let session), .paused(let session):
             return session.bundleID
         default:
+            return nil
+        }
+    }
+
+    private var currentPlayerDisplayName: String? {
+        switch moduleState {
+        case .playing(let session), .paused(let session):
+            return session.displayName
+        case .unsupportedActivePlayer(let displayName),
+             .metadataUnavailable(let displayName),
+             .playerNotInstalled(let displayName),
+             .launchFailed(let displayName):
+            return displayName
+        case .controlFailed(let displayName, _):
+            return displayName
+        default:
+            return MusicPlayerCapability.forBundleID(activeControlBundleID ?? "")?.displayName
+        }
+    }
+
+    private var collapsedPollSchedule: MusicPollSchedule {
+        .collapsedSummary(hasActivePlayback: collapsedSummary?.isPlaying == true)
+    }
+
+    private func suspendPolling() {
+        isPollingSuspended = true
+    }
+
+    private func applyControlError(_ error: MusicProviderError, action: MusicControlAction) {
+        guard let displayName = currentPlayerDisplayName else {
+            return
+        }
+
+        switch error {
+        case .permissionDenied:
+            if let requirement = error.permissionRequirement(displayName: displayName) {
+                updateModuleState(.permissionRequired(requirement))
+            }
+        case .playerNotInstalled:
+            updateModuleState(.playerNotInstalled(displayName: displayName))
+        case .launchCommandFailed:
+            updateModuleState(.launchFailed(displayName: displayName))
+        case .controlCommandFailed, .metadataCommandFailed:
+            updateModuleState(.controlFailed(displayName: displayName, action: action))
+        }
+    }
+}
+
+private extension MusicProviderError {
+    func permissionRequirement(displayName: String?) -> MusicPermissionRequirement? {
+        guard case .permissionDenied(let kind) = self else {
+            return nil
+        }
+
+        switch kind {
+        case .mediaLibrary:
+            return .metadataAccess
+        case .automation:
+            guard let displayName else { return nil }
+            return .automation(displayName: displayName)
+        case .accessibility:
+            guard let displayName else { return nil }
+            return .accessibility(displayName: displayName)
+        case .notifications:
             return nil
         }
     }
