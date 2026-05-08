@@ -198,6 +198,39 @@ struct MusicModuleTests {
         }
     }
 
+    @Test func qqAdapterLaunchMapsMissingPlayerToPlayerNotInstalled() async {
+        let runner = MusicProcessRunnerSpy(
+            stderr: "The application cannot be opened because it cannot be found.",
+            status: 1
+        )
+        let adapter = QQMusicAdapter(processRunner: runner)
+
+        await #expect(throws: MusicProviderError.playerNotInstalled) {
+            try await adapter.launch()
+        }
+    }
+
+    @Test func qqAdapterMapsAutomationPermissionDenial() async {
+        let runner = MusicProcessRunnerSpy(
+            stderr: "Not permitted to send Apple events to System Events. (-1743)",
+            status: 1
+        )
+        let adapter = QQMusicAdapter(processRunner: runner)
+
+        await #expect(throws: MusicProviderError.permissionDenied(kind: .automation)) {
+            try await adapter.perform(.playPause)
+        }
+    }
+
+    @Test func qqAdapterPreservesGenericControlFailure() async {
+        let runner = MusicProcessRunnerSpy(stderr: "execution error: menu item missing", status: 1)
+        let adapter = QQMusicAdapter(processRunner: runner)
+
+        await #expect(throws: MusicProviderError.controlCommandFailed(stderr: "execution error: menu item missing")) {
+            try await adapter.perform(.playPause)
+        }
+    }
+
     @Test func nowPlayingProviderParsesRawJSONIntoSnapshot() async throws {
         let runner = MusicProcessRunnerStub(
             stdout: """
