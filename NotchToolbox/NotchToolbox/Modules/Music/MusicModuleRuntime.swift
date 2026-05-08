@@ -6,6 +6,7 @@ protocol MusicSnapshotProviding: Sendable {
 }
 
 protocol MusicPlayerControlling {
+    func launch(bundleID: String) async throws
     func perform(_ action: MusicControlAction, for bundleID: String?) async throws
 }
 
@@ -16,6 +17,7 @@ private struct NoopMusicSnapshotProvider: MusicSnapshotProviding {
 }
 
 private struct NoopMusicPlayerController: MusicPlayerControlling {
+    func launch(bundleID: String) async throws {}
     func perform(_ action: MusicControlAction, for bundleID: String?) async throws {}
 }
 
@@ -38,6 +40,14 @@ private struct DefaultMusicPlayerController: MusicPlayerControlling {
                 processRunner: processRunner
             )
         ]
+    }
+
+    func launch(bundleID: String) async throws {
+        guard let adapter = adapters[bundleID] else {
+            return
+        }
+
+        try await adapter.launch()
     }
 
     func perform(_ action: MusicControlAction, for bundleID: String?) async throws {
@@ -83,6 +93,8 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
     private let snapshotProvider: any MusicSnapshotProviding
     private let playerController: any MusicPlayerControlling
     private let sessionResolver: ActiveMusicSessionResolver
+    private let launchEstablishmentRetryLimit: Int
+    private let launchEstablishmentDelayNanoseconds: UInt64
 
     private(set) var pollSchedule: MusicPollSchedule
     private(set) var isPollingSuspended: Bool
@@ -93,7 +105,9 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
         snapshotProvider: (any MusicSnapshotProviding)? = nil,
         playerController: (any MusicPlayerControlling)? = nil,
         processRunner: (any MusicProcessRunning)? = nil,
-        sessionResolver: ActiveMusicSessionResolver? = nil
+        sessionResolver: ActiveMusicSessionResolver? = nil,
+        launchEstablishmentRetryLimit: Int = 4,
+        launchEstablishmentDelayNanoseconds: UInt64 = 250_000_000
     ) {
         let resolvedState = initialState ?? .empty(players: MusicPlayerCapability.v1Targets)
 
@@ -106,6 +120,8 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
         self.currentEnergyMode = energyPolicy.closedMode
         self.pollSchedule = .collapsedSummary(hasActivePlayback: resolvedState.collapsedSummary?.isPlaying == true)
         self.isPollingSuspended = false
+        self.launchEstablishmentRetryLimit = max(1, launchEstablishmentRetryLimit)
+        self.launchEstablishmentDelayNanoseconds = launchEstablishmentDelayNanoseconds
         self.snapshotProvider = snapshotProvider ?? NoopMusicSnapshotProvider()
         if let playerController {
             self.playerController = playerController
@@ -149,6 +165,24 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
         } catch {
             lastProviderError = .metadataCommandFailed(stderr: error.localizedDescription)
             updateModuleState(.empty(players: MusicPlayerCapability.v1Targets))
+        }
+    }
+
+    func launchPlayer(bundleID: String) async {
+        updateModuleState(.launchingPlayer(bundleID: bundleID))
+
+        do {
+            try await playerController.launch(bundleID: bundleID)
+            guard await establishLaunchedSession(for: bundleID) else {
+                updateModuleState(.launchFailed(displayName: displayName(for: bundleID)))
+                return
+            }
+        } catch is CancellationError {
+            return
+        } catch let error as MusicProviderError {
+            applyLaunchError(error, bundleID: bundleID)
+        } catch {
+            applyLaunchError(.launchCommandFailed(stderr: error.localizedDescription), bundleID: bundleID)
         }
     }
 
@@ -217,6 +251,10 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
         .collapsedSummary(hasActivePlayback: collapsedSummary?.isPlaying == true)
     }
 
+    private func displayName(for bundleID: String) -> String {
+        MusicPlayerCapability.forBundleID(bundleID)?.displayName ?? bundleID
+    }
+
     private func suspendPolling() {
         isPollingSuspended = true
     }
@@ -250,6 +288,78 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
             updateModuleState(.launchFailed(displayName: displayName))
         case .controlCommandFailed, .metadataCommandFailed:
             updateModuleState(.controlFailed(displayName: displayName, action: action))
+        }
+    }
+
+    private func applyLaunchError(_ error: MusicProviderError, bundleID: String) {
+        let displayName = displayName(for: bundleID)
+
+        switch error {
+        case .permissionDenied:
+            if let requirement = error.permissionRequirement(displayName: displayName) {
+                updateModuleState(.permissionRequired(requirement))
+            }
+        case .playerNotInstalled:
+            updateModuleState(.playerNotInstalled(displayName: displayName))
+        case .launchCommandFailed:
+            updateModuleState(.launchFailed(displayName: displayName))
+        case .controlCommandFailed, .metadataCommandFailed:
+            updateModuleState(.launchFailed(displayName: displayName))
+        }
+    }
+
+    private func establishLaunchedSession(for bundleID: String) async -> Bool {
+        for attempt in 0..<launchEstablishmentRetryLimit {
+            do {
+                let snapshot = try await snapshotProvider.snapshot()
+                let resolvedSnapshot = sessionResolver.resolve(snapshot)
+                lastProviderError = nil
+
+                if let establishedState = launchEstablishedState(
+                    from: resolvedSnapshot,
+                    expectedBundleID: bundleID
+                ) {
+                    updateModuleState(establishedState)
+                    return true
+                }
+            } catch is CancellationError {
+                return false
+            } catch let error as MusicProviderError where error.permissionRequirement(displayName: displayName(for: bundleID)) != nil {
+                lastProviderError = error
+                updateModuleState(.permissionRequired(error.permissionRequirement(displayName: displayName(for: bundleID))!))
+                return true
+            } catch let error as MusicProviderError {
+                lastProviderError = error
+            } catch {
+                lastProviderError = .metadataCommandFailed(stderr: error.localizedDescription)
+            }
+
+            guard attempt < launchEstablishmentRetryLimit - 1 else {
+                break
+            }
+
+            if launchEstablishmentDelayNanoseconds > 0 {
+                try? await Task.sleep(nanoseconds: launchEstablishmentDelayNanoseconds)
+            }
+        }
+
+        return false
+    }
+
+    private func launchEstablishedState(
+        from snapshot: MusicPlayerSnapshot?,
+        expectedBundleID: String
+    ) -> MusicModuleState? {
+        guard let snapshot, snapshot.bundleID == expectedBundleID else {
+            return nil
+        }
+
+        let state = MusicModuleState.fromResolvedSnapshot(snapshot)
+        switch state {
+        case .playing, .paused, .permissionRequired, .metadataUnavailable:
+            return state
+        default:
+            return nil
         }
     }
 }
