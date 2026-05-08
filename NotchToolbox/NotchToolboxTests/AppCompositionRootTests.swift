@@ -68,4 +68,17 @@ struct AppCompositionRootTests {
                 === compositionRoot.musicRuntime
         )
     }
+
+    @Test func compositionRootRegistersMusicRuntimeWithEnergyGovernor() {
+        let governor = EnergyGovernor()
+        let runtime = MusicModuleRuntime()
+        let compositionRoot = AppCompositionRoot(
+            energyGovernor: governor,
+            musicRuntime: runtime
+        )
+
+        governor.applyOverlayState(.expanded(screenID: "main", moduleID: .music))
+
+        #expect(compositionRoot.musicRuntime.pollSchedule == .expandedVisible)
+    }
 }
