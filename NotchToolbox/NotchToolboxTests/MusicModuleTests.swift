@@ -441,6 +441,7 @@ struct MusicModuleTests {
         ])
     }
 
+    @MainActor
     @Test func systemMediaControlAdapterPostsSharedMediaKeysWithoutShellingOut() async throws {
         let runner = MusicProcessRunnerSpy()
         let mediaKeyPoster = MediaKeyPosterSpy()
@@ -459,6 +460,7 @@ struct MusicModuleTests {
         #expect(await mediaKeyPoster.recordedActions() == [.playPause, .next, .previous])
     }
 
+    @MainActor
     @Test func systemMediaControlAdapterMapsMissingAccessibilityTrustToPermissionDenied() async {
         let runner = MusicProcessRunnerSpy()
         let mediaKeyPoster = MediaKeyPosterSpy()
@@ -475,6 +477,19 @@ struct MusicModuleTests {
 
         #expect(await runner.lastInvocation() == nil)
         #expect(await mediaKeyPoster.recordedActions().isEmpty)
+    }
+
+    @MainActor
+    @Test func systemMediaKeyPosterDispatchesOrderedEventsOnMainThread() throws {
+        let dispatcher = MediaKeyEventDispatcherSpy()
+        let poster = SystemMediaKeyPoster(dispatcher: dispatcher)
+
+        try poster.post(.next)
+
+        #expect(dispatcher.invocations == [
+            MediaKeyEventInvocation(keyCode: 17, isKeyDown: true, isMainThread: true),
+            MediaKeyEventInvocation(keyCode: 17, isKeyDown: false, isMainThread: true)
+        ])
     }
 
     @MainActor
@@ -1029,10 +1044,11 @@ private actor MusicProcessRunnerSpy: MusicProcessRunning {
     }
 }
 
-private actor MediaKeyPosterSpy: MediaKeyPosting {
+@MainActor
+private final class MediaKeyPosterSpy: MediaKeyPosting {
     private var actions: [SystemMediaKeyAction] = []
 
-    func post(_ action: SystemMediaKeyAction) async throws {
+    func post(_ action: SystemMediaKeyAction) throws {
         actions.append(action)
     }
 
@@ -1046,6 +1062,27 @@ private struct AccessibilityTrustCheckerStub: AccessibilityTrustChecking {
 
     func isTrustedForMediaKeyPosting() -> Bool {
         isTrusted
+    }
+}
+
+private struct MediaKeyEventInvocation: Equatable {
+    let keyCode: Int
+    let isKeyDown: Bool
+    let isMainThread: Bool
+}
+
+@MainActor
+private final class MediaKeyEventDispatcherSpy: MediaKeyEventDispatching {
+    private(set) var invocations: [MediaKeyEventInvocation] = []
+
+    func dispatch(keyCode: Int, isKeyDown: Bool) throws {
+        invocations.append(
+            MediaKeyEventInvocation(
+                keyCode: keyCode,
+                isKeyDown: isKeyDown,
+                isMainThread: Thread.isMainThread
+            )
+        )
     }
 }
 

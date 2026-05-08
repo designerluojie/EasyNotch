@@ -20,7 +20,13 @@ nonisolated enum SystemMediaKeyAction: Sendable, Equatable {
 }
 
 protocol MediaKeyPosting: Sendable {
-    func post(_ action: SystemMediaKeyAction) async throws
+    @MainActor
+    func post(_ action: SystemMediaKeyAction) throws
+}
+
+protocol MediaKeyEventDispatching: Sendable {
+    @MainActor
+    func dispatch(keyCode: Int, isKeyDown: Bool) throws
 }
 
 protocol AccessibilityTrustChecking: Sendable {
@@ -33,12 +39,17 @@ nonisolated struct AccessibilityTrustChecker: AccessibilityTrustChecking {
     }
 }
 
-nonisolated struct SystemMediaKeyPoster: MediaKeyPosting {
-    func post(_ action: SystemMediaKeyAction) async throws {
-        try await Task.detached(priority: nil) {
-            try Self.postKey(action.keyCode, isKeyDown: true)
-            try Self.postKey(action.keyCode, isKeyDown: false)
-        }.value
+struct SystemMediaKeyPoster: MediaKeyPosting {
+    private let dispatcher: any MediaKeyEventDispatching
+
+    init(dispatcher: any MediaKeyEventDispatching = NSEventMediaKeyEventDispatcher()) {
+        self.dispatcher = dispatcher
+    }
+
+    @MainActor
+    func post(_ action: SystemMediaKeyAction) throws {
+        try dispatcher.dispatch(keyCode: action.keyCode, isKeyDown: true)
+        try dispatcher.dispatch(keyCode: action.keyCode, isKeyDown: false)
     }
 }
 
@@ -106,7 +117,14 @@ private extension SystemMediaControlAdapter {
     }
 }
 
-private extension SystemMediaKeyPoster {
+private struct NSEventMediaKeyEventDispatcher: MediaKeyEventDispatching {
+    @MainActor
+    func dispatch(keyCode: Int, isKeyDown: Bool) throws {
+        try Self.postKey(keyCode, isKeyDown: isKeyDown)
+    }
+}
+
+private extension NSEventMediaKeyEventDispatcher {
     static let keyDownState = 0xA
     static let keyUpState = 0xB
     static let controlButtonSubtype: Int16 = 8
