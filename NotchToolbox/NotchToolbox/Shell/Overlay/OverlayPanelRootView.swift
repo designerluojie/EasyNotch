@@ -46,6 +46,7 @@ struct OverlayPanelRootView: View {
                     Text(titleText)
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.92))
+                        .lineLimit(1)
                 } else {
                     Spacer(minLength: 0)
                 }
