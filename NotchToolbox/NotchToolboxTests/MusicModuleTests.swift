@@ -144,6 +144,241 @@ struct MusicModuleTests {
         #expect(error == .permissionDenied(kind: .automation))
     }
 
+    @Test func nowPlayingProviderParsesRawJSONIntoSnapshot() async throws {
+        let runner = MusicProcessRunnerStub(
+            stdout: """
+            {"bundleIdentifier":"com.tencent.QQMusicMac","title":"淘金小镇","artist":"周杰伦","duration":252,"elapsedTime":35,"playbackRate":1}
+            """
+        )
+        let provider = NowPlayingSnapshotProvider(processRunner: runner)
+
+        let snapshot = try await provider.fetchActiveSnapshot()
+
+        #expect(snapshot?.bundleID == "com.tencent.QQMusicMac")
+        #expect(snapshot?.displayName == "QQ 音乐")
+        #expect(snapshot?.title == "淘金小镇")
+        #expect(snapshot?.artist == "周杰伦")
+        #expect(snapshot?.duration == 252)
+        #expect(snapshot?.elapsedTime == 35)
+        #expect(snapshot?.source == .nowPlayingCLI)
+    }
+
+    @Test func nowPlayingProviderMapsPlaybackRateGreaterThanZeroToPlaying() async throws {
+        let runner = MusicProcessRunnerStub(
+            stdout: """
+            {"bundleIdentifier":"com.tencent.QQMusicMac","title":"淘金小镇","artist":"周杰伦","duration":252,"elapsedTime":35,"playbackRate":0.5}
+            """
+        )
+        let provider = NowPlayingSnapshotProvider(processRunner: runner)
+
+        let snapshot = try await provider.fetchActiveSnapshot()
+
+        #expect(snapshot?.playbackState == .playing)
+    }
+
+    @Test func nowPlayingProviderTreatsEmptyPayloadAsNoActiveSession() async throws {
+        let runner = MusicProcessRunnerStub(stdout: "{}")
+        let provider = NowPlayingSnapshotProvider(processRunner: runner)
+
+        let snapshot = try await provider.fetchActiveSnapshot()
+
+        #expect(snapshot == nil)
+    }
+
+    @Test func nowPlayingProviderSnapshotPreservesCommandFailure() async {
+        let runner = MusicProcessRunnerStub(stderr: "nowplaying-cli failed", status: 1)
+        let provider = NowPlayingSnapshotProvider(processRunner: runner)
+
+        do {
+            _ = try await provider.snapshot()
+            Issue.record("Expected metadata command failure")
+        } catch let error as MusicProviderError {
+            #expect(error == .metadataCommandFailed(stderr: "nowplaying-cli failed"))
+        } catch {
+            Issue.record("Expected MusicProviderError, got \(error)")
+        }
+    }
+
+    @Test func nowPlayingProviderSurfacesMetadataCommandFailure() async {
+        let runner = MusicProcessRunnerStub(stderr: "nowplaying-cli failed", status: 1)
+        let provider = NowPlayingSnapshotProvider(processRunner: runner)
+
+        await #expect(throws: MusicProviderError.metadataCommandFailed(stderr: "nowplaying-cli failed")) {
+            try await provider.fetchActiveSnapshot()
+        }
+    }
+
+    @Test func nowPlayingProviderSurfacesMalformedJSONAsMetadataFailure() async {
+        let runner = MusicProcessRunnerStub(stdout: "{not-json")
+        let provider = NowPlayingSnapshotProvider(processRunner: runner)
+
+        do {
+            _ = try await provider.fetchActiveSnapshot()
+            Issue.record("Expected metadata command failure")
+        } catch let error as MusicProviderError {
+            guard case .metadataCommandFailed(let stderr) = error else {
+                Issue.record("Expected metadata command failure, got \(error)")
+                return
+            }
+
+            #expect(!stderr.isEmpty)
+        } catch {
+            Issue.record("Expected MusicProviderError, got \(error)")
+        }
+    }
+
+    @Test func nowPlayingProviderInvokesNowPlayingCLIThroughEnv() async throws {
+        let runner = MusicProcessRunnerSpy(stdout: "{}")
+        let provider = NowPlayingSnapshotProvider(processRunner: runner)
+
+        _ = try await provider.fetchActiveSnapshot()
+
+        let invocations = await runner.recordedInvocations()
+        #expect(invocations == [["/usr/bin/env", "nowplaying-cli", "get-raw"]])
+    }
+
+    @Test func foundationMusicProcessRunnerCapturesStdoutStderrAndExitStatus() async throws {
+        let runner = FoundationMusicProcessRunner()
+
+        let output = try await runner.run(
+            "/bin/sh",
+            arguments: ["-c", "printf 'stdout'; printf 'stderr' >&2; exit 7"]
+        )
+
+        #expect(output.stdout == "stdout")
+        #expect(output.stderr == "stderr")
+        #expect(output.status == 7)
+    }
+
+    @Test func foundationMusicProcessRunnerSurfacesMissingEnvCommand() async throws {
+        let runner = FoundationMusicProcessRunner()
+        let missingCommand = "__notchtoolbox_missing_nowplaying_cli__"
+
+        let output = try await runner.run(
+            "/usr/bin/env",
+            arguments: [missingCommand]
+        )
+
+        #expect(output.status != 0)
+        #expect(
+            output.stderr.localizedCaseInsensitiveContains(missingCommand)
+                || output.stderr.localizedCaseInsensitiveContains("not found")
+        )
+    }
+
+    @Test func foundationMusicProcessRunnerDoesNotLaunchProcessAfterPrelaunchCancellation() async throws {
+        let tempFileURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString)
+        defer {
+            try? FileManager.default.removeItem(at: tempFileURL)
+        }
+
+        let gate = LaunchGate()
+        let runner = FoundationMusicProcessRunner(beforeLaunch: {
+            await gate.hold()
+        })
+        let task = Task {
+            try await runner.run(
+                "/bin/sh",
+                arguments: ["-c", "touch \"$1\"", "sh", tempFileURL.path]
+            )
+        }
+
+        await gate.waitUntilHeld()
+        task.cancel()
+        await gate.release()
+
+        await #expect(throws: CancellationError.self) {
+            try await task.value
+        }
+        #expect(FileManager.default.fileExists(atPath: tempFileURL.path) == false)
+    }
+
+    @MainActor
+    @Test func foundationMusicProcessRunnerDoesNotBlockMainActorWhileChildProcessRuns() async throws {
+        let runner = FoundationMusicProcessRunner()
+        let tickTask = Task { @MainActor in
+            await Task.yield()
+            return Date()
+        }
+
+        _ = try await runner.run(
+            "/bin/sh",
+            arguments: ["-c", "sleep 0.1; printf 'done'"]
+        )
+        let completionTime = Date()
+        let tickTime = await tickTask.value
+
+        #expect(tickTime < completionTime)
+    }
+
+    @Test func nowPlayingProviderSurfacesRunnerLaunchFailureAsMetadataFailure() async {
+        let runner = MusicProcessRunnerStub(runError: MusicProcessRunnerStubError.launchFailed)
+        let provider = NowPlayingSnapshotProvider(processRunner: runner)
+
+        do {
+            _ = try await provider.fetchActiveSnapshot()
+            Issue.record("Expected metadata command failure")
+        } catch let error as MusicProviderError {
+            guard case .metadataCommandFailed(let stderr) = error else {
+                Issue.record("Expected metadata command failure, got \(error)")
+                return
+            }
+
+            #expect(!stderr.isEmpty)
+        } catch {
+            Issue.record("Expected MusicProviderError, got \(error)")
+        }
+    }
+
+    @Test func nowPlayingProviderPreservesCancellation() async {
+        let runner = MusicProcessRunnerStub(runError: MusicProcessRunnerStubError.cancelled)
+        let provider = NowPlayingSnapshotProvider(processRunner: runner)
+
+        do {
+            _ = try await provider.fetchActiveSnapshot()
+            Issue.record("Expected cancellation")
+        } catch is CancellationError {
+        } catch {
+            Issue.record("Expected CancellationError, got \(error)")
+        }
+    }
+
+    @MainActor
+    @Test func runtimeClearsStalePlaybackWhenMetadataPipelineFails() async {
+        let initialState = MusicModuleState.playing(
+            MusicPlaybackSession(snapshot: makeVerifiedSnapshot(trackKey: "track-1"))
+        )
+        let runtime = MusicModuleRuntime(
+            initialState: initialState,
+            snapshotProvider: ThrowingSnapshotProviderStub(
+                error: .metadataCommandFailed(stderr: "malformed output")
+            )
+        )
+
+        await runtime.refreshSnapshot()
+
+        #expect(runtime.lastProviderError == .metadataCommandFailed(stderr: "malformed output"))
+        #expect(runtime.moduleState == .empty(players: MusicPlayerCapability.v1Targets))
+        #expect(runtime.collapsedSummary == nil)
+    }
+
+    @MainActor
+    @Test func runtimeIgnoresCancelledRefreshInsteadOfPublishingProviderError() async {
+        let initialState = MusicModuleState.playing(
+            MusicPlaybackSession(snapshot: makeVerifiedSnapshot(trackKey: "track-2"))
+        )
+        let runtime = MusicModuleRuntime(
+            initialState: initialState,
+            snapshotProvider: CancellingSnapshotProviderStub()
+        )
+
+        await runtime.refreshSnapshot()
+
+        #expect(runtime.lastProviderError == nil)
+        #expect(runtime.moduleState == initialState)
+    }
+
     private func makeVerifiedSnapshot(
         playbackState: MusicPlaybackState = .playing,
         trackKey: String? = "track-0",
@@ -170,4 +405,95 @@ struct MusicModuleTests {
         )
     }
 
+}
+
+private struct MusicProcessRunnerStub: MusicProcessRunning {
+    var stdout: String = ""
+    var stderr: String = ""
+    var status: Int32 = 0
+    var runError: MusicProcessRunnerStubError?
+
+    func run(_ launchPath: String, arguments: [String]) async throws -> MusicProcessOutput {
+        if let runError {
+            switch runError {
+            case .launchFailed:
+                throw runError
+            case .cancelled:
+                throw CancellationError()
+            }
+        }
+        return MusicProcessOutput(stdout: stdout, stderr: stderr, status: status)
+    }
+}
+
+private enum MusicProcessRunnerStubError: Error {
+    case launchFailed
+    case cancelled
+}
+
+private actor MusicProcessRunnerSpy: MusicProcessRunning {
+    private let stdout: String
+    private let stderr: String
+    private let status: Int32
+    private var invocations: [[String]] = []
+
+    init(stdout: String = "", stderr: String = "", status: Int32 = 0) {
+        self.stdout = stdout
+        self.stderr = stderr
+        self.status = status
+    }
+
+    func run(_ launchPath: String, arguments: [String]) async throws -> MusicProcessOutput {
+        invocations.append([launchPath] + arguments)
+        return MusicProcessOutput(stdout: stdout, stderr: stderr, status: status)
+    }
+
+    func recordedInvocations() -> [[String]] {
+        invocations
+    }
+}
+
+private struct ThrowingSnapshotProviderStub: MusicSnapshotProviding {
+    let error: MusicProviderError
+
+    func snapshot() async throws -> MusicPlayerSnapshot? {
+        throw error
+    }
+}
+
+private struct CancellingSnapshotProviderStub: MusicSnapshotProviding {
+    func snapshot() async throws -> MusicPlayerSnapshot? {
+        throw CancellationError()
+    }
+}
+
+private actor LaunchGate {
+    private var isHeld = false
+    private var holdWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+
+    func hold() async {
+        isHeld = true
+        holdWaiters.forEach { $0.resume() }
+        holdWaiters.removeAll()
+
+        await withCheckedContinuation { continuation in
+            releaseContinuation = continuation
+        }
+    }
+
+    func waitUntilHeld() async {
+        guard !isHeld else {
+            return
+        }
+
+        await withCheckedContinuation { continuation in
+            holdWaiters.append(continuation)
+        }
+    }
+
+    func release() {
+        releaseContinuation?.resume()
+        releaseContinuation = nil
+    }
 }
