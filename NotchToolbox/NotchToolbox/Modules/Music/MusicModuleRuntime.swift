@@ -50,9 +50,26 @@ private struct DefaultMusicPlayerController: MusicPlayerControlling {
 }
 
 @MainActor
+private final class MusicRuntimeEnergyManagedTask: EnergyManagedTask {
+    let id: EnergyTaskID = "music.runtime"
+    let moduleID: NotchModuleID = .music
+
+    private weak var runtime: MusicModuleRuntime?
+
+    init(runtime: MusicModuleRuntime) {
+        self.runtime = runtime
+    }
+
+    func energyModeDidChange(_ mode: EnergyMode) {
+        runtime?.updateEnergyMode(mode)
+    }
+}
+
+@MainActor
 class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
     let id: NotchModuleID = .music
     let energyPolicy: ModuleEnergyPolicy = .music
+    lazy var energyManagedTask: any EnergyManagedTask = MusicRuntimeEnergyManagedTask(runtime: self)
 
     @Published private(set) var moduleState: MusicModuleState {
         didSet {

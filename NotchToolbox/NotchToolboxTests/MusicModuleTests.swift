@@ -400,6 +400,21 @@ struct MusicModuleTests {
     }
 
     @MainActor
+    @Test func runtimeReactsToEnergyGovernorThroughRegisteredTask() {
+        let governor = EnergyGovernor()
+        let runtime = MusicModuleRuntime()
+
+        governor.register(runtime.energyManagedTask)
+        #expect(runtime.pollSchedule == .collapsedSummary(hasActivePlayback: false))
+
+        governor.applyOverlayState(.expanded(screenID: "screen-1", moduleID: .music))
+        #expect(runtime.pollSchedule == .expandedVisible)
+
+        governor.suspendForSleep()
+        #expect(runtime.isPollingSuspended == true)
+    }
+
+    @MainActor
     @Test func runtimePreservesVisiblePollingScheduleAcrossStateUpdates() {
         let runtime = MusicModuleRuntime()
 
