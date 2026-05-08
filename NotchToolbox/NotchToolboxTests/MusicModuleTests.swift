@@ -8,8 +8,8 @@ struct MusicModuleTests {
         #expect(MusicPlayerCapability.v1Targets.map(\.bundleID) == [
             "com.tencent.QQMusicMac",
             "com.netease.163music",
-            "com.kugou.client",
-            "com.bytedance.qishui"
+            "com.kugou.mac.Music",
+            "com.soda.music"
         ])
     }
 
