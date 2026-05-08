@@ -1,16 +1,64 @@
+import AppKit
+import ApplicationServices
 import Foundation
 
-struct SystemMediaControlAdapter: MusicPlayerAdapter {
+nonisolated enum SystemMediaKeyAction: Sendable, Equatable {
+    case playPause
+    case next
+    case previous
+
+    fileprivate var keyCode: Int {
+        switch self {
+        case .playPause:
+            return 16
+        case .next:
+            return 17
+        case .previous:
+            return 18
+        }
+    }
+}
+
+protocol MediaKeyPosting: Sendable {
+    func post(_ action: SystemMediaKeyAction) async throws
+}
+
+protocol AccessibilityTrustChecking: Sendable {
+    func isTrustedForMediaKeyPosting() -> Bool
+}
+
+nonisolated struct AccessibilityTrustChecker: AccessibilityTrustChecking {
+    func isTrustedForMediaKeyPosting() -> Bool {
+        AXIsProcessTrusted()
+    }
+}
+
+nonisolated struct SystemMediaKeyPoster: MediaKeyPosting {
+    func post(_ action: SystemMediaKeyAction) async throws {
+        try await Task.detached(priority: nil) {
+            try Self.postKey(action.keyCode, isKeyDown: true)
+            try Self.postKey(action.keyCode, isKeyDown: false)
+        }.value
+    }
+}
+
+nonisolated struct SystemMediaControlAdapter: MusicPlayerAdapter {
     let capability: MusicPlayerCapability
 
     private let processRunner: any MusicProcessRunning
+    private let mediaKeyPoster: any MediaKeyPosting
+    private let accessibilityTrustChecker: any AccessibilityTrustChecking
 
     init(
         capability: MusicPlayerCapability,
-        processRunner: any MusicProcessRunning = FoundationMusicProcessRunner()
+        processRunner: any MusicProcessRunning = FoundationMusicProcessRunner(),
+        mediaKeyPoster: any MediaKeyPosting = SystemMediaKeyPoster(),
+        accessibilityTrustChecker: any AccessibilityTrustChecking = AccessibilityTrustChecker()
     ) {
         self.capability = capability
         self.processRunner = processRunner
+        self.mediaKeyPoster = mediaKeyPoster
+        self.accessibilityTrustChecker = accessibilityTrustChecker
     }
 
     func launch() async throws {
@@ -28,55 +76,24 @@ struct SystemMediaControlAdapter: MusicPlayerAdapter {
     }
 
     func perform(_ action: MusicControlAction) async throws {
-        let keyCode = switch action {
-        case .playPause:
-            49
-        case .nextTrack:
-            124
-        case .previousTrack:
-            123
+        guard accessibilityTrustChecker.isTrustedForMediaKeyPosting() else {
+            throw MusicProviderError.permissionDenied(kind: .accessibility)
         }
 
-        let output = try await processRunner.run(
-            "/usr/bin/osascript",
-            arguments: ["-e", Self.mediaKeyScript(keyCode: keyCode)]
-        )
-
-        try Self.throwIfCommandFailed(output)
+        try await mediaKeyPoster.post(Self.mediaKeyAction(for: action))
     }
 }
 
 private extension SystemMediaControlAdapter {
-    static func mediaKeyScript(keyCode: Int) -> String {
-        """
-        tell application "System Events"
-            key code \(keyCode)
-        end tell
-        """
-    }
-
-    static func throwIfCommandFailed(_ output: MusicProcessOutput) throws {
-        guard output.status != 0 else {
-            return
+    static func mediaKeyAction(for action: MusicControlAction) -> SystemMediaKeyAction {
+        switch action {
+        case .playPause:
+            return .playPause
+        case .nextTrack:
+            return .next
+        case .previousTrack:
+            return .previous
         }
-
-        let stderr = output.stderr
-        let normalized = stderr.lowercased()
-
-        if normalized.contains("not authorized")
-            || normalized.contains("apple events")
-            || normalized.contains("automation")
-            || (normalized.contains("not permitted") && normalized.contains("apple events")) {
-            throw MusicProviderError.permissionDenied(kind: .automation)
-        }
-
-        if stderr.contains("辅助功能")
-            || normalized.contains("accessibility")
-            || normalized.contains("not permitted") {
-            throw MusicProviderError.permissionDenied(kind: .accessibility)
-        }
-
-        throw MusicProviderError.controlCommandFailed(stderr: stderr)
     }
 
     static func isMissingPlayerLaunchFailure(_ stderr: String) -> Bool {
@@ -86,5 +103,33 @@ private extension SystemMediaControlAdapter {
             || normalized.contains("does not exist")
             || normalized.contains("lscopyapplicationurlsforbundleidentifier() failed")
             || normalized.contains("failed while trying to determine the application with bundle identifier")
+    }
+}
+
+private extension SystemMediaKeyPoster {
+    static let keyDownState = 0xA
+    static let keyUpState = 0xB
+    static let controlButtonSubtype: Int16 = 8
+
+    static func postKey(_ keyCode: Int, isKeyDown: Bool) throws {
+        let state = isKeyDown ? keyDownState : keyUpState
+        let flags = NSEvent.ModifierFlags(rawValue: UInt(state << 8))
+        let data1 = (keyCode << 16) | (state << 8)
+
+        guard let event = NSEvent.otherEvent(
+            with: .systemDefined,
+            location: .zero,
+            modifierFlags: flags,
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            subtype: controlButtonSubtype,
+            data1: data1,
+            data2: -1
+        ), let cgEvent = event.cgEvent else {
+            throw MusicProviderError.controlCommandFailed(stderr: "Unable to create system media key event.")
+        }
+
+        cgEvent.post(tap: .cghidEventTap)
     }
 }
