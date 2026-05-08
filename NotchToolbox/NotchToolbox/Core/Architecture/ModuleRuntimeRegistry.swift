@@ -12,11 +12,22 @@ final class ModuleRuntimeRegistry {
         self.runtimesByID = runtimesByID
     }
 
-    static func defaultRegistry() -> ModuleRuntimeRegistry {
-        ModuleRuntimeRegistry(
-            runtimes: NotchModuleID.allCases.map { moduleID in
-                DefaultNotchModuleRuntime(id: moduleID, energyPolicy: .defaultPolicy(for: moduleID))
-            }
+    static func defaultRegistry(overrides: [any NotchModuleRuntime] = []) -> ModuleRuntimeRegistry {
+        var runtimesByID: [NotchModuleID: any NotchModuleRuntime] = [:]
+
+        for moduleID in NotchModuleID.allCases {
+            runtimesByID[moduleID] = DefaultNotchModuleRuntime(
+                id: moduleID,
+                energyPolicy: .defaultPolicy(for: moduleID)
+            )
+        }
+
+        for runtime in overrides {
+            runtimesByID[runtime.id] = runtime
+        }
+
+        return ModuleRuntimeRegistry(
+            runtimes: NotchModuleID.allCases.compactMap { runtimesByID[$0] }
         )
     }
 

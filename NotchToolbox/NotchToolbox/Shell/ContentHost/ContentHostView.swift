@@ -34,7 +34,7 @@ struct ContentHostView: View {
     private var modulePlaceholder: some View {
         switch compositionRoot.activeModule {
         case .music:
-            MusicModuleView(context: compositionRoot.context(for: .music))
+            MusicModuleView(runtime: compositionRoot.musicRuntime)
         case .fileStash:
             FileStashModuleView(context: compositionRoot.context(for: .fileStash))
         case .aiChat:

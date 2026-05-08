@@ -24,6 +24,18 @@ struct ModuleRuntimeRegistryTests {
         #expect(musicRuntime.events.isEmpty)
         #expect(clipboardRuntime.events == [.moduleDidAppear])
     }
+
+    @Test func defaultRegistryPrefersProvidedSharedMusicRuntime() throws {
+        let sharedMusicRuntime = MusicModuleRuntime()
+
+        let registry = ModuleRuntimeRegistry.defaultRegistry(overrides: [sharedMusicRuntime])
+
+        #expect(
+            try #require(registry.runtime(for: .music) as? MusicModuleRuntime)
+                === sharedMusicRuntime
+        )
+        #expect(try #require(registry.runtime(for: .pomodoro)).energyPolicy == .pomodoro)
+    }
 }
 
 @MainActor

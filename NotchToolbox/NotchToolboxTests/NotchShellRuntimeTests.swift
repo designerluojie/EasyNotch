@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 import Testing
 @testable import NotchToolbox
 
@@ -32,6 +33,66 @@ struct NotchShellRuntimeTests {
         #expect(presenter.presentations[2].state == .idle(screenID: "built-in"))
     }
 
+    @Test func startDispatchesLifecycleThroughCompositionRootRegistry() async throws {
+        let musicRuntime = RuntimeSpyMusicModuleRuntime()
+        let compositionRoot = AppCompositionRoot(
+            musicRuntime: musicRuntime,
+            activeModule: .music,
+            initialScreenID: "built-in"
+        )
+        let interactions = OverlayPanelInteractions()
+        let presenter = RuntimeSpyOverlayPanelPresenter()
+        let runtime = NotchShellRuntime(
+            compositionRoot: compositionRoot,
+            interactions: interactions,
+            topologyProvider: RuntimeStubDisplayTopologyProvider(snapshots: [
+                Self.notchSnapshot(id: "built-in")
+            ]),
+            panelPresenter: presenter,
+            primaryScreenID: "built-in",
+            simulateNotchOnNonNotchScreen: true
+        )
+
+        runtime.start()
+        interactions.expand(screenID: "built-in")
+        await Task.yield()
+
+        #expect(musicRuntime.events == [
+            .panelWillExpand(screenID: "built-in"),
+            .moduleDidAppear,
+            .panelDidExpand(screenID: "built-in")
+        ])
+    }
+
+    @Test func globalShortcutUsesCollapsedMusicExpansionRule() async throws {
+        let musicRuntime = MusicModuleRuntime(initialState: .playing(Self.makePlayingSession()))
+        let compositionRoot = AppCompositionRoot(
+            musicRuntime: musicRuntime,
+            activeModule: .clipboard,
+            initialScreenID: "built-in"
+        )
+        let interactions = OverlayPanelInteractions()
+        let presenter = RuntimeSpyOverlayPanelPresenter()
+        let shortcutService = InMemoryGlobalShortcutService()
+        let runtime = NotchShellRuntime(
+            compositionRoot: compositionRoot,
+            interactions: interactions,
+            topologyProvider: RuntimeStubDisplayTopologyProvider(snapshots: [
+                Self.notchSnapshot(id: "built-in")
+            ]),
+            panelPresenter: presenter,
+            primaryScreenID: "built-in",
+            simulateNotchOnNonNotchScreen: true,
+            globalShortcutService: shortcutService
+        )
+
+        runtime.start()
+        shortcutService.trigger()
+        await Task.yield()
+
+        #expect(presenter.presentations.last?.state == .expanded(screenID: "built-in", moduleID: .music))
+    }
+
     private static func notchSnapshot(id: String) -> ScreenSnapshot {
         ScreenSnapshot(
             id: id,
@@ -43,6 +104,27 @@ struct NotchShellRuntimeTests {
             auxiliaryTopRightArea: CGRect(x: 849, y: 908, width: 663, height: 74),
             scaleFactor: 2,
             isBuiltIn: true
+        )
+    }
+
+    private static func makePlayingSession() -> MusicPlaybackSession {
+        MusicPlaybackSession(
+            snapshot: MusicPlayerSnapshot(
+                bundleID: MusicPlayerCapability.qqMusic.bundleID,
+                displayName: MusicPlayerCapability.qqMusic.displayName,
+                isRunning: true,
+                playbackState: .playing,
+                trackKey: "track-1",
+                title: "Track",
+                artist: "Artist",
+                artworkData: nil,
+                duration: 240,
+                elapsedTime: 30,
+                capability: .qqMusic,
+                permissionRequirement: nil,
+                source: .nowPlayingCLI,
+                capturedAt: Date(timeIntervalSince1970: 1_700_000_000)
+            )
         )
     }
 }
@@ -60,5 +142,15 @@ private final class RuntimeSpyOverlayPanelPresenter: OverlayPanelPresenting {
 
     func present(state: OverlayState, geometry: TopAnchorGeometry) {
         presentations.append((state, geometry))
+    }
+}
+
+@MainActor
+private final class RuntimeSpyMusicModuleRuntime: MusicModuleRuntime {
+    private(set) var events: [ModuleLifecycleEvent] = []
+
+    override func handleLifecycle(_ event: ModuleLifecycleEvent) {
+        events.append(event)
+        super.handleLifecycle(event)
     }
 }

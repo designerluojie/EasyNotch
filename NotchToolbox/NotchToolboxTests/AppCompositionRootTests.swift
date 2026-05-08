@@ -5,14 +5,11 @@ import Testing
 @MainActor
 struct AppCompositionRootTests {
 
-    @Test func selectActiveModuleRunsOnLaterMainActorTurn() async {
+    @Test func selectActiveModuleUpdatesImmediately() {
         let compositionRoot = AppCompositionRoot(activeModule: .music)
 
         compositionRoot.selectActiveModule(.fileStash)
 
-        #expect(compositionRoot.activeModule == .music)
-
-        await Task.yield()
         #expect(compositionRoot.activeModule == .fileStash)
     }
 
@@ -42,5 +39,33 @@ struct AppCompositionRootTests {
 
         #expect(context.moduleID == .aiChat)
         #expect(context.sharedServices === services)
+    }
+
+    @Test func compositionRootExposesSharedMusicRuntime() throws {
+        let compositionRoot = AppCompositionRoot()
+
+        #expect(compositionRoot.musicRuntime.id == .music)
+        #expect(
+            try #require(compositionRoot.moduleRuntimeRegistry.runtime(for: .music) as? MusicModuleRuntime)
+                === compositionRoot.musicRuntime
+        )
+    }
+
+    @Test func providedRegistryIsRealignedToProvidedMusicRuntime() throws {
+        let exposedMusicRuntime = MusicModuleRuntime()
+        let mismatchedMusicRuntime = MusicModuleRuntime()
+        let mismatchedRegistry = ModuleRuntimeRegistry.defaultRegistry(
+            overrides: [mismatchedMusicRuntime]
+        )
+
+        let compositionRoot = AppCompositionRoot(
+            musicRuntime: exposedMusicRuntime,
+            moduleRuntimeRegistry: mismatchedRegistry
+        )
+
+        #expect(
+            try #require(compositionRoot.moduleRuntimeRegistry.runtime(for: .music) as? MusicModuleRuntime)
+                === compositionRoot.musicRuntime
+        )
     }
 }
