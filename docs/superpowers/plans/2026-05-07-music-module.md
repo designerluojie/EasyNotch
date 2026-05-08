@@ -6,7 +6,7 @@
 
 **Architecture:** Keep the music implementation mostly inside `Modules/Music`, but add one persistent `MusicModuleRuntime` that survives outside the expanded SwiftUI view. Metadata comes from a shared `nowplaying-cli` / `Now Playing` pipeline, control flows through per-player adapters, and Shell only consumes a minimal `CollapsedMusicSummary` plus a small collapsed-presentation helper. `OverlayState`, `NotchModuleContext`, `ModuleEnergyPolicy`, and multi-screen panel rules stay untouched.
 
-**Tech Stack:** Swift, SwiftUI, AppKit, `Process`, `osascript` / `System Events`, existing `NotchModuleRuntime`, `ModuleRuntimeRegistry`, `EnergyGovernor`, `Testing`
+**Tech Stack:** Swift, SwiftUI, AppKit, `Process`, `CGEvent` / `NSEvent` media-key posting, `osascript` / `System Events` where player menu control is required, existing `NotchModuleRuntime`, `ModuleRuntimeRegistry`, `EnergyGovernor`, `Testing`
 
 ---
 
@@ -618,24 +618,20 @@ struct SystemMediaControlAdapter: MusicPlayerAdapter {
     }
 
     func perform(_ action: MusicControlAction) async throws {
-        let script = switch action {
-        case .playPause: mediaKeyScript(keyCode: 49)
-        case .nextTrack: mediaKeyScript(keyCode: 124)
-        case .previousTrack: mediaKeyScript(keyCode: 123)
+        guard accessibilityTrustChecker.isTrustedForMediaKeyPosting() else {
+            throw MusicProviderError.permissionDenied(kind: .accessibility)
         }
-        let output = try await processRunner.run("/usr/bin/osascript", arguments: ["-e", script])
-        try throwIfPermissionDenied(output)
+
+        try await mediaKeyPoster.post(mediaKeyAction(for: action))
     }
 }
-
-private func mediaKeyScript(keyCode: Int) -> String {
-    """
-    tell application "System Events"
-        key code \(keyCode)
-    end tell
-    """
-}
 ```
+
+Implementation note:
+
+- The shared adapter still represents one unified control route for 网易云 / 酷狗 / 汽水.
+- Real manual verification on the target machine showed `osascript` with ordinary keyboard key codes does not advance 网易云 tracks, while true media-key events do.
+- Therefore phase 1 should post actual media-key events (`play/pause`, `next`, `previous`) instead of shelling out to `key code 49/124/123`.
 
 - [ ] **Step 4: Add the adapter registry used by the runtime**
 
