@@ -144,6 +144,60 @@ struct MusicModuleTests {
         #expect(error == .permissionDenied(kind: .automation))
     }
 
+    @Test func qqAdapterLaunchesByBundleIdentifier() async throws {
+        let runner = MusicProcessRunnerSpy()
+        let adapter = QQMusicAdapter(processRunner: runner)
+
+        try await adapter.launch()
+
+        #expect(await runner.lastInvocation() == [
+            "/usr/bin/open",
+            "-b",
+            "com.tencent.QQMusicMac"
+        ])
+    }
+
+    @Test func qqAdapterUsesSystemEventsMenuControlForPlayPause() async throws {
+        let runner = MusicProcessRunnerSpy()
+        let adapter = QQMusicAdapter(processRunner: runner)
+
+        try await adapter.perform(.playPause)
+
+        #expect(await runner.lastInvocation()?.first == "/usr/bin/osascript")
+        #expect(await runner.lastScript()?.contains("System Events") == true)
+        #expect(await runner.lastScript()?.contains("QQ音乐") == true)
+        #expect(await runner.lastScript()?.contains("播放/暂停") == true)
+    }
+
+    @Test func qqAdapterUsesSystemEventsMenuControlForNextTrack() async throws {
+        let runner = MusicProcessRunnerSpy()
+        let adapter = QQMusicAdapter(processRunner: runner)
+
+        try await adapter.perform(.nextTrack)
+
+        #expect(await runner.lastInvocation()?.first == "/usr/bin/osascript")
+        #expect(await runner.lastScript()?.contains("下一首") == true)
+    }
+
+    @Test func qqAdapterUsesSystemEventsMenuControlForPreviousTrack() async throws {
+        let runner = MusicProcessRunnerSpy()
+        let adapter = QQMusicAdapter(processRunner: runner)
+
+        try await adapter.perform(.previousTrack)
+
+        #expect(await runner.lastInvocation()?.first == "/usr/bin/osascript")
+        #expect(await runner.lastScript()?.contains("上一首") == true)
+    }
+
+    @Test func qqAdapterMapsAccessibilityPermissionDenial() async {
+        let runner = MusicProcessRunnerSpy(stderr: "辅助功能权限 not permitted", status: 1)
+        let adapter = QQMusicAdapter(processRunner: runner)
+
+        await #expect(throws: MusicProviderError.permissionDenied(kind: .accessibility)) {
+            try await adapter.perform(.playPause)
+        }
+    }
+
     @Test func nowPlayingProviderParsesRawJSONIntoSnapshot() async throws {
         let runner = MusicProcessRunnerStub(
             stdout: """
@@ -450,6 +504,23 @@ private actor MusicProcessRunnerSpy: MusicProcessRunning {
 
     func recordedInvocations() -> [[String]] {
         invocations
+    }
+
+    func lastInvocation() -> [String]? {
+        invocations.last
+    }
+
+    func lastScript() -> String? {
+        guard
+            let invocation = invocations.last,
+            invocation.count >= 3,
+            invocation[0] == "/usr/bin/osascript",
+            invocation[1] == "-e"
+        else {
+            return nil
+        }
+
+        return invocation[2]
     }
 }
 
