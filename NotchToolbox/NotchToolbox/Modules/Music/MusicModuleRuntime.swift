@@ -10,12 +10,6 @@ protocol MusicPlayerControlling {
     func perform(_ action: MusicControlAction, for bundleID: String?) async throws
 }
 
-private struct NoopMusicSnapshotProvider: MusicSnapshotProviding {
-    func snapshot() async throws -> MusicPlayerSnapshot? {
-        nil
-    }
-}
-
 private struct NoopMusicPlayerController: MusicPlayerControlling {
     func launch(bundleID: String) async throws {}
     func perform(_ action: MusicControlAction, for bundleID: String?) async throws {}
@@ -122,22 +116,28 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
         self.isPollingSuspended = false
         self.launchEstablishmentRetryLimit = max(1, launchEstablishmentRetryLimit)
         self.launchEstablishmentDelayNanoseconds = launchEstablishmentDelayNanoseconds
-        self.snapshotProvider = snapshotProvider ?? NoopMusicSnapshotProvider()
+        let resolvedProcessRunner = processRunner ?? FoundationMusicProcessRunner()
+        self.snapshotProvider = snapshotProvider ?? NowPlayingSnapshotProvider(
+            processRunner: resolvedProcessRunner
+        )
         if let playerController {
             self.playerController = playerController
-        } else if let processRunner {
-            self.playerController = DefaultMusicPlayerController(processRunner: processRunner)
         } else {
             self.playerController = DefaultMusicPlayerController(
-                processRunner: FoundationMusicProcessRunner()
+                processRunner: resolvedProcessRunner
             )
         }
     }
 
     func handleLifecycle(_ event: ModuleLifecycleEvent) {
         switch event {
-        case .panelWillExpand, .panelDidExpand, .moduleDidAppear:
+        case .panelWillExpand, .panelDidExpand:
             updateEnergyMode(.visible)
+        case .moduleDidAppear:
+            updateEnergyMode(.visible)
+            Task { [weak self] in
+                await self?.refreshSnapshot()
+            }
         case .moduleWillDisappear, .panelWillCollapse, .panelDidCollapse:
             updateEnergyMode(.collapsedSummary)
         case .appWillSleep:
