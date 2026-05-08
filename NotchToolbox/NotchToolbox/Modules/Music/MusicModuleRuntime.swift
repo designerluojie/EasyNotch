@@ -1,8 +1,8 @@
 import Combine
 import Foundation
 
-protocol MusicSnapshotProviding {
-    func snapshot() async -> MusicPlayerSnapshot?
+protocol MusicSnapshotProviding: Sendable {
+    func snapshot() async throws -> MusicPlayerSnapshot?
 }
 
 protocol MusicPlayerControlling {
@@ -10,7 +10,7 @@ protocol MusicPlayerControlling {
 }
 
 private struct NoopMusicSnapshotProvider: MusicSnapshotProviding {
-    func snapshot() async -> MusicPlayerSnapshot? {
+    func snapshot() async throws -> MusicPlayerSnapshot? {
         nil
     }
 }
@@ -31,6 +31,7 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
     }
 
     @Published private(set) var collapsedSummary: CollapsedMusicSummary?
+    @Published private(set) var lastProviderError: MusicProviderError?
 
     private let snapshotProvider: any MusicSnapshotProviding
     private let playerController: any MusicPlayerControlling
@@ -44,6 +45,7 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
 
         self.moduleState = resolvedState
         self.collapsedSummary = resolvedState.collapsedSummary
+        self.lastProviderError = nil
         self.snapshotProvider = snapshotProvider ?? NoopMusicSnapshotProvider()
         self.playerController = playerController ?? NoopMusicPlayerController()
     }
@@ -51,8 +53,19 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
     func handleLifecycle(_ event: ModuleLifecycleEvent) {}
 
     func refreshSnapshot() async {
-        let snapshot = await snapshotProvider.snapshot()
-        updateModuleState(.fromResolvedSnapshot(snapshot))
+        do {
+            let snapshot = try await snapshotProvider.snapshot()
+            lastProviderError = nil
+            updateModuleState(.fromResolvedSnapshot(snapshot))
+        } catch is CancellationError {
+            return
+        } catch let error as MusicProviderError {
+            lastProviderError = error
+            updateModuleState(.empty(players: MusicPlayerCapability.v1Targets))
+        } catch {
+            lastProviderError = .metadataCommandFailed(stderr: error.localizedDescription)
+            updateModuleState(.empty(players: MusicPlayerCapability.v1Targets))
+        }
     }
 
     func performControl(_ action: MusicControlAction) async {
