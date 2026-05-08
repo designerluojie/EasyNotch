@@ -26,7 +26,7 @@ struct CollapsedOverlayPresentation: Equatable {
                 symbol: musicSummary.symbol,
                 displayName: musicSummary.displayName
             )
-            self.titleText = nil
+            self.titleText = musicSummary.detailText ?? musicSummary.displayName
             self.trailingAccessory = .playback(isPlaying: musicSummary.isPlaying)
         } else {
             self.expansionModuleID = activeModule
