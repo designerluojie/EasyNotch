@@ -26,6 +26,7 @@ final class AppCompositionRoot: ObservableObject {
         self.sharedServices = sharedServices ?? SharedCoreServices.fallback()
         self.energyGovernor = energyGovernor ?? EnergyGovernor()
         self.musicRuntime = resolvedMusicRuntime
+        self.energyGovernor.register(resolvedMusicRuntime.energyManagedTask)
         self.moduleRuntimeRegistry = Self.makeModuleRuntimeRegistry(
             providedRegistry: moduleRuntimeRegistry,
             musicRuntime: resolvedMusicRuntime
