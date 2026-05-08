@@ -6,7 +6,7 @@ protocol MusicSnapshotProviding: Sendable {
 }
 
 protocol MusicPlayerControlling {
-    func perform(_ action: MusicControlAction) async
+    func perform(_ action: MusicControlAction, for bundleID: String?) async
 }
 
 private struct NoopMusicSnapshotProvider: MusicSnapshotProviding {
@@ -16,7 +16,37 @@ private struct NoopMusicSnapshotProvider: MusicSnapshotProviding {
 }
 
 private struct NoopMusicPlayerController: MusicPlayerControlling {
-    func perform(_ action: MusicControlAction) async {}
+    func perform(_ action: MusicControlAction, for bundleID: String?) async {}
+}
+
+private struct DefaultMusicPlayerController: MusicPlayerControlling {
+    private let adapters: [String: any MusicPlayerAdapter]
+
+    init(processRunner: any MusicProcessRunning) {
+        adapters = [
+            MusicPlayerCapability.qqMusic.bundleID: QQMusicAdapter(processRunner: processRunner),
+            MusicPlayerCapability.neteaseMusic.bundleID: SystemMediaControlAdapter(
+                capability: .neteaseMusic,
+                processRunner: processRunner
+            ),
+            MusicPlayerCapability.kugouMusic.bundleID: SystemMediaControlAdapter(
+                capability: .kugouMusic,
+                processRunner: processRunner
+            ),
+            MusicPlayerCapability.qishuiMusic.bundleID: SystemMediaControlAdapter(
+                capability: .qishuiMusic,
+                processRunner: processRunner
+            )
+        ]
+    }
+
+    func perform(_ action: MusicControlAction, for bundleID: String?) async {
+        guard let bundleID, let adapter = adapters[bundleID] else {
+            return
+        }
+
+        try? await adapter.perform(action)
+    }
 }
 
 @MainActor
@@ -39,7 +69,8 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
     init(
         initialState: MusicModuleState? = nil,
         snapshotProvider: (any MusicSnapshotProviding)? = nil,
-        playerController: (any MusicPlayerControlling)? = nil
+        playerController: (any MusicPlayerControlling)? = nil,
+        processRunner: (any MusicProcessRunning)? = nil
     ) {
         let resolvedState = initialState ?? .empty(players: MusicPlayerCapability.v1Targets)
 
@@ -47,7 +78,15 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
         self.collapsedSummary = resolvedState.collapsedSummary
         self.lastProviderError = nil
         self.snapshotProvider = snapshotProvider ?? NoopMusicSnapshotProvider()
-        self.playerController = playerController ?? NoopMusicPlayerController()
+        if let playerController {
+            self.playerController = playerController
+        } else if let processRunner {
+            self.playerController = DefaultMusicPlayerController(processRunner: processRunner)
+        } else {
+            self.playerController = DefaultMusicPlayerController(
+                processRunner: FoundationMusicProcessRunner()
+            )
+        }
     }
 
     func handleLifecycle(_ event: ModuleLifecycleEvent) {}
@@ -69,10 +108,19 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
     }
 
     func performControl(_ action: MusicControlAction) async {
-        await playerController.perform(action)
+        await playerController.perform(action, for: activeControlBundleID)
     }
 
     func updateModuleState(_ state: MusicModuleState) {
         moduleState = state
+    }
+
+    private var activeControlBundleID: String? {
+        switch moduleState {
+        case .playing(let session), .paused(let session):
+            return session.bundleID
+        default:
+            return nil
+        }
     }
 }
