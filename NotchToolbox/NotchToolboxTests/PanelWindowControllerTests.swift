@@ -26,8 +26,10 @@ struct PanelWindowControllerTests {
             anchorKind: .hardwareNotch,
             notchMetrics: NotchMetrics(visibleSize: CGSize(width: 185, height: 32), source: .hardware),
             idleFrame: NSRect(x: 100, y: 900, width: 185, height: 32),
-            hoverHintFrame: NSRect(x: 82, y: 876, width: 221, height: 56),
-            expandedFrame: NSRect(x: 40, y: 652, width: 580, height: 280),
+            hoverHintFrame: NSRect(x: 82, y: 910, width: 242, height: 72),
+            hoverHintVisibleFrame: NSRect(x: 106, y: 942, width: 194, height: 40),
+            expandedFrame: NSRect(x: 40, y: 670, width: 628, height: 312),
+            expandedVisibleFrame: NSRect(x: 64, y: 702, width: 580, height: 280),
             toastFrame: NSRect(x: 170, y: 916, width: 320, height: 52),
             hotzoneFrame: NSRect(x: 100, y: 900, width: 185, height: 32),
             safeTopInset: 32,
@@ -48,8 +50,10 @@ struct PanelWindowControllerTests {
             anchorKind: .hardwareNotch,
             notchMetrics: NotchMetrics(visibleSize: CGSize(width: 185, height: 32), source: .hardware),
             idleFrame: NSRect(x: 100, y: 900, width: 185, height: 32),
-            hoverHintFrame: NSRect(x: 82, y: 876, width: 221, height: 56),
-            expandedFrame: NSRect(x: 40, y: 652, width: 580, height: 280),
+            hoverHintFrame: NSRect(x: 82, y: 910, width: 242, height: 72),
+            hoverHintVisibleFrame: NSRect(x: 106, y: 942, width: 194, height: 40),
+            expandedFrame: NSRect(x: 40, y: 670, width: 628, height: 312),
+            expandedVisibleFrame: NSRect(x: 64, y: 702, width: 580, height: 280),
             toastFrame: NSRect(x: 170, y: 916, width: 320, height: 52),
             hotzoneFrame: NSRect(x: 100, y: 900, width: 185, height: 32),
             safeTopInset: 32,
@@ -68,8 +72,10 @@ struct PanelWindowControllerTests {
             anchorKind: .hardwareNotch,
             notchMetrics: NotchMetrics(visibleSize: CGSize(width: 185, height: 32), source: .hardware),
             idleFrame: NSRect(x: 100, y: 900, width: 185, height: 32),
-            hoverHintFrame: NSRect(x: 82, y: 876, width: 221, height: 56),
-            expandedFrame: NSRect(x: 40, y: 652, width: 580, height: 280),
+            hoverHintFrame: NSRect(x: 82, y: 910, width: 242, height: 72),
+            hoverHintVisibleFrame: NSRect(x: 106, y: 942, width: 194, height: 40),
+            expandedFrame: NSRect(x: 40, y: 670, width: 628, height: 312),
+            expandedVisibleFrame: NSRect(x: 64, y: 702, width: 580, height: 280),
             toastFrame: NSRect(x: 170, y: 916, width: 320, height: 52),
             hotzoneFrame: NSRect(x: 100, y: 900, width: 185, height: 32),
             safeTopInset: 32,
@@ -93,8 +99,10 @@ struct PanelWindowControllerTests {
             anchorKind: .hardwareNotch,
             notchMetrics: NotchMetrics(visibleSize: CGSize(width: 185, height: 32), source: .hardware),
             idleFrame: NSRect(x: 100, y: 900, width: 185, height: 32),
-            hoverHintFrame: NSRect(x: 82, y: 876, width: 221, height: 56),
-            expandedFrame: NSRect(x: 40, y: 652, width: 580, height: 280),
+            hoverHintFrame: NSRect(x: 82, y: 910, width: 242, height: 72),
+            hoverHintVisibleFrame: NSRect(x: 106, y: 942, width: 194, height: 40),
+            expandedFrame: NSRect(x: 40, y: 670, width: 628, height: 312),
+            expandedVisibleFrame: NSRect(x: 64, y: 702, width: 580, height: 280),
             toastFrame: NSRect(x: 170, y: 916, width: 320, height: 52),
             hotzoneFrame: NSRect(x: 100, y: 900, width: 185, height: 32),
             safeTopInset: 32,
@@ -110,6 +118,37 @@ struct PanelWindowControllerTests {
         #expect(collapsedScreenID == "built-in")
     }
 
+    @Test func clickInsideShadowPaddingStillCountsAsOutsideClick() async {
+        let compositionRoot = AppCompositionRoot(activeModule: .music, initialScreenID: "built-in")
+        let interactions = OverlayPanelInteractions()
+        let controller = PanelWindowController(
+            compositionRoot: compositionRoot,
+            interactions: interactions
+        )
+        let geometry = TopAnchorGeometry(
+            screenID: "built-in",
+            anchorKind: .hardwareNotch,
+            notchMetrics: NotchMetrics(visibleSize: CGSize(width: 185, height: 32), source: .hardware),
+            idleFrame: NSRect(x: 100, y: 900, width: 185, height: 32),
+            hoverHintFrame: NSRect(x: 82, y: 910, width: 242, height: 72),
+            hoverHintVisibleFrame: NSRect(x: 106, y: 942, width: 194, height: 40),
+            expandedFrame: NSRect(x: 40, y: 670, width: 628, height: 312),
+            expandedVisibleFrame: NSRect(x: 64, y: 702, width: 580, height: 280),
+            toastFrame: NSRect(x: 170, y: 916, width: 320, height: 52),
+            hotzoneFrame: NSRect(x: 100, y: 900, width: 185, height: 32),
+            safeTopInset: 32,
+            idleVisibleHeight: 0
+        )
+        var collapsedScreenID: String?
+        interactions.requestCollapse = { collapsedScreenID = $0 }
+
+        controller.present(state: .expanded(screenID: "built-in", moduleID: .music), geometry: geometry)
+        controller.handleGlobalMouseDown(at: CGPoint(x: 50, y: 900))
+        await Task.yield()
+
+        #expect(collapsedScreenID == "built-in")
+    }
+
     @Test func dismissOrdersPanelOut() {
         let controller = PanelWindowController(compositionRoot: AppCompositionRoot())
         let geometry = TopAnchorGeometry(
@@ -117,8 +156,10 @@ struct PanelWindowControllerTests {
             anchorKind: .hardwareNotch,
             notchMetrics: NotchMetrics(visibleSize: CGSize(width: 185, height: 32), source: .hardware),
             idleFrame: NSRect(x: 100, y: 900, width: 185, height: 32),
-            hoverHintFrame: NSRect(x: 82, y: 876, width: 221, height: 56),
-            expandedFrame: NSRect(x: 40, y: 652, width: 580, height: 280),
+            hoverHintFrame: NSRect(x: 82, y: 910, width: 242, height: 72),
+            hoverHintVisibleFrame: NSRect(x: 106, y: 942, width: 194, height: 40),
+            expandedFrame: NSRect(x: 40, y: 670, width: 628, height: 312),
+            expandedVisibleFrame: NSRect(x: 64, y: 702, width: 580, height: 280),
             toastFrame: NSRect(x: 170, y: 916, width: 320, height: 52),
             hotzoneFrame: NSRect(x: 100, y: 900, width: 185, height: 32),
             safeTopInset: 32,
@@ -139,8 +180,10 @@ struct PanelWindowControllerTests {
             anchorKind: .hardwareNotch,
             notchMetrics: NotchMetrics(visibleSize: CGSize(width: 185, height: 32), source: .hardware),
             idleFrame: NSRect(x: 100, y: 900, width: 185, height: 32),
-            hoverHintFrame: NSRect(x: 82, y: 876, width: 221, height: 56),
-            expandedFrame: NSRect(x: 40, y: 652, width: 580, height: 280),
+            hoverHintFrame: NSRect(x: 82, y: 910, width: 242, height: 72),
+            hoverHintVisibleFrame: NSRect(x: 106, y: 942, width: 194, height: 40),
+            expandedFrame: NSRect(x: 40, y: 670, width: 628, height: 312),
+            expandedVisibleFrame: NSRect(x: 64, y: 702, width: 580, height: 280),
             toastFrame: NSRect(x: 170, y: 916, width: 320, height: 52),
             hotzoneFrame: NSRect(x: 100, y: 900, width: 185, height: 32),
             safeTopInset: 32,

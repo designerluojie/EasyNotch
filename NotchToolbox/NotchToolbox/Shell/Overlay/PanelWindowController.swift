@@ -38,10 +38,16 @@ final class PanelWindowController: OverlayPanelPresenting {
     }
 
     func present(state: OverlayState, geometry: TopAnchorGeometry) {
+        let targetFrame = frame(for: state, geometry: geometry)
         panelModel.geometry = geometry
         panelModel.state = state
-        panel.setFrame(frame(for: state, geometry: geometry), display: true)
-        panel.orderFrontRegardless()
+
+        if panel.isVisible {
+            animatePanelFrame(to: targetFrame)
+        } else {
+            panel.setFrame(targetFrame, display: true)
+            panel.orderFrontRegardless()
+        }
     }
 
     func dismiss() {
@@ -83,13 +89,14 @@ final class PanelWindowController: OverlayPanelPresenting {
 
     @discardableResult
     func handleGlobalMouseDown(at screenPoint: CGPoint) -> Bool {
-        guard case .expanded(let screenID, _) = panelModel.state,
+        guard let dismissalScreenID = dismissalScreenID,
+              let hitFrame = visibleHitTestFrame,
               panel.isVisible,
-              panel.frame.contains(screenPoint) == false else {
+              hitFrame.contains(screenPoint) == false else {
             return false
         }
 
-        interactions.collapse(screenID: screenID)
+        interactions.collapse(screenID: dismissalScreenID)
         return true
     }
 
@@ -97,13 +104,55 @@ final class PanelWindowController: OverlayPanelPresenting {
         let mask: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
 
         localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
-            self?.handleGlobalMouseDown(at: NSEvent.mouseLocation)
+            self?.handleGlobalMouseDown(at: self?.screenPoint(for: event) ?? NSEvent.mouseLocation)
             return event
         }
 
         globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] _ in
             self?.handleGlobalMouseDown(at: NSEvent.mouseLocation)
         }
+    }
+
+    private var dismissalScreenID: String? {
+        switch panelModel.state {
+        case .expanded(let screenID, _), .collapsing(let screenID, _):
+            return screenID
+        default:
+            return nil
+        }
+    }
+
+    private var visibleHitTestFrame: CGRect? {
+        guard let geometry = panelModel.geometry else {
+            return nil
+        }
+
+        switch panelModel.state {
+        case .expanded, .collapsing:
+            return geometry.expandedVisibleFrame
+        default:
+            return nil
+        }
+    }
+
+    private func animatePanelFrame(to frame: NSRect) {
+        guard panel.frame != frame else {
+            return
+        }
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = OverlayPanelChromeMetrics.transitionDuration
+            context.allowsImplicitAnimation = true
+            panel.animator().setFrame(frame, display: true)
+        }
+    }
+
+    private func screenPoint(for event: NSEvent) -> CGPoint {
+        guard let window = event.window else {
+            return NSEvent.mouseLocation
+        }
+
+        return window.convertPoint(toScreen: event.locationInWindow)
     }
 
     deinit {
