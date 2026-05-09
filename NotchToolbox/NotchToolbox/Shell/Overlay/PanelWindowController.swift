@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 @MainActor
@@ -11,6 +12,7 @@ final class PanelWindowController: OverlayPanelPresenting {
     private let hostingView: NSHostingView<OverlayPanelRootView>
     private var localMouseMonitor: Any?
     private var globalMouseMonitor: Any?
+    private var cancellables: Set<AnyCancellable> = []
 
     init(
         compositionRoot: AppCompositionRoot,
@@ -35,12 +37,14 @@ final class PanelWindowController: OverlayPanelPresenting {
         )
 
         configurePanel()
+        bindCompositionRoot()
     }
 
     func present(state: OverlayState, geometry: TopAnchorGeometry) {
         let targetFrame = frame(for: state, geometry: geometry)
         let previousState = panelModel.state
         panelModel.geometry = geometry
+        panelModel.previousState = previousState
         panelModel.state = state
 
         if panel.isVisible, shouldAnimateFrameTransition(from: previousState, to: state) {
@@ -76,13 +80,13 @@ final class PanelWindowController: OverlayPanelPresenting {
     private func frame(for state: OverlayState, geometry: TopAnchorGeometry) -> NSRect {
         switch state {
         case .expanded:
-            geometry.expandedFrame
+            expandedOuterFrame(for: activeModuleID(for: state), geometry: geometry)
         case .hoverHint:
             geometry.hoverHintFrame
         case .toast:
             geometry.toastFrame
         case .collapsing:
-            geometry.expandedFrame
+            expandedOuterFrame(for: compositionRoot.activeModule, geometry: geometry)
         case .idle:
             geometry.idleFrame
         }
@@ -130,9 +134,50 @@ final class PanelWindowController: OverlayPanelPresenting {
 
         switch panelModel.state {
         case .expanded, .collapsing:
-            return geometry.expandedVisibleFrame
+            return OverlayPanelChromeMetrics.expandedVisibleFrame(
+                for: compositionRoot.panelBodySize(for: compositionRoot.activeModule),
+                on: geometry.screenFrame
+            )
         default:
             return nil
+        }
+    }
+
+    private func bindCompositionRoot() {
+        compositionRoot.$activeModule
+            .sink { [weak self] _ in
+                self?.refreshExpandedLayoutIfNeeded()
+            }
+            .store(in: &cancellables)
+
+        compositionRoot.$panelBodySizeOverrides
+            .sink { [weak self] _ in
+                self?.refreshExpandedLayoutIfNeeded()
+            }
+            .store(in: &cancellables)
+    }
+
+    private func refreshExpandedLayoutIfNeeded() {
+        guard panelModel.state.isExpandedLike, let geometry = panelModel.geometry else {
+            return
+        }
+
+        present(state: panelModel.state, geometry: geometry)
+    }
+
+    private func expandedOuterFrame(for moduleID: NotchModuleID, geometry: TopAnchorGeometry) -> CGRect {
+        OverlayPanelChromeMetrics.expandedOuterFrame(
+            for: compositionRoot.panelBodySize(for: moduleID),
+            on: geometry.screenFrame
+        )
+    }
+
+    private func activeModuleID(for state: OverlayState) -> NotchModuleID {
+        switch state {
+        case .expanded(_, let moduleID):
+            return moduleID
+        default:
+            return compositionRoot.activeModule
         }
     }
 
@@ -157,11 +202,7 @@ final class PanelWindowController: OverlayPanelPresenting {
     }
 
     private func shouldAnimateFrameTransition(from previousState: OverlayState, to nextState: OverlayState) -> Bool {
-        if previousState.isHoverHint || nextState.isHoverHint {
-            return nextState.isExpandedLike
-        }
-
-        return true
+        OverlayPanelRootPresentation.shouldAnimateWindowFrameTransition(from: previousState, to: nextState)
     }
 
     deinit {
@@ -181,24 +222,5 @@ private final class NotchPanel: NSPanel {
 
     override var canBecomeMain: Bool {
         false
-    }
-}
-
-private extension OverlayState {
-    var isHoverHint: Bool {
-        if case .hoverHint = self {
-            return true
-        }
-
-        return false
-    }
-
-    var isExpandedLike: Bool {
-        switch self {
-        case .expanded, .collapsing:
-            return true
-        default:
-            return false
-        }
     }
 }

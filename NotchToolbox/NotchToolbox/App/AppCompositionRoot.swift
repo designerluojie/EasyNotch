@@ -1,4 +1,5 @@
 import Combine
+import CoreGraphics
 import Foundation
 
 @MainActor
@@ -9,6 +10,7 @@ final class AppCompositionRoot: ObservableObject {
     @Published private(set) var moduleDescriptors: [NotchModuleDescriptor]
     @Published var activeModule: NotchModuleID
     @Published var overlayState: OverlayState
+    @Published private(set) var panelBodySizeOverrides: [NotchModuleID: CGSize]
 
     init(
         sharedServices: SharedCoreServices? = nil,
@@ -22,6 +24,7 @@ final class AppCompositionRoot: ObservableObject {
         self.moduleDescriptors = moduleDescriptors ?? NotchModuleDescriptor.defaultDescriptors
         self.activeModule = activeModule
         self.overlayState = .idle(screenID: initialScreenID)
+        self.panelBodySizeOverrides = [:]
     }
 
     func selectActiveModule(_ moduleID: NotchModuleID) {
@@ -36,5 +39,17 @@ final class AppCompositionRoot: ObservableObject {
             sharedServices: sharedServices,
             energyGovernor: energyGovernor
         )
+    }
+
+    func panelBodySize(for moduleID: NotchModuleID) -> CGSize {
+        panelBodySizeOverrides[moduleID] ?? PanelShellPresentation.bodySize(for: moduleID)
+    }
+
+    func setPanelBodySize(_ size: CGSize?, for moduleID: NotchModuleID) {
+        if let size {
+            panelBodySizeOverrides[moduleID] = size
+        } else {
+            panelBodySizeOverrides.removeValue(forKey: moduleID)
+        }
     }
 }

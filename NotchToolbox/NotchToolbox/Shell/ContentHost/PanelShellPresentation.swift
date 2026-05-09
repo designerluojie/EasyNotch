@@ -1,4 +1,7 @@
+import CoreGraphics
 import Foundation
+
+enum PanelShellPresentation {}
 
 enum PanelPrimaryTab: String, CaseIterable, Identifiable {
     case music
@@ -54,4 +57,17 @@ struct PanelMoreModuleItem: Identifiable, Equatable {
         PanelMoreModuleItem(moduleID: .clipboard, title: "Clipboard"),
         PanelMoreModuleItem(moduleID: .pomodoro, title: "Pomodoro")
     ]
+}
+
+extension PanelShellPresentation {
+    static func bodySize(for moduleID: NotchModuleID) -> CGSize {
+        switch moduleID {
+        case .music, .fileStash, .aiChat, .clipboard:
+            return CGSize(width: 580, height: 280)
+        case .pomodoro:
+            return CGSize(width: 420, height: 220)
+        case .settings:
+            return CGSize(width: 520, height: 300)
+        }
+    }
 }

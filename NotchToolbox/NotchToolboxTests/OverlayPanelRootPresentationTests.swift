@@ -18,14 +18,41 @@ struct OverlayPanelRootPresentationTests {
     }
 
     @Test func chromeMetricsMatchFigmaHoverAndExpandedShell() {
-        let notchMetrics = NotchMetrics(
-            visibleSize: CGSize(width: 185, height: 32),
-            source: .hardware
-        )
+        #expect(OverlayPanelChromeMetrics.hoverShadowRadius == 16)
+        #expect(OverlayPanelChromeMetrics.hoverShadowYOffset == 8)
+        #expect(OverlayPanelChromeMetrics.transitionDuration == 0.2)
+        #expect(OverlayPanelChromeMetrics.hoverBodySize == CGSize(width: 193, height: 40))
+        #expect(OverlayPanelChromeMetrics.hoverOuterSize == CGSize(width: 300, height: 120))
+        #expect(OverlayPanelChromeMetrics.hoverHorizontalInset == 53.5)
+        #expect(OverlayPanelChromeMetrics.hoverVerticalInset == 40)
+        #expect(OverlayPanelChromeMetrics.expandedShadowColorOpacity == 0.3)
+        #expect(OverlayPanelChromeMetrics.expandedOuterSize(for: CGSize(width: 580, height: 280)) == CGSize(width: 696, height: 336))
+        #expect(OverlayPanelChromeMetrics.expandedBodyFrame(for: CGSize(width: 580, height: 280)) == CGRect(x: 58, y: 28, width: 580, height: 280))
+    }
 
-        #expect(OverlayPanelChromeMetrics.shadowTopInset == 16)
-        #expect(OverlayPanelChromeMetrics.hoverBodySize(for: notchMetrics) == CGSize(width: 194, height: 40))
-        #expect(OverlayPanelChromeMetrics.hoverOuterSize(for: notchMetrics) == CGSize(width: 242, height: 88))
-        #expect(OverlayPanelChromeMetrics.expandedOuterSize == CGSize(width: 628, height: 328))
+    @Test func expandedAnimationStartsFromHoverBodyOnSharedTopCenterAxis() {
+        let bodySize = CGSize(width: 580, height: 280)
+        let bodyFrame = OverlayPanelChromeMetrics.expandedBodyFrame(for: bodySize)
+        let startFrame = OverlayPanelChromeMetrics.expandedAnimationStartFrame(for: bodySize)
+
+        #expect(startFrame.width == OverlayPanelChromeMetrics.hoverBodySize.width)
+        #expect(startFrame.height == OverlayPanelChromeMetrics.hoverBodySize.height)
+        #expect(startFrame.minY == bodyFrame.minY)
+        #expect(startFrame.midX == bodyFrame.midX)
+    }
+
+    @Test func expandingFromHoverSkipsWindowFrameAnimation() {
+        #expect(
+            OverlayPanelRootPresentation.shouldAnimateWindowFrameTransition(
+                from: .hoverHint(screenID: "built-in"),
+                to: .expanded(screenID: "built-in", moduleID: .music)
+            ) == false
+        )
+        #expect(
+            OverlayPanelRootPresentation.shouldAnimateWindowFrameTransition(
+                from: .expanded(screenID: "built-in", moduleID: .music),
+                to: .idle(screenID: "built-in")
+            )
+        )
     }
 }

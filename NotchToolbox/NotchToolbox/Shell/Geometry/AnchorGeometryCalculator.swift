@@ -9,6 +9,7 @@ enum TopAnchorKind: String, Codable {
 
 struct TopAnchorGeometry: Equatable {
     let screenID: String
+    let screenFrame: CGRect
     let anchorKind: TopAnchorKind
     let notchMetrics: NotchMetrics
     let idleFrame: CGRect
@@ -25,8 +26,9 @@ struct TopAnchorGeometry: Equatable {
 struct AnchorGeometryCalculator {
     private let toastSize = CGSize(width: 320, height: 52)
     private let baseHotzoneSize = CGSize(width: 260, height: 32)
-    private let simulatedIdleHeight: CGFloat = 34
-    private let simulatedIdleVisibleHeight: CGFloat = 4
+    private let simulatedIdleWidth: CGFloat = 185
+    private let simulatedIdleHeight: CGFloat = 6
+    private let simulatedIdleVisibleHeight: CGFloat = 6
 
     func calculate(for profile: ScreenProfile) -> TopAnchorGeometry {
         let anchorKind = anchorKind(for: profile)
@@ -34,19 +36,20 @@ struct AnchorGeometryCalculator {
         let idleSize = idleSize(for: anchorKind, notchMetrics: notchMetrics)
         let topY = profile.frame.maxY - idleSize.height
         let hotzoneSize = hotzoneSize(for: anchorKind, notchMetrics: notchMetrics)
-        let hoverVisibleSize = OverlayPanelChromeMetrics.hoverBodySize(for: notchMetrics)
-        let hoverOuterSize = OverlayPanelChromeMetrics.hoverOuterSize(for: notchMetrics)
-        let expandedVisibleSize = OverlayPanelChromeMetrics.expandedBodySize
-        let expandedOuterSize = OverlayPanelChromeMetrics.expandedOuterSize
+        let hoverVisibleSize = OverlayPanelChromeMetrics.hoverBodySize
+        let hoverOuterSize = OverlayPanelChromeMetrics.hoverOuterSize
+        let expandedVisibleSize = PanelShellPresentation.bodySize(for: .music)
 
         return TopAnchorGeometry(
             screenID: profile.id,
+            screenFrame: profile.frame,
             anchorKind: anchorKind,
             notchMetrics: notchMetrics,
             idleFrame: centeredFrame(size: idleSize, topY: topY, in: profile.frame),
             hoverHintFrame: topAttachedOuterFrame(
                 outerSize: hoverOuterSize,
                 visibleHeight: hoverVisibleSize.height,
+                bottomInset: OverlayPanelChromeMetrics.hoverVerticalInset,
                 screenFrame: profile.frame
             ),
             hoverHintVisibleFrame: centeredFrame(
@@ -54,15 +57,13 @@ struct AnchorGeometryCalculator {
                 topY: profile.frame.maxY - hoverVisibleSize.height,
                 in: profile.frame
             ),
-            expandedFrame: topAttachedOuterFrame(
-                outerSize: expandedOuterSize,
-                visibleHeight: expandedVisibleSize.height,
-                screenFrame: profile.frame
+            expandedFrame: OverlayPanelChromeMetrics.expandedOuterFrame(
+                for: expandedVisibleSize,
+                on: profile.frame
             ),
-            expandedVisibleFrame: centeredFrame(
-                size: expandedVisibleSize,
-                topY: profile.frame.maxY - expandedVisibleSize.height,
-                in: profile.frame
+            expandedVisibleFrame: OverlayPanelChromeMetrics.expandedVisibleFrame(
+                for: expandedVisibleSize,
+                on: profile.frame
             ),
             toastFrame: centeredFrame(size: toastSize, topY: profile.frame.maxY - toastSize.height - 12, in: profile.frame),
             hotzoneFrame: centeredFrame(size: hotzoneSize, topY: profile.frame.maxY - hotzoneSize.height, in: profile.frame),
@@ -88,10 +89,7 @@ struct AnchorGeometryCalculator {
         case .hardwareNotch:
             return notchMetrics.visibleSize
         case .simulatedNotch:
-            return CGSize(
-                width: notchMetrics.visibleSize.width + 9,
-                height: simulatedIdleHeight
-            )
+            return CGSize(width: simulatedIdleWidth, height: simulatedIdleHeight)
         case .centerHandler:
             return CGSize(width: 160, height: 32)
         }
@@ -103,8 +101,8 @@ struct AnchorGeometryCalculator {
             return notchMetrics.visibleSize
         case .simulatedNotch:
             return CGSize(
-                width: max(baseHotzoneSize.width, notchMetrics.visibleSize.width + 75),
-                height: max(baseHotzoneSize.height, simulatedIdleHeight)
+                width: OverlayPanelChromeMetrics.hoverBodySize.width,
+                height: OverlayPanelChromeMetrics.hoverBodySize.height
             )
         case .centerHandler:
             return baseHotzoneSize
@@ -138,11 +136,12 @@ struct AnchorGeometryCalculator {
     private func topAttachedOuterFrame(
         outerSize: CGSize,
         visibleHeight: CGFloat,
+        bottomInset: CGFloat,
         screenFrame: CGRect
     ) -> CGRect {
         CGRect(
             x: screenFrame.midX - outerSize.width / 2,
-            y: screenFrame.maxY - visibleHeight - OverlayPanelChromeMetrics.shadowBottomInset,
+            y: screenFrame.maxY - visibleHeight - bottomInset,
             width: outerSize.width,
             height: outerSize.height
         )

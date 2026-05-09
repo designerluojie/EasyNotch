@@ -67,7 +67,7 @@ struct OverlayPanelRootView: View {
                     .fill(Color.black)
                     .frame(
                         width: simulatedIdlePreviewWidth,
-                        height: panelModel.geometry?.idleVisibleHeight ?? 4
+                        height: panelModel.geometry?.idleVisibleHeight ?? 6
                     )
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -108,52 +108,31 @@ struct OverlayPanelRootView: View {
     }
 
     private var expandedBody: some View {
-        ZStack(alignment: .topLeading) {
-            Color.clear
+        let bodySize = compositionRoot.panelBodySize(for: compositionRoot.activeModule)
 
-            FigmaExpandedNotchShellShape()
-                .fill(Color.black)
-                .frame(width: expandedBodyFrame.width, height: expandedBodyFrame.height)
-                .shadow(
-                    color: .black.opacity(OverlayPanelChromeMetrics.shadowColorOpacity),
-                    radius: OverlayPanelChromeMetrics.shadowRadius,
-                    y: OverlayPanelChromeMetrics.shadowYOffset
-                )
-                .offset(x: expandedBodyFrame.minX, y: expandedBodyFrame.minY)
-
-            PanelShellView(compositionRoot: compositionRoot)
-                .foregroundStyle(.white.opacity(0.9))
-                .frame(width: expandedBodyFrame.width, height: expandedBodyFrame.height)
-                .clipShape(FigmaExpandedNotchShellShape())
-                .offset(x: expandedBodyFrame.minX, y: expandedBodyFrame.minY)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        return AnimatedExpandedChromeView(
+            compositionRoot: compositionRoot,
+            bodySize: bodySize,
+            animateFromHover: panelModel.previousState?.isHoverHint == true
+        )
     }
 
     private var simulatedIdlePreviewWidth: CGFloat {
-        (panelModel.geometry?.notchMetrics.visibleSize.width ?? 185) + 9
+        panelModel.geometry?.idleFrame.width ?? 192
     }
 
     private var hoverBodyFrame: CGRect {
-        OverlayPanelChromeMetrics.hoverBodyFrame(
-            for: panelModel.geometry?.notchMetrics ?? .fallback
-        )
-    }
-
-    private var expandedBodyFrame: CGRect {
-        OverlayPanelChromeMetrics.expandedBodyFrame
+        OverlayPanelChromeMetrics.hoverBodyFrame
     }
 
     private var hoverInitialScale: CGSize {
-        let hoverSize = OverlayPanelChromeMetrics.hoverBodySize(
-            for: panelModel.geometry?.notchMetrics ?? .fallback
-        )
+        let hoverSize = OverlayPanelChromeMetrics.hoverBodySize
 
         switch panelModel.geometry?.anchorKind {
         case .simulatedNotch:
             return CGSize(
                 width: simulatedIdlePreviewWidth / hoverSize.width,
-                height: max(0.1, (panelModel.geometry?.idleVisibleHeight ?? 4) / hoverSize.height)
+                height: max(0.1, (panelModel.geometry?.idleVisibleHeight ?? 6) / hoverSize.height)
             )
         case .hardwareNotch:
             let notchSize = panelModel.geometry?.notchMetrics.visibleSize ?? .zero
@@ -297,9 +276,9 @@ private struct AnimatedHoverChromeButton: View {
                         anchor: .top
                     )
                     .shadow(
-                        color: .black.opacity(OverlayPanelChromeMetrics.shadowColorOpacity),
-                        radius: OverlayPanelChromeMetrics.shadowRadius,
-                        y: OverlayPanelChromeMetrics.shadowYOffset
+                        color: .black.opacity(OverlayPanelChromeMetrics.hoverShadowColorOpacity),
+                        radius: OverlayPanelChromeMetrics.hoverShadowRadius,
+                        y: OverlayPanelChromeMetrics.hoverShadowYOffset
                     )
                     .offset(x: bodyFrame.minX, y: bodyFrame.minY)
             }
@@ -309,9 +288,68 @@ private struct AnimatedHoverChromeButton: View {
         .buttonStyle(.plain)
         .onAppear {
             currentScale = initialScale
-            withAnimation(.easeInOut(duration: OverlayPanelChromeMetrics.transitionDuration)) {
+            withAnimation(.easeOut(duration: OverlayPanelChromeMetrics.transitionDuration)) {
                 currentScale = CGSize(width: 1, height: 1)
             }
         }
+    }
+}
+
+private struct AnimatedExpandedChromeView: View {
+    @ObservedObject var compositionRoot: AppCompositionRoot
+    let bodySize: CGSize
+    let animateFromHover: Bool
+
+    @State private var expansionProgress: CGFloat = 1
+
+    var body: some View {
+        let finalBodyFrame = OverlayPanelChromeMetrics.expandedBodyFrame(for: bodySize)
+        let startBodyFrame = OverlayPanelChromeMetrics.expandedAnimationStartFrame(for: bodySize)
+        let bodyFrame = interpolatedFrame(from: startBodyFrame, to: finalBodyFrame, progress: expansionProgress)
+
+        return ZStack(alignment: .topLeading) {
+            Color.clear
+
+            FigmaExpandedNotchShellShape()
+                .fill(Color.black)
+                .frame(width: bodyFrame.width, height: bodyFrame.height)
+                .shadow(
+                    color: .black.opacity(OverlayPanelChromeMetrics.expandedShadowColorOpacity),
+                    radius: OverlayPanelChromeMetrics.expandedShadowRadius,
+                    y: OverlayPanelChromeMetrics.expandedShadowYOffset
+                )
+                .offset(x: bodyFrame.minX, y: bodyFrame.minY)
+
+            PanelShellView(compositionRoot: compositionRoot)
+                .foregroundStyle(.white.opacity(0.9))
+                .frame(width: bodyFrame.width, height: bodyFrame.height)
+                .clipShape(FigmaExpandedNotchShellShape())
+                .opacity(Double(max(0, min(1, (expansionProgress - 0.7) / 0.3))))
+                .offset(x: bodyFrame.minX, y: bodyFrame.minY)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .onAppear {
+            if animateFromHover {
+                expansionProgress = 0
+                withAnimation(.easeOut(duration: OverlayPanelChromeMetrics.transitionDuration)) {
+                    expansionProgress = 1
+                }
+            } else {
+                expansionProgress = 1
+            }
+        }
+    }
+
+    private func interpolatedFrame(from start: CGRect, to end: CGRect, progress: CGFloat) -> CGRect {
+        CGRect(
+            x: interpolatedCGFloat(from: start.minX, to: end.minX, progress: progress),
+            y: interpolatedCGFloat(from: start.minY, to: end.minY, progress: progress),
+            width: interpolatedCGFloat(from: start.width, to: end.width, progress: progress),
+            height: interpolatedCGFloat(from: start.height, to: end.height, progress: progress)
+        )
+    }
+
+    private func interpolatedCGFloat(from start: CGFloat, to end: CGFloat, progress: CGFloat) -> CGFloat {
+        start + ((end - start) * progress)
     }
 }

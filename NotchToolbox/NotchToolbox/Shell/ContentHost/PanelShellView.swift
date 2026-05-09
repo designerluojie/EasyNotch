@@ -19,8 +19,8 @@ struct PanelShellView: View {
 
                 ContentHostView(compositionRoot: compositionRoot)
                     .padding(.horizontal, 22)
-                    .padding(.top, 9)
-                    .padding(.bottom, 16)
+                    .padding(.top, 15)
+                    .padding(.bottom, 15)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 

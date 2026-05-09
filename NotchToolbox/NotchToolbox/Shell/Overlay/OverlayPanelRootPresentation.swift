@@ -8,53 +8,73 @@ nonisolated enum OverlayPanelRootVisualState: Equatable {
 }
 
 nonisolated enum OverlayPanelChromeMetrics {
-    static let transitionDuration: Double = 0.15
-    static let shadowColorOpacity: Double = 0.25
-    static let shadowRadius: CGFloat = 24
-    static let shadowYOffset: CGFloat = 8
-    static let shadowTopInset: CGFloat = max(0, shadowRadius - shadowYOffset)
-    static let shadowHorizontalInset: CGFloat = 24
-    static let shadowBottomInset: CGFloat = 32
-    static let expandedBodySize = CGSize(width: 580, height: 280)
+    static let transitionDuration: Double = 0.2
+    static let hoverShadowColorOpacity: Double = 0.25
+    static let hoverShadowRadius: CGFloat = 16
+    static let hoverShadowYOffset: CGFloat = 8
+    static let hoverOuterSize = CGSize(width: 300, height: 120)
+    static let hoverBodySize = CGSize(width: 193, height: 40)
+    static let hoverHorizontalInset: CGFloat = (hoverOuterSize.width - hoverBodySize.width) / 2
+    static let hoverVerticalInset: CGFloat = (hoverOuterSize.height - hoverBodySize.height) / 2
 
-    static func hoverBodySize(for notchMetrics: NotchMetrics) -> CGSize {
-        CGSize(
-            width: notchMetrics.visibleSize.width + 9,
-            height: notchMetrics.visibleSize.height + 8
-        )
-    }
+    static let expandedShadowColorOpacity: Double = 0.3
+    static let expandedShadowRadius: CGFloat = 24
+    static let expandedShadowYOffset: CGFloat = 8
+    static let expandedOuterScale: CGFloat = 1.2
 
-    static func hoverOuterSize(for notchMetrics: NotchMetrics) -> CGSize {
-        let bodySize = hoverBodySize(for: notchMetrics)
-        return CGSize(
-            width: bodySize.width + shadowHorizontalInset * 2,
-            height: bodySize.height + shadowTopInset + shadowBottomInset
-        )
-    }
-
-    static var expandedOuterSize: CGSize {
-        CGSize(
-            width: expandedBodySize.width + shadowHorizontalInset * 2,
-            height: expandedBodySize.height + shadowTopInset + shadowBottomInset
-        )
-    }
-
-    static func hoverBodyFrame(for notchMetrics: NotchMetrics) -> CGRect {
-        let bodySize = hoverBodySize(for: notchMetrics)
+    static var hoverBodyFrame: CGRect {
         return CGRect(
-            x: shadowHorizontalInset,
-            y: shadowTopInset,
+            x: hoverHorizontalInset,
+            y: hoverVerticalInset,
+            width: hoverBodySize.width,
+            height: hoverBodySize.height
+        )
+    }
+
+    static func expandedOuterSize(for bodySize: CGSize) -> CGSize {
+        CGSize(
+            width: bodySize.width * expandedOuterScale,
+            height: bodySize.height * expandedOuterScale
+        )
+    }
+
+    static func expandedBodyFrame(for bodySize: CGSize) -> CGRect {
+        let outerSize = expandedOuterSize(for: bodySize)
+        return CGRect(
+            x: (outerSize.width - bodySize.width) / 2,
+            y: (outerSize.height - bodySize.height) / 2,
             width: bodySize.width,
             height: bodySize.height
         )
     }
 
-    static var expandedBodyFrame: CGRect {
+    static func expandedAnimationStartFrame(for bodySize: CGSize) -> CGRect {
+        let finalBodyFrame = expandedBodyFrame(for: bodySize)
+        return CGRect(
+            x: finalBodyFrame.midX - hoverBodySize.width / 2,
+            y: finalBodyFrame.minY,
+            width: hoverBodySize.width,
+            height: hoverBodySize.height
+        )
+    }
+
+    static func expandedVisibleFrame(for bodySize: CGSize, on screenFrame: CGRect) -> CGRect {
         CGRect(
-            x: shadowHorizontalInset,
-            y: shadowTopInset,
-            width: expandedBodySize.width,
-            height: expandedBodySize.height
+            x: screenFrame.midX - bodySize.width / 2,
+            y: screenFrame.maxY - bodySize.height,
+            width: bodySize.width,
+            height: bodySize.height
+        )
+    }
+
+    static func expandedOuterFrame(for bodySize: CGSize, on screenFrame: CGRect) -> CGRect {
+        let outerSize = expandedOuterSize(for: bodySize)
+        let bodyFrame = expandedBodyFrame(for: bodySize)
+        return CGRect(
+            x: screenFrame.midX - outerSize.width / 2,
+            y: screenFrame.maxY - bodySize.height - bodyFrame.minY,
+            width: outerSize.width,
+            height: outerSize.height
         )
     }
 }
@@ -68,6 +88,37 @@ nonisolated struct OverlayPanelRootPresentation {
             return .hoverHint
         case .idle, .toast:
             return .idle
+        }
+    }
+
+    static func shouldAnimateWindowFrameTransition(from previousState: OverlayState, to nextState: OverlayState) -> Bool {
+        if previousState.isHoverHint && nextState.isExpandedLike {
+            return false
+        }
+
+        if previousState.isHoverHint || nextState.isHoverHint {
+            return nextState.isExpandedLike
+        }
+
+        return true
+    }
+}
+
+extension OverlayState {
+    nonisolated var isHoverHint: Bool {
+        if case .hoverHint = self {
+            return true
+        }
+
+        return false
+    }
+
+    nonisolated var isExpandedLike: Bool {
+        switch self {
+        case .expanded, .collapsing:
+            return true
+        default:
+            return false
         }
     }
 }
