@@ -5,14 +5,14 @@ struct OverlayPanelRootPresentationTests {
 
     @Test func collapsingUsesExpandedContentUntilTimeout() {
         #expect(
-            OverlayPanelRootPresentation.contentKind(
+            OverlayPanelRootPresentation.visualState(
                 for: .collapsing(screenID: "built-in", reason: .pointerExit)
             ) == .expanded
         )
     }
 
-    @Test func idleAndHoverUseCollapsedContent() {
-        #expect(OverlayPanelRootPresentation.contentKind(for: .idle(screenID: "built-in")) == .collapsed)
-        #expect(OverlayPanelRootPresentation.contentKind(for: .hoverHint(screenID: "built-in")) == .collapsed)
+    @Test func idleAndHoverUseDistinctVisualStates() {
+        #expect(OverlayPanelRootPresentation.visualState(for: .idle(screenID: "built-in")) == .idle)
+        #expect(OverlayPanelRootPresentation.visualState(for: .hoverHint(screenID: "built-in")) == .hoverHint)
     }
 }

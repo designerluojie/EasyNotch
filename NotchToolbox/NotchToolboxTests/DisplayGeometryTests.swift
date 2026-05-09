@@ -9,10 +9,10 @@ struct DisplayGeometryTests {
             id: "built-in",
             displayName: "Built-in Display",
             frame: CGRect(x: 0, y: 0, width: 1512, height: 982),
-            visibleFrame: CGRect(x: 0, y: 0, width: 1512, height: 945),
-            safeAreaInsets: ScreenInsets(top: 74, left: 0, bottom: 0, right: 0),
-            auxiliaryTopLeftArea: CGRect(x: 0, y: 908, width: 663, height: 74),
-            auxiliaryTopRightArea: CGRect(x: 849, y: 908, width: 663, height: 74),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1512, height: 949),
+            safeAreaInsets: ScreenInsets(top: 32, left: 0, bottom: 0, right: 0),
+            auxiliaryTopLeftArea: CGRect(x: 0, y: 950, width: 663, height: 32),
+            auxiliaryTopRightArea: CGRect(x: 848, y: 950, width: 664, height: 32),
             scaleFactor: 2,
             isBuiltIn: true
         )
@@ -25,6 +25,8 @@ struct DisplayGeometryTests {
         #expect(profile.kind == .builtInWithNotch)
         #expect(profile.supportsHardwareNotch)
         #expect(profile.shouldUseSimulatedNotch == false)
+        #expect(profile.notchMetrics?.visibleSize == CGSize(width: 185, height: 32))
+        #expect(profile.notchMetrics?.source == .hardware)
     }
 
     @Test func nonNotchBuiltInScreenCanUseSimulatedNotch() {
@@ -48,6 +50,7 @@ struct DisplayGeometryTests {
         #expect(profile.kind == .builtInWithoutNotch)
         #expect(profile.supportsHardwareNotch == false)
         #expect(profile.shouldUseSimulatedNotch)
+        #expect(profile.notchMetrics == nil)
     }
 
     @Test func simulatedNotchUsesShallowVisibleTriggerStrip() {
@@ -59,15 +62,18 @@ struct DisplayGeometryTests {
             visibleFrame: CGRect(x: 0, y: 0, width: 1920, height: 1055),
             scaleFactor: 2,
             supportsHardwareNotch: false,
-            shouldUseSimulatedNotch: true
+            shouldUseSimulatedNotch: true,
+            notchMetrics: nil
         )
 
         let geometry = AnchorGeometryCalculator().calculate(for: profile)
 
         #expect(geometry.anchorKind == .simulatedNotch)
-        #expect((3...6).contains(geometry.idleFrame.height))
-        #expect(geometry.idleFrame.width == 186)
-        #expect(geometry.hotzoneFrame.height > geometry.idleFrame.height)
+        #expect((3...6).contains(geometry.idleVisibleHeight.rounded(.toNearestOrAwayFromZero)))
+        #expect((193...194).contains(Int(geometry.idleFrame.width.rounded(.toNearestOrAwayFromZero))))
+        #expect(geometry.notchMetrics.visibleSize == CGSize(width: 185, height: 32))
+        #expect(geometry.notchMetrics.source == .fallback)
+        #expect(geometry.hotzoneFrame.height > geometry.idleVisibleHeight)
     }
 
     @Test func anchorGeometryUsesHardwareNotchWhenAvailable() {
@@ -76,18 +82,22 @@ struct DisplayGeometryTests {
             kind: .builtInWithNotch,
             displayName: "Built-in Display",
             frame: CGRect(x: 0, y: 0, width: 1512, height: 982),
-            visibleFrame: CGRect(x: 0, y: 0, width: 1512, height: 945),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1512, height: 949),
             scaleFactor: 2,
             supportsHardwareNotch: true,
-            shouldUseSimulatedNotch: false
+            shouldUseSimulatedNotch: false,
+            notchMetrics: NotchMetrics(visibleSize: CGSize(width: 185, height: 32), source: .hardware)
         )
 
         let geometry = AnchorGeometryCalculator().calculate(for: profile)
 
         #expect(geometry.anchorKind == .hardwareNotch)
         #expect(geometry.idleFrame.midX == profile.frame.midX)
-        #expect(geometry.hotzoneFrame.width > geometry.idleFrame.width)
+        #expect(geometry.idleFrame.width == 185)
+        #expect(geometry.hotzoneFrame.width == geometry.idleFrame.width)
+        #expect(geometry.hoverHintFrame.width > geometry.idleFrame.width)
         #expect(geometry.expandedFrame.width == 580)
+        #expect(geometry.notchMetrics.visibleSize == CGSize(width: 185, height: 32))
     }
 
     @Test func anchorGeometryFallsBackToCenterHandler() {
@@ -99,7 +109,8 @@ struct DisplayGeometryTests {
             visibleFrame: CGRect(x: 0, y: 0, width: 1920, height: 1055),
             scaleFactor: 2,
             supportsHardwareNotch: false,
-            shouldUseSimulatedNotch: false
+            shouldUseSimulatedNotch: false,
+            notchMetrics: nil
         )
 
         let geometry = AnchorGeometryCalculator().calculate(for: profile)
@@ -108,5 +119,27 @@ struct DisplayGeometryTests {
         #expect(geometry.idleFrame.width == 160)
         #expect(geometry.expandedFrame.width == 580)
         #expect(geometry.expandedFrame.midX == profile.frame.midX)
+        #expect(geometry.notchMetrics.visibleSize == CGSize(width: 185, height: 32))
+        #expect(geometry.notchMetrics.source == .fallback)
+    }
+
+    @Test func simulatedNotchBorrowsRealHardwareMetricsWhenProvided() {
+        let profile = ScreenProfile(
+            id: "external",
+            kind: .externalWithoutNotch,
+            displayName: "External Display",
+            frame: CGRect(x: 0, y: 0, width: 1920, height: 1080),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1920, height: 1055),
+            scaleFactor: 2,
+            supportsHardwareNotch: false,
+            shouldUseSimulatedNotch: true,
+            notchMetrics: NotchMetrics(visibleSize: CGSize(width: 205, height: 36), source: .borrowedHardware)
+        )
+
+        let geometry = AnchorGeometryCalculator().calculate(for: profile)
+
+        #expect(geometry.anchorKind == .simulatedNotch)
+        #expect(geometry.notchMetrics.visibleSize == CGSize(width: 205, height: 36))
+        #expect(geometry.notchMetrics.source == .borrowedHardware)
     }
 }

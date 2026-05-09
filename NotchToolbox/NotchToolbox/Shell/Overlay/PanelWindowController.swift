@@ -9,6 +9,8 @@ final class PanelWindowController: OverlayPanelPresenting {
     let panel: NSPanel
 
     private let hostingView: NSHostingView<OverlayPanelRootView>
+    private var localMouseMonitor: Any?
+    private var globalMouseMonitor: Any?
 
     init(
         compositionRoot: AppCompositionRoot,
@@ -36,6 +38,7 @@ final class PanelWindowController: OverlayPanelPresenting {
     }
 
     func present(state: OverlayState, geometry: TopAnchorGeometry) {
+        panelModel.geometry = geometry
         panelModel.state = state
         panel.setFrame(frame(for: state, geometry: geometry), display: true)
         panel.orderFrontRegardless()
@@ -60,6 +63,7 @@ final class PanelWindowController: OverlayPanelPresenting {
         panel.isReleasedWhenClosed = false
         panel.acceptsMouseMovedEvents = true
         panel.contentView = hostingView
+        installDismissMonitors()
     }
 
     private func frame(for state: OverlayState, geometry: TopAnchorGeometry) -> NSRect {
@@ -67,13 +71,47 @@ final class PanelWindowController: OverlayPanelPresenting {
         case .expanded:
             geometry.expandedFrame
         case .hoverHint:
-            geometry.idleFrame
+            geometry.hoverHintFrame
         case .toast:
             geometry.toastFrame
         case .collapsing:
             geometry.expandedFrame
         case .idle:
             geometry.idleFrame
+        }
+    }
+
+    @discardableResult
+    func handleGlobalMouseDown(at screenPoint: CGPoint) -> Bool {
+        guard case .expanded(let screenID, _) = panelModel.state,
+              panel.isVisible,
+              panel.frame.contains(screenPoint) == false else {
+            return false
+        }
+
+        interactions.collapse(screenID: screenID)
+        return true
+    }
+
+    private func installDismissMonitors() {
+        let mask: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+
+        localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
+            self?.handleGlobalMouseDown(at: NSEvent.mouseLocation)
+            return event
+        }
+
+        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] _ in
+            self?.handleGlobalMouseDown(at: NSEvent.mouseLocation)
+        }
+    }
+
+    deinit {
+        if let localMouseMonitor {
+            NSEvent.removeMonitor(localMouseMonitor)
+        }
+        if let globalMouseMonitor {
+            NSEvent.removeMonitor(globalMouseMonitor)
         }
     }
 }
