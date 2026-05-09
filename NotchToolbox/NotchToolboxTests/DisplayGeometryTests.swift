@@ -95,8 +95,16 @@ struct DisplayGeometryTests {
         #expect(geometry.idleFrame.midX == profile.frame.midX)
         #expect(geometry.idleFrame.width == 185)
         #expect(geometry.hotzoneFrame.width == geometry.idleFrame.width)
-        #expect(geometry.hoverHintFrame.width > geometry.idleFrame.width)
-        #expect(geometry.expandedFrame.width == 580)
+        #expect(geometry.hoverHintFrame.width == 242)
+        #expect(geometry.hoverHintFrame.height == 72)
+        #expect(geometry.hoverHintVisibleFrame.width == 194)
+        #expect(geometry.hoverHintVisibleFrame.height == 40)
+        #expect(geometry.hoverHintVisibleFrame.maxY == profile.frame.maxY)
+        #expect(geometry.expandedFrame.width == 628)
+        #expect(geometry.expandedFrame.height == 312)
+        #expect(geometry.expandedVisibleFrame.width == 580)
+        #expect(geometry.expandedVisibleFrame.height == 280)
+        #expect(geometry.expandedVisibleFrame.maxY == profile.frame.maxY)
         #expect(geometry.notchMetrics.visibleSize == CGSize(width: 185, height: 32))
     }
 
@@ -117,7 +125,8 @@ struct DisplayGeometryTests {
 
         #expect(geometry.anchorKind == .centerHandler)
         #expect(geometry.idleFrame.width == 160)
-        #expect(geometry.expandedFrame.width == 580)
+        #expect(geometry.expandedFrame.width == 628)
+        #expect(geometry.expandedVisibleFrame.width == 580)
         #expect(geometry.expandedFrame.midX == profile.frame.midX)
         #expect(geometry.notchMetrics.visibleSize == CGSize(width: 185, height: 32))
         #expect(geometry.notchMetrics.source == .fallback)

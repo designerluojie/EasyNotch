@@ -6,18 +6,35 @@ struct OverlayPanelRootView: View {
     @ObservedObject var interactions: OverlayPanelInteractions
 
     var body: some View {
-        Group {
-            switch OverlayPanelRootPresentation.visualState(for: panelModel.state) {
-            case .idle:
+        let visualState = OverlayPanelRootPresentation.visualState(for: panelModel.state)
+
+        ZStack(alignment: .top) {
+            if visualState == .idle {
                 idleBody
-            case .hoverHint:
+                    .transition(.opacity)
+            }
+
+            if visualState == .hoverHint {
                 hoverHintBody
-            case .expanded:
+                    .transition(chromeTransition)
+            }
+
+            if visualState == .expanded {
                 expandedBody
+                    .transition(chromeTransition)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .preferredColorScheme(.dark)
         .contentShape(Rectangle())
+        .animation(
+            .easeInOut(duration: OverlayPanelChromeMetrics.transitionDuration),
+            value: visualState
+        )
+        .animation(
+            .easeInOut(duration: OverlayPanelChromeMetrics.transitionDuration),
+            value: panelModel.geometry?.notchMetrics.visibleSize
+        )
         .onHover { isInside in
             if isInside {
                 interactions.pointerEntered(screenID: panelModel.screenID)
@@ -96,41 +113,64 @@ struct OverlayPanelRootView: View {
         Button {
             interactions.expand(screenID: panelModel.screenID)
         } label: {
-            ZStack(alignment: .top) {
+            ZStack(alignment: .topLeading) {
                 Color.clear
 
-                FloatingNotchShape(topCornerRadius: 4, bottomCornerRadius: 12)
+                FigmaHoverNotchShape()
                     .fill(Color.black)
-                    .frame(width: hoverPreviewWidth, height: hoverPreviewHeight)
-                    .shadow(color: .black.opacity(0.25), radius: 12, y: 8)
+                    .frame(width: hoverBodyFrame.width, height: hoverBodyFrame.height)
+                    .shadow(
+                        color: .black.opacity(OverlayPanelChromeMetrics.shadowColorOpacity),
+                        radius: OverlayPanelChromeMetrics.shadowRadius,
+                        y: OverlayPanelChromeMetrics.shadowYOffset
+                    )
+                    .offset(x: hoverBodyFrame.minX, y: hoverBodyFrame.minY)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
 
     private var expandedBody: some View {
-        PanelShellView(compositionRoot: compositionRoot)
-            .foregroundStyle(.white.opacity(0.9))
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(
-                ExpandedNotchShellShape(topCornerRadius: 12, bottomCornerRadius: 36)
-                    .fill(Color.black)
-                    .shadow(color: .black.opacity(0.25), radius: 36, y: 24)
-            )
+        ZStack(alignment: .topLeading) {
+            Color.clear
+
+            ExpandedNotchShellShape(topCornerRadius: 12, bottomCornerRadius: 36)
+                .fill(Color.black)
+                .frame(width: expandedBodyFrame.width, height: expandedBodyFrame.height)
+                .shadow(
+                    color: .black.opacity(OverlayPanelChromeMetrics.shadowColorOpacity),
+                    radius: OverlayPanelChromeMetrics.shadowRadius,
+                    y: OverlayPanelChromeMetrics.shadowYOffset
+                )
+                .offset(x: expandedBodyFrame.minX, y: expandedBodyFrame.minY)
+
+            PanelShellView(compositionRoot: compositionRoot)
+                .foregroundStyle(.white.opacity(0.9))
+                .frame(width: expandedBodyFrame.width, height: expandedBodyFrame.height)
+                .clipShape(ExpandedNotchShellShape(topCornerRadius: 12, bottomCornerRadius: 36))
+                .offset(x: expandedBodyFrame.minX, y: expandedBodyFrame.minY)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private var simulatedIdlePreviewWidth: CGFloat {
         (panelModel.geometry?.notchMetrics.visibleSize.width ?? 185) + 9
     }
 
-    private var hoverPreviewWidth: CGFloat {
-        simulatedIdlePreviewWidth
+    private var hoverBodyFrame: CGRect {
+        OverlayPanelChromeMetrics.hoverBodyFrame(
+            for: panelModel.geometry?.notchMetrics ?? .fallback
+        )
     }
 
-    private var hoverPreviewHeight: CGFloat {
-        (panelModel.geometry?.notchMetrics.visibleSize.height ?? 32) + 8
+    private var expandedBodyFrame: CGRect {
+        OverlayPanelChromeMetrics.expandedBodyFrame
+    }
+
+    private var chromeTransition: AnyTransition {
+        .opacity.combined(with: .scale(scale: 0.96, anchor: .top))
     }
 }
 
@@ -154,16 +194,41 @@ private struct ShallowAttachedNotchShape: Shape {
     }
 }
 
-private struct FloatingNotchShape: Shape {
-    let topCornerRadius: CGFloat
-    let bottomCornerRadius: CGFloat
+private struct FigmaHoverNotchShape: Shape {
+    private let referenceSize = CGSize(width: 194, height: 40)
 
     func path(in rect: CGRect) -> Path {
-        unevenRoundedPath(
-            in: rect,
-            topCornerRadius: topCornerRadius,
-            bottomCornerRadius: bottomCornerRadius
+        var path = Path()
+        path.move(to: .zero)
+        path.addLine(to: CGPoint(x: 194, y: 0))
+        path.addCurve(
+            to: CGPoint(x: 190, y: 4),
+            control1: CGPoint(x: 191.791, y: 0),
+            control2: CGPoint(x: 190, y: 1.7909)
         )
+        path.addLine(to: CGPoint(x: 190, y: 28))
+        path.addCurve(
+            to: CGPoint(x: 178, y: 40),
+            control1: CGPoint(x: 190, y: 34.6274),
+            control2: CGPoint(x: 184.627, y: 40)
+        )
+        path.addLine(to: CGPoint(x: 16, y: 40))
+        path.addCurve(
+            to: CGPoint(x: 4, y: 28),
+            control1: CGPoint(x: 9.3725, y: 40),
+            control2: CGPoint(x: 4, y: 34.6274)
+        )
+        path.addLine(to: CGPoint(x: 4, y: 4))
+        path.addCurve(
+            to: CGPoint(x: 0, y: 0),
+            control1: CGPoint(x: 4, y: 1.7908),
+            control2: CGPoint(x: 2.2091, y: 0)
+        )
+        path.closeSubpath()
+
+        let transform = CGAffineTransform(translationX: rect.minX, y: rect.minY)
+            .scaledBy(x: rect.width / referenceSize.width, y: rect.height / referenceSize.height)
+        return path.applying(transform)
     }
 }
 

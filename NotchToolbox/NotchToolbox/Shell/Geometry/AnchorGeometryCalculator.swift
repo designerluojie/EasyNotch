@@ -13,7 +13,9 @@ struct TopAnchorGeometry: Equatable {
     let notchMetrics: NotchMetrics
     let idleFrame: CGRect
     let hoverHintFrame: CGRect
+    let hoverHintVisibleFrame: CGRect
     let expandedFrame: CGRect
+    let expandedVisibleFrame: CGRect
     let toastFrame: CGRect
     let hotzoneFrame: CGRect
     let safeTopInset: CGFloat
@@ -21,8 +23,6 @@ struct TopAnchorGeometry: Equatable {
 }
 
 struct AnchorGeometryCalculator {
-    private let minimumHoverFrameSize = CGSize(width: 220, height: 44)
-    private let expandedSize = CGSize(width: 580, height: 280)
     private let toastSize = CGSize(width: 320, height: 52)
     private let baseHotzoneSize = CGSize(width: 260, height: 32)
     private let simulatedIdleHeight: CGFloat = 34
@@ -34,15 +34,36 @@ struct AnchorGeometryCalculator {
         let idleSize = idleSize(for: anchorKind, notchMetrics: notchMetrics)
         let topY = profile.frame.maxY - idleSize.height
         let hotzoneSize = hotzoneSize(for: anchorKind, notchMetrics: notchMetrics)
-        let hoverSize = hoverSize(for: notchMetrics)
+        let hoverVisibleSize = OverlayPanelChromeMetrics.hoverBodySize(for: notchMetrics)
+        let hoverOuterSize = OverlayPanelChromeMetrics.hoverOuterSize(for: notchMetrics)
+        let expandedVisibleSize = OverlayPanelChromeMetrics.expandedBodySize
+        let expandedOuterSize = OverlayPanelChromeMetrics.expandedOuterSize
 
         return TopAnchorGeometry(
             screenID: profile.id,
             anchorKind: anchorKind,
             notchMetrics: notchMetrics,
             idleFrame: centeredFrame(size: idleSize, topY: topY, in: profile.frame),
-            hoverHintFrame: centeredFrame(size: hoverSize, topY: profile.frame.maxY - hoverSize.height, in: profile.frame),
-            expandedFrame: centeredFrame(size: expandedSize, topY: profile.frame.maxY - expandedSize.height, in: profile.frame),
+            hoverHintFrame: centeredFrame(
+                size: hoverOuterSize,
+                topY: profile.frame.maxY - hoverOuterSize.height,
+                in: profile.frame
+            ),
+            hoverHintVisibleFrame: centeredFrame(
+                size: hoverVisibleSize,
+                topY: profile.frame.maxY - hoverVisibleSize.height,
+                in: profile.frame
+            ),
+            expandedFrame: centeredFrame(
+                size: expandedOuterSize,
+                topY: profile.frame.maxY - expandedOuterSize.height,
+                in: profile.frame
+            ),
+            expandedVisibleFrame: centeredFrame(
+                size: expandedVisibleSize,
+                topY: profile.frame.maxY - expandedVisibleSize.height,
+                in: profile.frame
+            ),
             toastFrame: centeredFrame(size: toastSize, topY: profile.frame.maxY - toastSize.height - 12, in: profile.frame),
             hotzoneFrame: centeredFrame(size: hotzoneSize, topY: profile.frame.maxY - hotzoneSize.height, in: profile.frame),
             safeTopInset: safeTopInset(for: profile, notchMetrics: notchMetrics),
@@ -74,13 +95,6 @@ struct AnchorGeometryCalculator {
         case .centerHandler:
             return CGSize(width: 160, height: 32)
         }
-    }
-
-    private func hoverSize(for notchMetrics: NotchMetrics) -> CGSize {
-        CGSize(
-            width: max(minimumHoverFrameSize.width, notchMetrics.visibleSize.width + 36),
-            height: max(minimumHoverFrameSize.height, notchMetrics.visibleSize.height + 24)
-        )
     }
 
     private func hotzoneSize(for anchorKind: TopAnchorKind, notchMetrics: NotchMetrics) -> CGSize {
