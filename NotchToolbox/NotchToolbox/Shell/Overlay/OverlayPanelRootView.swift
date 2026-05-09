@@ -47,34 +47,12 @@ struct OverlayPanelRootView: View {
     }
 
     private var expandedBody: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("NotchToolbox")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.92))
-
-                Spacer()
-
-                Button {
-                    interactions.collapse(screenID: panelModel.screenID)
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.82))
-                        .frame(width: 24, height: 24)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, 18)
-            .padding(.top, 14)
-
-            ContentHostView(compositionRoot: compositionRoot)
-                .foregroundStyle(.white.opacity(0.9))
-        }
+        PanelShellView(compositionRoot: compositionRoot)
+            .foregroundStyle(.white.opacity(0.9))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Color.black.opacity(0.9))
+                .fill(Color.black.opacity(0.92))
         )
     }
 }
