@@ -44,20 +44,20 @@ struct AnchorGeometryCalculator {
             anchorKind: anchorKind,
             notchMetrics: notchMetrics,
             idleFrame: centeredFrame(size: idleSize, topY: topY, in: profile.frame),
-            hoverHintFrame: centeredFrame(
-                size: hoverOuterSize,
-                topY: profile.frame.maxY - hoverOuterSize.height,
-                in: profile.frame
+            hoverHintFrame: topAttachedOuterFrame(
+                outerSize: hoverOuterSize,
+                visibleHeight: hoverVisibleSize.height,
+                screenFrame: profile.frame
             ),
             hoverHintVisibleFrame: centeredFrame(
                 size: hoverVisibleSize,
                 topY: profile.frame.maxY - hoverVisibleSize.height,
                 in: profile.frame
             ),
-            expandedFrame: centeredFrame(
-                size: expandedOuterSize,
-                topY: profile.frame.maxY - expandedOuterSize.height,
-                in: profile.frame
+            expandedFrame: topAttachedOuterFrame(
+                outerSize: expandedOuterSize,
+                visibleHeight: expandedVisibleSize.height,
+                screenFrame: profile.frame
             ),
             expandedVisibleFrame: centeredFrame(
                 size: expandedVisibleSize,
@@ -132,6 +132,19 @@ struct AnchorGeometryCalculator {
             y: topY,
             width: size.width,
             height: size.height
+        )
+    }
+
+    private func topAttachedOuterFrame(
+        outerSize: CGSize,
+        visibleHeight: CGFloat,
+        screenFrame: CGRect
+    ) -> CGRect {
+        CGRect(
+            x: screenFrame.midX - outerSize.width / 2,
+            y: screenFrame.maxY - visibleHeight - OverlayPanelChromeMetrics.shadowBottomInset,
+            width: outerSize.width,
+            height: outerSize.height
         )
     }
 }

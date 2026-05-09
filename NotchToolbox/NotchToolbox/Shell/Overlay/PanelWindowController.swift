@@ -39,10 +39,11 @@ final class PanelWindowController: OverlayPanelPresenting {
 
     func present(state: OverlayState, geometry: TopAnchorGeometry) {
         let targetFrame = frame(for: state, geometry: geometry)
+        let previousState = panelModel.state
         panelModel.geometry = geometry
         panelModel.state = state
 
-        if panel.isVisible {
+        if panel.isVisible, shouldAnimateFrameTransition(from: previousState, to: state) {
             animatePanelFrame(to: targetFrame)
         } else {
             panel.setFrame(targetFrame, display: true)
@@ -155,6 +156,14 @@ final class PanelWindowController: OverlayPanelPresenting {
         return window.convertPoint(toScreen: event.locationInWindow)
     }
 
+    private func shouldAnimateFrameTransition(from previousState: OverlayState, to nextState: OverlayState) -> Bool {
+        if previousState.isHoverHint || nextState.isHoverHint {
+            return nextState.isExpandedLike
+        }
+
+        return true
+    }
+
     deinit {
         if let localMouseMonitor {
             NSEvent.removeMonitor(localMouseMonitor)
@@ -172,5 +181,24 @@ private final class NotchPanel: NSPanel {
 
     override var canBecomeMain: Bool {
         false
+    }
+}
+
+private extension OverlayState {
+    var isHoverHint: Bool {
+        if case .hoverHint = self {
+            return true
+        }
+
+        return false
+    }
+
+    var isExpandedLike: Bool {
+        switch self {
+        case .expanded, .collapsing:
+            return true
+        default:
+            return false
+        }
     }
 }

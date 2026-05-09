@@ -12,6 +12,7 @@ nonisolated enum OverlayPanelChromeMetrics {
     static let shadowColorOpacity: Double = 0.25
     static let shadowRadius: CGFloat = 24
     static let shadowYOffset: CGFloat = 8
+    static let shadowTopInset: CGFloat = max(0, shadowRadius - shadowYOffset)
     static let shadowHorizontalInset: CGFloat = 24
     static let shadowBottomInset: CGFloat = 32
     static let expandedBodySize = CGSize(width: 580, height: 280)
@@ -27,14 +28,14 @@ nonisolated enum OverlayPanelChromeMetrics {
         let bodySize = hoverBodySize(for: notchMetrics)
         return CGSize(
             width: bodySize.width + shadowHorizontalInset * 2,
-            height: bodySize.height + shadowBottomInset
+            height: bodySize.height + shadowTopInset + shadowBottomInset
         )
     }
 
     static var expandedOuterSize: CGSize {
         CGSize(
             width: expandedBodySize.width + shadowHorizontalInset * 2,
-            height: expandedBodySize.height + shadowBottomInset
+            height: expandedBodySize.height + shadowTopInset + shadowBottomInset
         )
     }
 
@@ -42,7 +43,7 @@ nonisolated enum OverlayPanelChromeMetrics {
         let bodySize = hoverBodySize(for: notchMetrics)
         return CGRect(
             x: shadowHorizontalInset,
-            y: 0,
+            y: shadowTopInset,
             width: bodySize.width,
             height: bodySize.height
         )
@@ -51,7 +52,7 @@ nonisolated enum OverlayPanelChromeMetrics {
     static var expandedBodyFrame: CGRect {
         CGRect(
             x: shadowHorizontalInset,
-            y: 0,
+            y: shadowTopInset,
             width: expandedBodySize.width,
             height: expandedBodySize.height
         )
