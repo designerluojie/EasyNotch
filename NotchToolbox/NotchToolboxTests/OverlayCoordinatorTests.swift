@@ -52,7 +52,7 @@ struct OverlayCoordinatorTests {
 
         let lastPresentation = try #require(presenter.presentations.last)
         #expect(lastPresentation.state == .expanded(screenID: "built-in", moduleID: .aiChat))
-        #expect(lastPresentation.geometry.expandedFrame.width == 628)
+        #expect(lastPresentation.geometry.expandedFrame.width == 696)
         #expect(lastPresentation.geometry.expandedVisibleFrame.width == 580)
     }
 

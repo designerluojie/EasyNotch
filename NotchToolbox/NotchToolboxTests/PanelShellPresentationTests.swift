@@ -1,6 +1,8 @@
+import CoreGraphics
 import Testing
 @testable import NotchToolbox
 
+@MainActor
 struct PanelShellPresentationTests {
     @Test func primaryTabsMatchFigmaOrder() {
         #expect(PanelPrimaryTab.allCases.map(\.title) == ["音乐", "文件", "更多"])
@@ -23,5 +25,22 @@ struct PanelShellPresentationTests {
     @Test func moreMenuItemsAreStableForModuleBranches() {
         #expect(PanelMoreModuleItem.defaultItems.map(\.moduleID) == [.aiChat, .clipboard, .pomodoro])
         #expect(PanelMoreModuleItem.defaultItems.map(\.title) == ["AI Chat", "Clipboard", "Pomodoro"])
+    }
+
+    @Test func defaultExpandedBodySizesStayStablePerModule() {
+        #expect(PanelShellPresentation.bodySize(for: .music) == CGSize(width: 580, height: 280))
+        #expect(PanelShellPresentation.bodySize(for: .fileStash) == CGSize(width: 580, height: 280))
+        #expect(PanelShellPresentation.bodySize(for: .aiChat) == CGSize(width: 580, height: 280))
+    }
+
+    @Test func compositionRootOverrideCanResizeExpandedPanelPerModule() {
+        let compositionRoot = AppCompositionRoot(activeModule: .fileStash)
+
+        #expect(compositionRoot.panelBodySize(for: .fileStash) == CGSize(width: 580, height: 280))
+
+        compositionRoot.setPanelBodySize(CGSize(width: 640, height: 320), for: .fileStash)
+
+        #expect(compositionRoot.panelBodySize(for: .fileStash) == CGSize(width: 640, height: 320))
+        #expect(compositionRoot.panelBodySize(for: .music) == CGSize(width: 580, height: 280))
     }
 }
