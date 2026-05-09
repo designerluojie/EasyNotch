@@ -24,7 +24,7 @@ final class HotzoneController {
     private var pendingCollapseTasks: [String: any CancellableHotzoneTask] = [:]
 
     init(
-        collapseDelayNanoseconds: UInt64 = 1_000_000_000,
+        collapseDelayNanoseconds: UInt64 = 2_000_000_000,
         collapseScheduler: CollapseScheduler? = nil
     ) {
         self.collapseDelayNanoseconds = collapseDelayNanoseconds

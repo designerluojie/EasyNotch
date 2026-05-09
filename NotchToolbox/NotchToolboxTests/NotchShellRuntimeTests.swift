@@ -37,10 +37,10 @@ struct NotchShellRuntimeTests {
             id: id,
             displayName: "Built-in Display",
             frame: CGRect(x: 0, y: 0, width: 1512, height: 982),
-            visibleFrame: CGRect(x: 0, y: 0, width: 1512, height: 945),
-            safeAreaInsets: ScreenInsets(top: 74, left: 0, bottom: 0, right: 0),
-            auxiliaryTopLeftArea: CGRect(x: 0, y: 908, width: 663, height: 74),
-            auxiliaryTopRightArea: CGRect(x: 849, y: 908, width: 663, height: 74),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1512, height: 949),
+            safeAreaInsets: ScreenInsets(top: 32, left: 0, bottom: 0, right: 0),
+            auxiliaryTopLeftArea: CGRect(x: 0, y: 950, width: 663, height: 32),
+            auxiliaryTopRightArea: CGRect(x: 848, y: 950, width: 664, height: 32),
             scaleFactor: 2,
             isBuiltIn: true
         )

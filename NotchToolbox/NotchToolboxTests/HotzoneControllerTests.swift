@@ -43,16 +43,29 @@ struct HotzoneControllerTests {
             .pointerEntered(screenID: "main")
         ])
     }
+
+    @Test func defaultCollapseDelayIsTwoSeconds() {
+        let scheduler = ManualHotzoneCollapseScheduler()
+        let controller = HotzoneController(
+            collapseScheduler: scheduler.schedule(delayNanoseconds:action:)
+        )
+
+        controller.pointerExited(screenID: "main")
+
+        #expect(scheduler.recordedDelays == [2_000_000_000])
+    }
 }
 
 @MainActor
 private final class ManualHotzoneCollapseScheduler {
     private var tasks: [ManualHotzoneTask] = []
+    private(set) var recordedDelays: [UInt64] = []
 
     func schedule(
         delayNanoseconds: UInt64,
         action: @escaping @MainActor () -> Void
     ) -> any CancellableHotzoneTask {
+        recordedDelays.append(delayNanoseconds)
         let task = ManualHotzoneTask(action: action)
         tasks.append(task)
         return task

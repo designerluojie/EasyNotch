@@ -212,11 +212,22 @@ final class OverlayCoordinator {
     }
 
     private func refreshProfiles(primaryScreenID: String?) {
-        profiles = topologyProvider.currentSnapshots().map {
+        let resolvedProfiles = topologyProvider.currentSnapshots().map {
             profileResolver.resolve(
                 snapshot: $0,
                 simulateNotchOnNonNotchScreen: simulateNotchOnNonNotchScreen
             )
+        }
+        let borrowedHardwareNotchMetrics = resolvedProfiles
+            .first(where: \.supportsHardwareNotch)?
+            .notchMetrics?
+            .borrowedHardware()
+        profiles = resolvedProfiles.map { profile in
+            guard profile.shouldUseSimulatedNotch, profile.notchMetrics == nil else {
+                return profile
+            }
+
+            return profile.withNotchMetrics(borrowedHardwareNotchMetrics ?? NotchMetrics.fallback)
         }
 
         if let primaryScreenID, profiles.contains(where: { $0.id == primaryScreenID }) {
