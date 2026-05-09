@@ -23,8 +23,9 @@ struct OverlayPanelRootPresentationTests {
             source: .hardware
         )
 
+        #expect(OverlayPanelChromeMetrics.shadowTopInset == 16)
         #expect(OverlayPanelChromeMetrics.hoverBodySize(for: notchMetrics) == CGSize(width: 194, height: 40))
-        #expect(OverlayPanelChromeMetrics.hoverOuterSize(for: notchMetrics) == CGSize(width: 242, height: 72))
-        #expect(OverlayPanelChromeMetrics.expandedOuterSize == CGSize(width: 628, height: 312))
+        #expect(OverlayPanelChromeMetrics.hoverOuterSize(for: notchMetrics) == CGSize(width: 242, height: 88))
+        #expect(OverlayPanelChromeMetrics.expandedOuterSize == CGSize(width: 628, height: 328))
     }
 }
