@@ -148,4 +148,21 @@ xcodebuild test -project NotchToolbox/NotchToolbox.xcodeproj -scheme NotchToolbo
 
 ## 9. 解冻变更记录
 
-暂无。
+### 2026-05-09 Panel Shell 公共壳层
+
+原因：模块进入 UI 验收前，需要将展开面板拆分为公共宿主壳层与模块内容区，避免音乐、剪贴板、AI Chat 等模块重复绘制顶部 Tabs、设置入口和外层背景。
+
+允许变更范围：
+
+- `OverlayPanelRootView` 只保留展开/收起呈现入口、hover/collapse 行为和最外层黑色容器。
+- `PanelShellView`、`PanelHeaderView`、`ModuleTabBarView`、`PanelMoreModulesPopoverView`、`PanelSettingsPopoverView` 承接公共壳层 UI。
+- `ContentHostView` 收敛为模块内容插槽。
+
+仍不可变更：
+
+- `OverlayState`
+- `ModuleLifecycleEvent`
+- `NotchModuleContext`
+- `ModuleEnergyPolicy`
+- `EnergyGovernor`
+- 多屏窗口呈现和锚点几何语义
