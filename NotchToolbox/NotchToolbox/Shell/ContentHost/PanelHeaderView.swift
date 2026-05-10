@@ -7,6 +7,8 @@ struct PanelHeaderView: View {
     let onToggleMore: () -> Void
     let onToggleSettings: () -> Void
 
+    @State private var isSettingsHovered = false
+
     var body: some View {
         HStack(alignment: .top) {
             ModuleTabBarView(
@@ -25,16 +27,31 @@ struct PanelHeaderView: View {
                         .font(.system(size: 13, weight: .medium))
                 }
                 .foregroundStyle(.white)
-                .frame(width: 72, height: 31)
+                .frame(width: 56, height: 31)
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(isSettingsPresented ? Color.white.opacity(0.12) : Color.clear)
+                        .fill(settingsBackgroundColor)
                 )
             }
             .buttonStyle(.plain)
+            .onHover { isHovering in
+                isSettingsHovered = isHovering
+            }
         }
-        .frame(height: 37)
-        .padding(.top, 3)
-        .padding(.horizontal, 12)
+        .frame(height: 31)
+        .padding(.horizontal, 22)
+        .animation(.easeOut(duration: 0.12), value: isSettingsHovered)
+    }
+
+    private var settingsBackgroundColor: Color {
+        if isSettingsPresented {
+            return Color.white.opacity(0.12)
+        }
+
+        if isSettingsHovered {
+            return Color.white.opacity(0.1)
+        }
+
+        return .clear
     }
 }

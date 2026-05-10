@@ -31,9 +31,16 @@ struct PanelShellView: View {
                     onSelectModule: selectModule
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, 94)
+                .padding(.leading, 32)
                 .padding(.top, 38)
-                .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .topLeading)))
+                .transition(
+                    .asymmetric(
+                        insertion: .offset(y: -8)
+                            .combined(with: .opacity),
+                        removal: .offset(y: -4)
+                            .combined(with: .opacity)
+                    )
+                )
             }
 
             if isSettingsPresented {
@@ -44,7 +51,7 @@ struct PanelShellView: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .topTrailing)))
             }
         }
-        .animation(.easeOut(duration: 0.12), value: isMorePresented)
+        .animation(.timingCurve(0.22, 1.0, 0.36, 1.0, duration: 0.16), value: isMorePresented)
         .animation(.easeOut(duration: 0.12), value: isSettingsPresented)
     }
 
