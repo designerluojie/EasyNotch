@@ -216,6 +216,15 @@ struct PanelWindowControllerTests {
 
         try? await Task.sleep(nanoseconds: 400_000_000)
 
+        #expect(
+            controller.panel.frame == OverlayPanelChromeMetrics.expandedOuterFrame(
+                for: CGSize(width: 580, height: 280),
+                on: geometry.screenFrame
+            )
+        )
+
+        try? await Task.sleep(nanoseconds: 250_000_000)
+
         #expect(controller.panel.frame == geometry.idleFrame)
     }
 

@@ -22,6 +22,8 @@ struct OverlayPanelRootPresentationTests {
         #expect(OverlayPanelChromeMetrics.hoverShadowYOffset == 8)
         #expect(OverlayPanelChromeMetrics.transitionDuration == 0.2)
         #expect(OverlayPanelChromeMetrics.expandedTransitionDuration == 0.3)
+        #expect(OverlayPanelChromeMetrics.expandedCollapseSettlingDuration == 0.2)
+        #expect(OverlayPanelChromeMetrics.expandedCollapseTotalDuration == 0.5)
         #expect(OverlayPanelChromeMetrics.hoverBodySize == CGSize(width: 193, height: 40))
         #expect(OverlayPanelChromeMetrics.hoverOuterSize == CGSize(width: 300, height: 120))
         #expect(OverlayPanelChromeMetrics.hoverHorizontalInset == 53.5)
