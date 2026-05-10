@@ -22,8 +22,8 @@ struct OverlayPanelRootPresentationTests {
         #expect(OverlayPanelChromeMetrics.hoverShadowYOffset == 8)
         #expect(OverlayPanelChromeMetrics.transitionDuration == 0.2)
         #expect(OverlayPanelChromeMetrics.expandedTransitionDuration == 0.3)
-        #expect(OverlayPanelChromeMetrics.expandedCollapseSettlingDuration == 0.2)
-        #expect(OverlayPanelChromeMetrics.expandedCollapseTotalDuration == 0.5)
+        #expect(OverlayPanelChromeMetrics.expandedCollapseSettlingDuration == 0)
+        #expect(OverlayPanelChromeMetrics.expandedCollapseTotalDuration == 0.3)
         #expect(OverlayPanelChromeMetrics.hoverBodySize == CGSize(width: 193, height: 40))
         #expect(OverlayPanelChromeMetrics.hoverOuterSize == CGSize(width: 300, height: 120))
         #expect(OverlayPanelChromeMetrics.hoverHorizontalInset == 53.5)
@@ -54,6 +54,13 @@ struct OverlayPanelRootPresentationTests {
         #expect(OverlayPanelRootPresentation.expandedShadowOpacity(progress: 0) == 0)
         #expect(abs(OverlayPanelRootPresentation.expandedShadowOpacity(progress: 0.5) - 0.15) < 0.0001)
         #expect(OverlayPanelRootPresentation.expandedShadowOpacity(progress: 1) == OverlayPanelChromeMetrics.expandedShadowColorOpacity)
+    }
+
+    @Test func collapseBlendsExpandedShellIntoTargetNotchWithinSinglePass() {
+        #expect(OverlayPanelRootPresentation.collapseExpandedShellOpacity(progress: 1) == 1)
+        #expect(OverlayPanelRootPresentation.collapseExpandedShellOpacity(progress: 0) == 0)
+        #expect(OverlayPanelRootPresentation.collapseTargetNotchOpacity(progress: 1) == 0)
+        #expect(OverlayPanelRootPresentation.collapseTargetNotchOpacity(progress: 0) == 1)
     }
 
     @Test func expandingFromHoverSkipsWindowFrameAnimation() {
@@ -99,14 +106,26 @@ struct OverlayPanelRootPresentationTests {
             idleVisibleHeight: 0,
             notchMetrics: NotchMetrics(visibleSize: CGSize(width: 185, height: 32), source: .hardware)
         )
+        let hardwareWidth = OverlayPanelRootPresentation.collapseSettledWidth(
+            anchorKind: .hardwareNotch,
+            idleWidth: 0,
+            notchMetrics: NotchMetrics(visibleSize: CGSize(width: 185, height: 32), source: .hardware)
+        )
         let simulatedHeight = OverlayPanelRootPresentation.collapseSettledHeight(
             anchorKind: .simulatedNotch,
             idleVisibleHeight: 6,
             notchMetrics: nil
         )
+        let simulatedWidth = OverlayPanelRootPresentation.collapseSettledWidth(
+            anchorKind: .simulatedNotch,
+            idleWidth: 185,
+            notchMetrics: nil
+        )
 
         #expect(hardwareHeight == 32)
+        #expect(hardwareWidth == 185)
         #expect(simulatedHeight == 6)
+        #expect(simulatedWidth == 185)
     }
 
     @Test func variableHeightHoverNotchShapeAnimatesVisibleHeight() {
