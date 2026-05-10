@@ -255,19 +255,9 @@ private struct AnimatedHoverChromeButton: View {
             ZStack(alignment: .topLeading) {
                 Color.clear
 
-                FigmaHoverNotchShape()
+                VariableHeightHoverNotchShape(visibleHeight: currentVisibleHeight)
                     .fill(Color.black)
                     .frame(width: bodyFrame.width, height: bodyFrame.height)
-                    .mask(alignment: .top) {
-                        Rectangle()
-                            .frame(
-                                width: bodyFrame.width,
-                                height: OverlayPanelRootPresentation
-                                    .hoverRevealMaskFrame(visibleHeight: currentVisibleHeight)
-                                    .height,
-                                alignment: .top
-                            )
-                    }
                     .shadow(
                         color: .black.opacity(OverlayPanelChromeMetrics.hoverShadowColorOpacity),
                         radius: OverlayPanelChromeMetrics.hoverShadowRadius,
@@ -285,6 +275,56 @@ private struct AnimatedHoverChromeButton: View {
                 currentVisibleHeight = bodyFrame.height
             }
         }
+    }
+}
+
+struct VariableHeightHoverNotchShape: Shape {
+    var visibleHeight: CGFloat
+
+    var animatableData: CGFloat {
+        get { visibleHeight }
+        set { visibleHeight = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        let height = min(
+            OverlayPanelRootPresentation.hoverRevealMaskFrame(visibleHeight: visibleHeight).height,
+            rect.height
+        )
+        let radius = OverlayPanelRootPresentation.hoverRevealCornerRadius(visibleHeight: height)
+        let referenceSize = CGSize(width: 194, height: 40)
+        let leftShoulderX: CGFloat = 4
+        let rightShoulderX: CGFloat = 190
+
+        var path = Path()
+        path.move(to: .zero)
+        path.addLine(to: CGPoint(x: referenceSize.width, y: 0))
+        path.addCurve(
+            to: CGPoint(x: rightShoulderX, y: 4),
+            control1: CGPoint(x: 191.791, y: 0),
+            control2: CGPoint(x: rightShoulderX, y: 1.7909)
+        )
+        path.addLine(to: CGPoint(x: rightShoulderX, y: height - radius))
+        path.addQuadCurve(
+            to: CGPoint(x: rightShoulderX - radius, y: height),
+            control: CGPoint(x: rightShoulderX, y: height)
+        )
+        path.addLine(to: CGPoint(x: leftShoulderX + radius, y: height))
+        path.addQuadCurve(
+            to: CGPoint(x: leftShoulderX, y: height - radius),
+            control: CGPoint(x: leftShoulderX, y: height)
+        )
+        path.addLine(to: CGPoint(x: leftShoulderX, y: 4))
+        path.addCurve(
+            to: CGPoint(x: 0, y: 0),
+            control1: CGPoint(x: leftShoulderX, y: 1.7908),
+            control2: CGPoint(x: 2.2091, y: 0)
+        )
+        path.closeSubpath()
+
+        let transform = CGAffineTransform(translationX: rect.minX, y: rect.minY)
+            .scaledBy(x: rect.width / referenceSize.width, y: 1)
+        return path.applying(transform)
     }
 }
 

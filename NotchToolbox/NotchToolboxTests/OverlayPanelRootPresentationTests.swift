@@ -74,5 +74,15 @@ struct OverlayPanelRootPresentationTests {
             OverlayPanelRootPresentation.hoverRevealMaskFrame(visibleHeight: hardwareHeight) ==
             CGRect(x: 0, y: 0, width: OverlayPanelChromeMetrics.hoverBodySize.width, height: 32)
         )
+        #expect(OverlayPanelRootPresentation.hoverRevealCornerRadius(visibleHeight: hardwareHeight) == 12)
+        #expect(OverlayPanelRootPresentation.hoverRevealCornerRadius(visibleHeight: simulatedHeight) == 3)
+    }
+
+    @Test func variableHeightHoverNotchShapeAnimatesVisibleHeight() {
+        var shape = VariableHeightHoverNotchShape(visibleHeight: 32)
+        #expect(shape.animatableData == 32)
+
+        shape.animatableData = 40
+        #expect(shape.visibleHeight == 40)
     }
 }
