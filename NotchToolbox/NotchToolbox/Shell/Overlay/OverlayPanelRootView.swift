@@ -7,17 +7,19 @@ struct OverlayPanelRootView: View {
 
     var body: some View {
         let visualState = OverlayPanelRootPresentation.visualState(for: panelModel.state)
+        let showsHoverChrome = panelModel.state.isHoverHint || (panelModel.state.isIdle && panelModel.previousState?.isHoverHint == true)
+        let showsExpandedChrome = panelModel.state.isExpandedLike || (panelModel.state.isIdle && panelModel.previousState?.isExpandedLike == true)
 
         ZStack(alignment: .top) {
             if visualState == .idle {
                 idleBody
             }
 
-            if visualState == .hoverHint {
+            if showsHoverChrome {
                 hoverHintBody
             }
 
-            if visualState == .expanded {
+            if showsExpandedChrome {
                 expandedBody
             }
         }
@@ -101,7 +103,8 @@ struct OverlayPanelRootView: View {
     private var hoverHintBody: some View {
         AnimatedHoverChromeButton(
             bodyFrame: hoverBodyFrame,
-            initialVisibleHeight: hoverInitialVisibleHeight
+            initialVisibleHeight: hoverInitialVisibleHeight,
+            isActive: panelModel.state.isHoverHint
         ) {
             interactions.expand(screenID: panelModel.screenID)
         }
@@ -113,7 +116,8 @@ struct OverlayPanelRootView: View {
         return AnimatedExpandedChromeView(
             compositionRoot: compositionRoot,
             bodySize: bodySize,
-            animateFromHover: panelModel.previousState?.isHoverHint == true
+            animateFromHover: panelModel.previousState?.isHoverHint == true && panelModel.state.isExpandedLike,
+            isActive: panelModel.state.isExpandedLike
         )
     }
 
@@ -246,6 +250,7 @@ private struct FigmaExpandedNotchShellShape: Shape {
 private struct AnimatedHoverChromeButton: View {
     let bodyFrame: CGRect
     let initialVisibleHeight: CGFloat
+    let isActive: Bool
     let action: () -> Void
 
     @State private var currentVisibleHeight: CGFloat = OverlayPanelChromeMetrics.hoverBodySize.height
@@ -271,12 +276,23 @@ private struct AnimatedHoverChromeButton: View {
         }
         .buttonStyle(ShellChromeButtonStyle())
         .onAppear {
-            currentVisibleHeight = initialVisibleHeight
-            currentShadowOpacity = OverlayPanelRootPresentation.hoverShadowStartOpacity
-            withAnimation(.easeOut(duration: OverlayPanelChromeMetrics.transitionDuration)) {
-                currentVisibleHeight = bodyFrame.height
-                currentShadowOpacity = OverlayPanelRootPresentation.hoverShadowEndOpacity
-            }
+            currentVisibleHeight = isActive ? initialVisibleHeight : bodyFrame.height
+            currentShadowOpacity = isActive
+                ? OverlayPanelRootPresentation.hoverShadowStartOpacity
+                : OverlayPanelRootPresentation.hoverShadowEndOpacity
+            animateHoverChrome(isActive: isActive)
+        }
+        .onChange(of: isActive) { newValue in
+            animateHoverChrome(isActive: newValue)
+        }
+    }
+
+    private func animateHoverChrome(isActive: Bool) {
+        withAnimation(.easeOut(duration: OverlayPanelChromeMetrics.transitionDuration)) {
+            currentVisibleHeight = isActive ? bodyFrame.height : initialVisibleHeight
+            currentShadowOpacity = isActive
+                ? OverlayPanelRootPresentation.hoverShadowEndOpacity
+                : OverlayPanelRootPresentation.hoverShadowStartOpacity
         }
     }
 }
@@ -341,10 +357,10 @@ private struct AnimatedExpandedChromeView: View {
     @ObservedObject var compositionRoot: AppCompositionRoot
     let bodySize: CGSize
     let animateFromHover: Bool
+    let isActive: Bool
 
     @State private var expansionProgress: CGFloat = 1
     @State private var isMorePresented = false
-    @State private var isSettingsPresented = false
 
     var body: some View {
         let finalBodyFrame = OverlayPanelChromeMetrics.expandedBodyFrame(for: bodySize)
@@ -368,8 +384,7 @@ private struct AnimatedExpandedChromeView: View {
 
             PanelShellView(
                 compositionRoot: compositionRoot,
-                isMorePresented: $isMorePresented,
-                isSettingsPresented: $isSettingsPresented
+                isMorePresented: $isMorePresented
             )
                 .foregroundStyle(.white.opacity(0.9))
                 .frame(width: finalBodyFrame.width, height: finalBodyFrame.height)
@@ -404,29 +419,31 @@ private struct AnimatedExpandedChromeView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .animation(.timingCurve(0.22, 1.0, 0.36, 1.0, duration: 0.16), value: isMorePresented)
         .onAppear {
-            if animateFromHover {
-                expansionProgress = 0
-                withAnimation(
-                    .interpolatingSpring(
-                        duration: OverlayPanelChromeMetrics.expandedTransitionDuration,
-                        bounce: 0.3
-                    )
-                ) {
-                    expansionProgress = 1
-                }
-            } else {
-                expansionProgress = 1
-            }
+            expansionProgress = animateFromHover ? 0 : 1
+            animateExpandedChrome(isActive: isActive)
+        }
+        .onChange(of: isActive) { newValue in
+            animateExpandedChrome(isActive: newValue)
         }
     }
 
     private func selectModule(_ moduleID: NotchModuleID) {
         isMorePresented = false
-        isSettingsPresented = false
         compositionRoot.selectActiveModule(moduleID)
     }
 
     private func interpolatedCGFloat(from start: CGFloat, to end: CGFloat, progress: CGFloat) -> CGFloat {
         start + ((end - start) * progress)
+    }
+
+    private func animateExpandedChrome(isActive: Bool) {
+        withAnimation(
+            .interpolatingSpring(
+                duration: OverlayPanelChromeMetrics.expandedTransitionDuration,
+                bounce: isActive ? 0.3 : 0
+            )
+        ) {
+            expansionProgress = isActive ? 1 : 0
+        }
     }
 }

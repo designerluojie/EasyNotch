@@ -28,8 +28,8 @@ struct OverlayPanelRootPresentationTests {
         #expect(OverlayPanelChromeMetrics.hoverVerticalInset == 40)
         #expect(OverlayPanelChromeMetrics.expandedShadowColorOpacity == 0.3)
         #expect(OverlayPanelChromeMetrics.expandedShadowRadius == 20)
-        #expect(OverlayPanelChromeMetrics.expandedOuterSize(for: CGSize(width: 580, height: 280)) == CGSize(width: 812, height: 392))
-        #expect(OverlayPanelChromeMetrics.expandedBodyFrame(for: CGSize(width: 580, height: 280)) == CGRect(x: 116, y: 56, width: 580, height: 280))
+        #expect(OverlayPanelChromeMetrics.expandedOuterSize(for: CGSize(width: 580, height: 280)) == CGSize(width: 780, height: 380))
+        #expect(OverlayPanelChromeMetrics.expandedBodyFrame(for: CGSize(width: 580, height: 280)) == CGRect(x: 100, y: 0, width: 580, height: 280))
     }
 
     @Test func expandedAnimationStartsFromHoverBodyOnSharedTopCenterAxis() {

@@ -22,7 +22,8 @@ nonisolated enum OverlayPanelChromeMetrics {
     static let expandedShadowColorOpacity: Double = 0.3
     static let expandedShadowRadius: CGFloat = 20
     static let expandedShadowYOffset: CGFloat = 8
-    static let expandedOuterScale: CGFloat = 1.4
+    static let expandedOuterHorizontalInset: CGFloat = 100
+    static let expandedOuterBottomInset: CGFloat = 100
 
     static var hoverBodyFrame: CGRect {
         return CGRect(
@@ -35,16 +36,15 @@ nonisolated enum OverlayPanelChromeMetrics {
 
     static func expandedOuterSize(for bodySize: CGSize) -> CGSize {
         CGSize(
-            width: bodySize.width * expandedOuterScale,
-            height: bodySize.height * expandedOuterScale
+            width: bodySize.width + (expandedOuterHorizontalInset * 2),
+            height: bodySize.height + expandedOuterBottomInset
         )
     }
 
     static func expandedBodyFrame(for bodySize: CGSize) -> CGRect {
-        let outerSize = expandedOuterSize(for: bodySize)
         return CGRect(
-            x: (outerSize.width - bodySize.width) / 2,
-            y: (outerSize.height - bodySize.height) / 2,
+            x: expandedOuterHorizontalInset,
+            y: 0,
             width: bodySize.width,
             height: bodySize.height
         )
@@ -71,10 +71,9 @@ nonisolated enum OverlayPanelChromeMetrics {
 
     static func expandedOuterFrame(for bodySize: CGSize, on screenFrame: CGRect) -> CGRect {
         let outerSize = expandedOuterSize(for: bodySize)
-        let bodyFrame = expandedBodyFrame(for: bodySize)
         return CGRect(
             x: screenFrame.midX - outerSize.width / 2,
-            y: screenFrame.maxY - bodySize.height - bodyFrame.minY,
+            y: screenFrame.maxY - outerSize.height,
             width: outerSize.width,
             height: outerSize.height
         )
@@ -160,6 +159,14 @@ nonisolated struct OverlayPanelRootPresentation {
 }
 
 extension OverlayState {
+    nonisolated var isIdle: Bool {
+        if case .idle = self {
+            return true
+        }
+
+        return false
+    }
+
     nonisolated var isHoverHint: Bool {
         if case .hoverHint = self {
             return true
