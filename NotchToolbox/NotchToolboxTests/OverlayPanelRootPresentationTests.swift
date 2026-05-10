@@ -91,6 +91,22 @@ struct OverlayPanelRootPresentationTests {
         #expect(OverlayPanelRootPresentation.hoverRevealCornerRadius(visibleHeight: simulatedHeight) == 3)
     }
 
+    @Test func collapseSettlesAtUnderlyingNotchHeightBeforeDisappearing() {
+        let hardwareHeight = OverlayPanelRootPresentation.collapseSettledHeight(
+            anchorKind: .hardwareNotch,
+            idleVisibleHeight: 0,
+            notchMetrics: NotchMetrics(visibleSize: CGSize(width: 185, height: 32), source: .hardware)
+        )
+        let simulatedHeight = OverlayPanelRootPresentation.collapseSettledHeight(
+            anchorKind: .simulatedNotch,
+            idleVisibleHeight: 6,
+            notchMetrics: nil
+        )
+
+        #expect(hardwareHeight == 32)
+        #expect(simulatedHeight == 6)
+    }
+
     @Test func variableHeightHoverNotchShapeAnimatesVisibleHeight() {
         var shape = VariableHeightHoverNotchShape(visibleHeight: 32)
         #expect(shape.animatableData == 32)
