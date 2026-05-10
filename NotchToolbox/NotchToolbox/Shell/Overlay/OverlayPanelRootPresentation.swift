@@ -22,7 +22,7 @@ nonisolated enum OverlayPanelChromeMetrics {
     static let expandedShadowColorOpacity: Double = 0.3
     static let expandedShadowRadius: CGFloat = 20
     static let expandedShadowYOffset: CGFloat = 8
-    static let expandedOuterScale: CGFloat = 1.2
+    static let expandedOuterScale: CGFloat = 1.4
 
     static var hoverBodyFrame: CGRect {
         return CGRect(

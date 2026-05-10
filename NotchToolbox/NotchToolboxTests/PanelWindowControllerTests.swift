@@ -98,8 +98,8 @@ struct PanelWindowControllerTests {
 
         controller.present(state: .expanded(screenID: "built-in", moduleID: .fileStash), geometry: geometry)
 
-        #expect(controller.panel.frame.width == 768)
-        #expect(controller.panel.frame.height == 384)
+        #expect(controller.panel.frame.width == 896)
+        #expect(controller.panel.frame.height == 448)
     }
 
     @Test func presentingCollapsingKeepsExpandedFrameUntilTimeout() {
