@@ -6,6 +6,10 @@ struct ContentHostView: View {
     var body: some View {
         moduleContent
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay {
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .stroke(Color.white.opacity(0.1), lineWidth: 1)
+            }
     }
 
     @ViewBuilder
