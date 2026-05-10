@@ -55,4 +55,24 @@ struct OverlayPanelRootPresentationTests {
             )
         )
     }
+
+    @Test func hoverRevealStartsAtExistingVisibleHeightWithoutScalingWidth() {
+        let hardwareHeight = OverlayPanelRootPresentation.hoverRevealStartHeight(
+            anchorKind: .hardwareNotch,
+            idleVisibleHeight: 0,
+            notchMetrics: NotchMetrics(visibleSize: CGSize(width: 185, height: 32), source: .hardware)
+        )
+        let simulatedHeight = OverlayPanelRootPresentation.hoverRevealStartHeight(
+            anchorKind: .simulatedNotch,
+            idleVisibleHeight: 6,
+            notchMetrics: nil
+        )
+
+        #expect(hardwareHeight == 32)
+        #expect(simulatedHeight == 6)
+        #expect(
+            OverlayPanelRootPresentation.hoverRevealMaskFrame(visibleHeight: hardwareHeight) ==
+            CGRect(x: 0, y: 0, width: OverlayPanelChromeMetrics.hoverBodySize.width, height: 32)
+        )
+    }
 }
