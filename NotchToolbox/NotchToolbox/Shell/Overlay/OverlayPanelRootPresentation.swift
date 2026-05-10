@@ -10,6 +10,8 @@ nonisolated enum OverlayPanelRootVisualState: Equatable {
 nonisolated enum OverlayPanelChromeMetrics {
     static let transitionDuration: Double = 0.2
     static let expandedTransitionDuration: Double = 0.3
+    static let expandedCollapseSettlingDuration: Double = transitionDuration
+    static let expandedCollapseTotalDuration: Double = expandedTransitionDuration + expandedCollapseSettlingDuration
     static let hoverShadowColorOpacity: Double = 0.25
     static let hoverShadowRadius: CGFloat = 16
     static let hoverShadowYOffset: CGFloat = 8
@@ -112,6 +114,20 @@ nonisolated struct OverlayPanelRootPresentation {
         idleVisibleHeight: CGFloat,
         notchMetrics: NotchMetrics?
     ) -> CGFloat {
+        hoverRevealMaskFrame(
+            visibleHeight: collapseSettledHeight(
+                anchorKind: anchorKind,
+                idleVisibleHeight: idleVisibleHeight,
+                notchMetrics: notchMetrics
+            )
+        ).height
+    }
+
+    static func collapseSettledHeight(
+        anchorKind: TopAnchorKind?,
+        idleVisibleHeight: CGFloat,
+        notchMetrics: NotchMetrics?
+    ) -> CGFloat {
         let requestedHeight: CGFloat
 
         switch anchorKind {
@@ -123,7 +139,7 @@ nonisolated struct OverlayPanelRootPresentation {
             requestedHeight = OverlayPanelChromeMetrics.hoverBodySize.height
         }
 
-        return hoverRevealMaskFrame(visibleHeight: requestedHeight).height
+        return requestedHeight
     }
 
     static func hoverRevealMaskFrame(visibleHeight: CGFloat) -> CGRect {
