@@ -9,6 +9,7 @@ nonisolated enum OverlayPanelRootVisualState: Equatable {
 
 nonisolated enum OverlayPanelChromeMetrics {
     static let transitionDuration: Double = 0.2
+    static let expandedTransitionDuration: Double = 0.3
     static let hoverShadowColorOpacity: Double = 0.25
     static let hoverShadowRadius: CGFloat = 16
     static let hoverShadowYOffset: CGFloat = 8
@@ -19,7 +20,7 @@ nonisolated enum OverlayPanelChromeMetrics {
     static let hoverVerticalInset: CGFloat = (hoverOuterSize.height - hoverBodySize.height) / 2
 
     static let expandedShadowColorOpacity: Double = 0.3
-    static let expandedShadowRadius: CGFloat = 24
+    static let expandedShadowRadius: CGFloat = 20
     static let expandedShadowYOffset: CGFloat = 8
     static let expandedOuterScale: CGFloat = 1.2
 
@@ -140,6 +141,21 @@ nonisolated struct OverlayPanelRootPresentation {
             OverlayPanelChromeMetrics.hoverRevealBottomCornerRadius,
             hoverRevealMaskFrame(visibleHeight: visibleHeight).height / 2
         )
+    }
+
+    static func expandedAnimationStartScale(for bodySize: CGSize) -> CGSize {
+        CGSize(
+            width: OverlayPanelChromeMetrics.hoverBodySize.width / bodySize.width,
+            height: OverlayPanelChromeMetrics.hoverBodySize.height / bodySize.height
+        )
+    }
+
+    static func expandedContentOpacity(progress: CGFloat) -> Double {
+        Double(max(0, min(1, (progress - 0.7) / 0.3)))
+    }
+
+    static func expandedShadowOpacity(progress: CGFloat) -> Double {
+        Double(max(0, min(1, progress))) * OverlayPanelChromeMetrics.expandedShadowColorOpacity
     }
 }
 
