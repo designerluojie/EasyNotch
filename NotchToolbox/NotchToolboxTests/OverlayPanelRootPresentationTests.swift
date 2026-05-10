@@ -85,4 +85,9 @@ struct OverlayPanelRootPresentationTests {
         shape.animatableData = 40
         #expect(shape.visibleHeight == 40)
     }
+
+    @Test func hoverShadowAnimatesFromTransparentToFinalOpacity() {
+        #expect(OverlayPanelRootPresentation.hoverShadowStartOpacity == 0)
+        #expect(OverlayPanelRootPresentation.hoverShadowEndOpacity == OverlayPanelChromeMetrics.hoverShadowColorOpacity)
+    }
 }

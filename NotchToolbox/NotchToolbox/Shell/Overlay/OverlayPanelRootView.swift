@@ -53,7 +53,7 @@ struct OverlayPanelRootView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ShellChromeButtonStyle())
     }
 
     private var simulatedIdleButton: some View {
@@ -73,7 +73,7 @@ struct OverlayPanelRootView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ShellChromeButtonStyle())
     }
 
     private var legacyCollapsedButton: some View {
@@ -95,7 +95,7 @@ struct OverlayPanelRootView: View {
                     .fill(Color.black.opacity(0.88))
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ShellChromeButtonStyle())
     }
 
     private var hoverHintBody: some View {
@@ -249,6 +249,7 @@ private struct AnimatedHoverChromeButton: View {
     let action: () -> Void
 
     @State private var currentVisibleHeight: CGFloat = OverlayPanelChromeMetrics.hoverBodySize.height
+    @State private var currentShadowOpacity = OverlayPanelRootPresentation.hoverShadowEndOpacity
 
     var body: some View {
         Button(action: action) {
@@ -259,7 +260,7 @@ private struct AnimatedHoverChromeButton: View {
                     .fill(Color.black)
                     .frame(width: bodyFrame.width, height: bodyFrame.height)
                     .shadow(
-                        color: .black.opacity(OverlayPanelChromeMetrics.hoverShadowColorOpacity),
+                        color: .black.opacity(currentShadowOpacity),
                         radius: OverlayPanelChromeMetrics.hoverShadowRadius,
                         y: OverlayPanelChromeMetrics.hoverShadowYOffset
                     )
@@ -268,13 +269,21 @@ private struct AnimatedHoverChromeButton: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ShellChromeButtonStyle())
         .onAppear {
             currentVisibleHeight = initialVisibleHeight
+            currentShadowOpacity = OverlayPanelRootPresentation.hoverShadowStartOpacity
             withAnimation(.easeOut(duration: OverlayPanelChromeMetrics.transitionDuration)) {
                 currentVisibleHeight = bodyFrame.height
+                currentShadowOpacity = OverlayPanelRootPresentation.hoverShadowEndOpacity
             }
         }
+    }
+}
+
+private struct ShellChromeButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
     }
 }
 
