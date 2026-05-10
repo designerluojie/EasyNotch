@@ -346,49 +346,51 @@ private struct AnimatedExpandedChromeView: View {
 
     var body: some View {
         let finalBodyFrame = OverlayPanelChromeMetrics.expandedBodyFrame(for: bodySize)
-        let startBodyFrame = OverlayPanelChromeMetrics.expandedAnimationStartFrame(for: bodySize)
-        let bodyFrame = interpolatedFrame(from: startBodyFrame, to: finalBodyFrame, progress: expansionProgress)
+        let startScale = OverlayPanelRootPresentation.expandedAnimationStartScale(for: bodySize)
+        let currentScaleX = interpolatedCGFloat(from: startScale.width, to: 1, progress: expansionProgress)
+        let currentScaleY = interpolatedCGFloat(from: startScale.height, to: 1, progress: expansionProgress)
 
         return ZStack(alignment: .topLeading) {
             Color.clear
 
             FigmaExpandedNotchShellShape()
                 .fill(Color.black)
-                .frame(width: bodyFrame.width, height: bodyFrame.height)
+                .frame(width: finalBodyFrame.width, height: finalBodyFrame.height)
+                .scaleEffect(x: currentScaleX, y: currentScaleY, anchor: .top)
                 .shadow(
-                    color: .black.opacity(OverlayPanelChromeMetrics.expandedShadowColorOpacity),
+                    color: .black.opacity(OverlayPanelRootPresentation.expandedShadowOpacity(progress: expansionProgress)),
                     radius: OverlayPanelChromeMetrics.expandedShadowRadius,
                     y: OverlayPanelChromeMetrics.expandedShadowYOffset
                 )
-                .offset(x: bodyFrame.minX, y: bodyFrame.minY)
+                .offset(x: finalBodyFrame.minX, y: finalBodyFrame.minY)
 
             PanelShellView(compositionRoot: compositionRoot)
                 .foregroundStyle(.white.opacity(0.9))
-                .frame(width: bodyFrame.width, height: bodyFrame.height)
-                .clipShape(FigmaExpandedNotchShellShape())
-                .opacity(Double(max(0, min(1, (expansionProgress - 0.7) / 0.3))))
-                .offset(x: bodyFrame.minX, y: bodyFrame.minY)
+                .frame(width: finalBodyFrame.width, height: finalBodyFrame.height)
+                .mask(alignment: .top) {
+                    FigmaExpandedNotchShellShape()
+                        .frame(width: finalBodyFrame.width, height: finalBodyFrame.height)
+                        .scaleEffect(x: currentScaleX, y: currentScaleY, anchor: .top)
+                }
+                .opacity(OverlayPanelRootPresentation.expandedContentOpacity(progress: expansionProgress))
+                .offset(x: finalBodyFrame.minX, y: finalBodyFrame.minY)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
             if animateFromHover {
                 expansionProgress = 0
-                withAnimation(.easeOut(duration: OverlayPanelChromeMetrics.transitionDuration)) {
+                withAnimation(
+                    .interpolatingSpring(
+                        duration: OverlayPanelChromeMetrics.expandedTransitionDuration,
+                        bounce: 0.3
+                    )
+                ) {
                     expansionProgress = 1
                 }
             } else {
                 expansionProgress = 1
             }
         }
-    }
-
-    private func interpolatedFrame(from start: CGRect, to end: CGRect, progress: CGFloat) -> CGRect {
-        CGRect(
-            x: interpolatedCGFloat(from: start.minX, to: end.minX, progress: progress),
-            y: interpolatedCGFloat(from: start.minY, to: end.minY, progress: progress),
-            width: interpolatedCGFloat(from: start.width, to: end.width, progress: progress),
-            height: interpolatedCGFloat(from: start.height, to: end.height, progress: progress)
-        )
     }
 
     private func interpolatedCGFloat(from start: CGFloat, to end: CGFloat, progress: CGFloat) -> CGFloat {
