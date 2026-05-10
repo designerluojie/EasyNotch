@@ -62,7 +62,9 @@ struct PanelMoreModuleItem: Identifiable, Equatable {
 extension PanelShellPresentation {
     static func bodySize(for moduleID: NotchModuleID) -> CGSize {
         switch moduleID {
-        case .music, .fileStash, .aiChat, .clipboard:
+        case .music:
+            return CGSize(width: 580, height: 100)
+        case .fileStash, .aiChat, .clipboard:
             return CGSize(width: 580, height: 280)
         case .pomodoro:
             return CGSize(width: 420, height: 220)

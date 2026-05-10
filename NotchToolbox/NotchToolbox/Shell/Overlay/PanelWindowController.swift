@@ -12,6 +12,7 @@ final class PanelWindowController: OverlayPanelPresenting {
     private let hostingView: NSHostingView<OverlayPanelRootView>
     private var localMouseMonitor: Any?
     private var globalMouseMonitor: Any?
+    private var pendingIdleFrameResetTask: Task<Void, Never>?
     private var cancellables: Set<AnyCancellable> = []
 
     init(
@@ -41,11 +42,18 @@ final class PanelWindowController: OverlayPanelPresenting {
     }
 
     func present(state: OverlayState, geometry: TopAnchorGeometry) {
+        pendingIdleFrameResetTask?.cancel()
         let targetFrame = frame(for: state, geometry: geometry)
         let previousState = panelModel.state
         panelModel.geometry = geometry
         panelModel.previousState = previousState
         panelModel.state = state
+
+        if shouldDeferIdleFrameReset(from: previousState, to: state) {
+            panel.orderFrontRegardless()
+            scheduleIdleFrameReset(to: targetFrame)
+            return
+        }
 
         if panel.isVisible, shouldAnimateFrameTransition(from: previousState, to: state) {
             animatePanelFrame(to: targetFrame)
@@ -193,6 +201,31 @@ final class PanelWindowController: OverlayPanelPresenting {
         }
     }
 
+    private func shouldDeferIdleFrameReset(from previousState: OverlayState, to nextState: OverlayState) -> Bool {
+        nextState.isIdle && (previousState.isHoverHint || previousState.isExpandedLike)
+    }
+
+    private func scheduleIdleFrameReset(to frame: NSRect) {
+        let delay = panelModel.previousState?.isExpandedLike == true
+            ? OverlayPanelChromeMetrics.expandedTransitionDuration
+            : OverlayPanelChromeMetrics.transitionDuration
+
+        pendingIdleFrameResetTask = Task { [weak self] in
+            guard let self else {
+                return
+            }
+
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard Task.isCancelled == false else {
+                return
+            }
+
+            self.panel.setFrame(frame, display: true)
+            self.panel.orderFrontRegardless()
+            self.panelModel.previousState = nil
+        }
+    }
+
     private func screenPoint(for event: NSEvent) -> CGPoint {
         guard let window = event.window else {
             return NSEvent.mouseLocation
@@ -206,6 +239,7 @@ final class PanelWindowController: OverlayPanelPresenting {
     }
 
     deinit {
+        pendingIdleFrameResetTask?.cancel()
         if let localMouseMonitor {
             NSEvent.removeMonitor(localMouseMonitor)
         }

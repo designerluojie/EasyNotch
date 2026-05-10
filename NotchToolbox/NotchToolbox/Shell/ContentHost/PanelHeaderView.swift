@@ -2,7 +2,6 @@ import SwiftUI
 
 struct PanelHeaderView: View {
     let activeModule: NotchModuleID
-    let isSettingsPresented: Bool
     let onSelectModule: (NotchModuleID) -> Void
     let onToggleMore: () -> Void
     let onToggleSettings: () -> Void
@@ -44,10 +43,6 @@ struct PanelHeaderView: View {
     }
 
     private var settingsBackgroundColor: Color {
-        if isSettingsPresented {
-            return Color.white.opacity(0.12)
-        }
-
         if isSettingsHovered {
             return Color.white.opacity(0.1)
         }
