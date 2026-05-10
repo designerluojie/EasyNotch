@@ -3,8 +3,8 @@ import SwiftUI
 struct PanelShellView: View {
     @ObservedObject var compositionRoot: AppCompositionRoot
 
-    @State private var isMorePresented = false
-    @State private var isSettingsPresented = false
+    @Binding var isMorePresented: Bool
+    @Binding var isSettingsPresented: Bool
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -24,25 +24,6 @@ struct PanelShellView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
-            if isMorePresented {
-                PanelMoreModulesPopoverView(
-                    activeModule: compositionRoot.activeModule,
-                    items: PanelMoreModuleItem.defaultItems,
-                    onSelectModule: selectModule
-                )
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, 32)
-                .padding(.top, 38)
-                .transition(
-                    .asymmetric(
-                        insertion: .offset(y: -8)
-                            .combined(with: .opacity),
-                        removal: .offset(y: -4)
-                            .combined(with: .opacity)
-                    )
-                )
-            }
-
             if isSettingsPresented {
                 PanelSettingsPopoverView(context: compositionRoot.context(for: .settings))
                     .frame(maxWidth: .infinity, alignment: .trailing)
@@ -51,7 +32,6 @@ struct PanelShellView: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .topTrailing)))
             }
         }
-        .animation(.timingCurve(0.22, 1.0, 0.36, 1.0, duration: 0.16), value: isMorePresented)
         .animation(.easeOut(duration: 0.12), value: isSettingsPresented)
     }
 
