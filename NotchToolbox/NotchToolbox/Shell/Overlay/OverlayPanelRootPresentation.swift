@@ -14,6 +14,7 @@ nonisolated enum OverlayPanelChromeMetrics {
     static let hoverShadowYOffset: CGFloat = 8
     static let hoverOuterSize = CGSize(width: 300, height: 120)
     static let hoverBodySize = CGSize(width: 193, height: 40)
+    static let hoverRevealBottomCornerRadius: CGFloat = 12
     static let hoverHorizontalInset: CGFloat = (hoverOuterSize.width - hoverBodySize.width) / 2
     static let hoverVerticalInset: CGFloat = (hoverOuterSize.height - hoverBodySize.height) / 2
 
@@ -80,6 +81,9 @@ nonisolated enum OverlayPanelChromeMetrics {
 }
 
 nonisolated struct OverlayPanelRootPresentation {
+    static let hoverShadowStartOpacity: Double = 0
+    static let hoverShadowEndOpacity = OverlayPanelChromeMetrics.hoverShadowColorOpacity
+
     static func visualState(for state: OverlayState) -> OverlayPanelRootVisualState {
         switch state {
         case .expanded, .collapsing:
@@ -128,6 +132,13 @@ nonisolated struct OverlayPanelRootPresentation {
             y: 0,
             width: OverlayPanelChromeMetrics.hoverBodySize.width,
             height: min(max(visibleHeight, 0.01), OverlayPanelChromeMetrics.hoverBodySize.height)
+        )
+    }
+
+    static func hoverRevealCornerRadius(visibleHeight: CGFloat) -> CGFloat {
+        min(
+            OverlayPanelChromeMetrics.hoverRevealBottomCornerRadius,
+            hoverRevealMaskFrame(visibleHeight: visibleHeight).height / 2
         )
     }
 }
