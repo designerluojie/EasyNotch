@@ -343,6 +343,8 @@ private struct AnimatedExpandedChromeView: View {
     let animateFromHover: Bool
 
     @State private var expansionProgress: CGFloat = 1
+    @State private var isMorePresented = false
+    @State private var isSettingsPresented = false
 
     var body: some View {
         let finalBodyFrame = OverlayPanelChromeMetrics.expandedBodyFrame(for: bodySize)
@@ -364,7 +366,11 @@ private struct AnimatedExpandedChromeView: View {
                 )
                 .offset(x: finalBodyFrame.minX, y: finalBodyFrame.minY)
 
-            PanelShellView(compositionRoot: compositionRoot)
+            PanelShellView(
+                compositionRoot: compositionRoot,
+                isMorePresented: $isMorePresented,
+                isSettingsPresented: $isSettingsPresented
+            )
                 .foregroundStyle(.white.opacity(0.9))
                 .frame(width: finalBodyFrame.width, height: finalBodyFrame.height)
                 .mask(alignment: .top) {
@@ -374,8 +380,29 @@ private struct AnimatedExpandedChromeView: View {
                 }
                 .opacity(OverlayPanelRootPresentation.expandedContentOpacity(progress: expansionProgress))
                 .offset(x: finalBodyFrame.minX, y: finalBodyFrame.minY)
+
+            if isMorePresented {
+                PanelMoreModulesPopoverView(
+                    activeModule: compositionRoot.activeModule,
+                    items: PanelMoreModuleItem.defaultItems,
+                    onSelectModule: selectModule
+                )
+                .offset(
+                    x: finalBodyFrame.minX + 32,
+                    y: finalBodyFrame.minY + 38
+                )
+                .transition(
+                    .asymmetric(
+                        insertion: .offset(y: -8)
+                            .combined(with: .opacity),
+                        removal: .offset(y: -4)
+                            .combined(with: .opacity)
+                    )
+                )
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .animation(.timingCurve(0.22, 1.0, 0.36, 1.0, duration: 0.16), value: isMorePresented)
         .onAppear {
             if animateFromHover {
                 expansionProgress = 0
@@ -391,6 +418,12 @@ private struct AnimatedExpandedChromeView: View {
                 expansionProgress = 1
             }
         }
+    }
+
+    private func selectModule(_ moduleID: NotchModuleID) {
+        isMorePresented = false
+        isSettingsPresented = false
+        compositionRoot.selectActiveModule(moduleID)
     }
 
     private func interpolatedCGFloat(from start: CGFloat, to end: CGFloat, progress: CGFloat) -> CGFloat {
