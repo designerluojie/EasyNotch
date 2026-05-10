@@ -102,6 +102,34 @@ nonisolated struct OverlayPanelRootPresentation {
 
         return true
     }
+
+    static func hoverRevealStartHeight(
+        anchorKind: TopAnchorKind?,
+        idleVisibleHeight: CGFloat,
+        notchMetrics: NotchMetrics?
+    ) -> CGFloat {
+        let requestedHeight: CGFloat
+
+        switch anchorKind {
+        case .hardwareNotch:
+            requestedHeight = notchMetrics?.visibleSize.height ?? OverlayPanelChromeMetrics.hoverBodySize.height
+        case .simulatedNotch:
+            requestedHeight = idleVisibleHeight
+        case .centerHandler, .none:
+            requestedHeight = OverlayPanelChromeMetrics.hoverBodySize.height
+        }
+
+        return hoverRevealMaskFrame(visibleHeight: requestedHeight).height
+    }
+
+    static func hoverRevealMaskFrame(visibleHeight: CGFloat) -> CGRect {
+        CGRect(
+            x: 0,
+            y: 0,
+            width: OverlayPanelChromeMetrics.hoverBodySize.width,
+            height: min(max(visibleHeight, 0.01), OverlayPanelChromeMetrics.hoverBodySize.height)
+        )
+    }
 }
 
 extension OverlayState {

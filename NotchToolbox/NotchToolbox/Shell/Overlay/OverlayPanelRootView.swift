@@ -101,7 +101,7 @@ struct OverlayPanelRootView: View {
     private var hoverHintBody: some View {
         AnimatedHoverChromeButton(
             bodyFrame: hoverBodyFrame,
-            initialScale: hoverInitialScale
+            initialVisibleHeight: hoverInitialVisibleHeight
         ) {
             interactions.expand(screenID: panelModel.screenID)
         }
@@ -125,24 +125,12 @@ struct OverlayPanelRootView: View {
         OverlayPanelChromeMetrics.hoverBodyFrame
     }
 
-    private var hoverInitialScale: CGSize {
-        let hoverSize = OverlayPanelChromeMetrics.hoverBodySize
-
-        switch panelModel.geometry?.anchorKind {
-        case .simulatedNotch:
-            return CGSize(
-                width: simulatedIdlePreviewWidth / hoverSize.width,
-                height: max(0.1, (panelModel.geometry?.idleVisibleHeight ?? 6) / hoverSize.height)
-            )
-        case .hardwareNotch:
-            let notchSize = panelModel.geometry?.notchMetrics.visibleSize ?? .zero
-            return CGSize(
-                width: max(0.01, notchSize.width / hoverSize.width),
-                height: max(0.01, notchSize.height / hoverSize.height)
-            )
-        default:
-            return CGSize(width: 0.92, height: 0.85)
-        }
+    private var hoverInitialVisibleHeight: CGFloat {
+        OverlayPanelRootPresentation.hoverRevealStartHeight(
+            anchorKind: panelModel.geometry?.anchorKind,
+            idleVisibleHeight: panelModel.geometry?.idleVisibleHeight ?? 6,
+            notchMetrics: panelModel.geometry?.notchMetrics
+        )
     }
 }
 
@@ -257,10 +245,10 @@ private struct FigmaExpandedNotchShellShape: Shape {
 
 private struct AnimatedHoverChromeButton: View {
     let bodyFrame: CGRect
-    let initialScale: CGSize
+    let initialVisibleHeight: CGFloat
     let action: () -> Void
 
-    @State private var currentScale: CGSize = CGSize(width: 1, height: 1)
+    @State private var currentVisibleHeight: CGFloat = OverlayPanelChromeMetrics.hoverBodySize.height
 
     var body: some View {
         Button(action: action) {
@@ -270,11 +258,16 @@ private struct AnimatedHoverChromeButton: View {
                 FigmaHoverNotchShape()
                     .fill(Color.black)
                     .frame(width: bodyFrame.width, height: bodyFrame.height)
-                    .scaleEffect(
-                        x: currentScale.width,
-                        y: currentScale.height,
-                        anchor: .top
-                    )
+                    .mask(alignment: .top) {
+                        Rectangle()
+                            .frame(
+                                width: bodyFrame.width,
+                                height: OverlayPanelRootPresentation
+                                    .hoverRevealMaskFrame(visibleHeight: currentVisibleHeight)
+                                    .height,
+                                alignment: .top
+                            )
+                    }
                     .shadow(
                         color: .black.opacity(OverlayPanelChromeMetrics.hoverShadowColorOpacity),
                         radius: OverlayPanelChromeMetrics.hoverShadowRadius,
@@ -287,9 +280,9 @@ private struct AnimatedHoverChromeButton: View {
         }
         .buttonStyle(.plain)
         .onAppear {
-            currentScale = initialScale
+            currentVisibleHeight = initialVisibleHeight
             withAnimation(.easeOut(duration: OverlayPanelChromeMetrics.transitionDuration)) {
-                currentScale = CGSize(width: 1, height: 1)
+                currentVisibleHeight = bodyFrame.height
             }
         }
     }
