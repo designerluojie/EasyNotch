@@ -63,7 +63,7 @@ extension PanelShellPresentation {
     static func bodySize(for moduleID: NotchModuleID) -> CGSize {
         switch moduleID {
         case .music:
-            return CGSize(width: 580, height: 100)
+            return CGSize(width: 580, height: 280)
         case .fileStash, .aiChat, .clipboard:
             return CGSize(width: 580, height: 280)
         case .pomodoro:

@@ -112,6 +112,11 @@ struct OverlayPanelRootView: View {
 
     private var expandedBody: some View {
         let bodySize = compositionRoot.panelBodySize(for: compositionRoot.activeModule)
+        let collapseSettledWidth = OverlayPanelRootPresentation.collapseSettledWidth(
+            anchorKind: panelModel.geometry?.anchorKind,
+            idleWidth: panelModel.geometry?.idleFrame.width ?? OverlayPanelChromeMetrics.hoverBodySize.width,
+            notchMetrics: panelModel.geometry?.notchMetrics
+        )
         let collapseSettledHeight = OverlayPanelRootPresentation.collapseSettledHeight(
             anchorKind: panelModel.geometry?.anchorKind,
             idleVisibleHeight: panelModel.geometry?.idleVisibleHeight ?? 6,
@@ -123,6 +128,7 @@ struct OverlayPanelRootView: View {
             bodySize: bodySize,
             animateFromHover: panelModel.previousState?.isHoverHint == true && panelModel.state.isExpandedLike,
             isActive: panelModel.state.isExpandedLike,
+            collapseSettledWidth: collapseSettledWidth,
             collapseSettledHeight: collapseSettledHeight
         )
     }
@@ -253,6 +259,85 @@ private struct FigmaExpandedNotchShellShape: Shape {
     }
 }
 
+private struct MorphingExpandedNotchShape: Shape {
+    var progress: CGFloat
+
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        let clampedProgress = min(max(progress, 0), 1)
+
+        let referenceWidth: CGFloat = 580
+        let xScale = rect.width / referenceWidth
+
+        let expandedTopInset = 11.9586 * xScale
+        let expandedTopControlX = 6.6046 * xScale
+        let expandedTopControlY = 5.3540 * xScale
+        let expandedBottomCurveHeight = 35.8761 * xScale
+        let expandedBottomControlHeight = 16.0616 * xScale
+        let expandedBottomInset = 47.8354 * xScale
+        let expandedBottomControlInset = 28.0210 * xScale
+
+        let targetTopInset = rect.width * (4 / 194)
+        let targetTopControlX = rect.width * (2.2091 / 194)
+        let targetTopControlY = rect.height * (4 / 32)
+        let targetBottomCurveHeight = rect.height * (12 / 32)
+        let targetBottomControlHeight = rect.height * (4.6275 / 32)
+        let targetBottomInset = rect.width * (16 / 194)
+        let targetBottomControlInset = rect.width * (9.3725 / 194)
+
+        func interpolate(_ expanded: CGFloat, _ target: CGFloat) -> CGFloat {
+            target + ((expanded - target) * clampedProgress)
+        }
+
+        let topInset = interpolate(expandedTopInset, targetTopInset)
+        let topControlX = interpolate(expandedTopControlX, targetTopControlX)
+        let topControlY = interpolate(expandedTopControlY, targetTopControlY)
+        let bottomCurveHeight = interpolate(expandedBottomCurveHeight, targetBottomCurveHeight)
+        let bottomControlHeight = interpolate(expandedBottomControlHeight, targetBottomControlHeight)
+        let bottomInset = interpolate(expandedBottomInset, targetBottomInset)
+        let bottomControlInset = interpolate(expandedBottomControlInset, targetBottomControlInset)
+
+        let usableBottomCurveHeight = min(bottomCurveHeight, rect.height / 2)
+        let usableBottomControlHeight = min(bottomControlHeight, usableBottomCurveHeight)
+        let usableTopInset = min(topInset, rect.height / 2)
+        let usableTopControlY = min(topControlY, usableTopInset)
+        let startBottomY = rect.maxY - usableBottomCurveHeight
+
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        path.addCurve(
+            to: CGPoint(x: rect.maxX - usableTopInset, y: rect.minY + usableTopInset),
+            control1: CGPoint(x: rect.maxX - topControlX, y: rect.minY),
+            control2: CGPoint(x: rect.maxX - usableTopInset, y: rect.minY + usableTopControlY)
+        )
+        path.addLine(to: CGPoint(x: rect.maxX - usableTopInset, y: startBottomY))
+        path.addCurve(
+            to: CGPoint(x: rect.maxX - bottomInset, y: rect.maxY),
+            control1: CGPoint(x: rect.maxX - usableTopInset, y: rect.maxY - usableBottomControlHeight),
+            control2: CGPoint(x: rect.maxX - bottomControlInset, y: rect.maxY)
+        )
+        path.addLine(to: CGPoint(x: rect.minX + bottomInset, y: rect.maxY))
+        path.addCurve(
+            to: CGPoint(x: rect.minX + usableTopInset, y: startBottomY),
+            control1: CGPoint(x: rect.minX + bottomControlInset, y: rect.maxY),
+            control2: CGPoint(x: rect.minX + usableTopInset, y: rect.maxY - usableBottomControlHeight)
+        )
+        path.addLine(to: CGPoint(x: rect.minX + usableTopInset, y: rect.minY + usableTopInset))
+        path.addCurve(
+            to: CGPoint(x: rect.minX, y: rect.minY),
+            control1: CGPoint(x: rect.minX + usableTopInset, y: rect.minY + usableTopControlY),
+            control2: CGPoint(x: rect.minX + topControlX, y: rect.minY)
+        )
+        path.closeSubpath()
+        return path
+    }
+}
+
 private struct AnimatedHoverChromeButton: View {
     let bodyFrame: CGRect
     let initialVisibleHeight: CGFloat
@@ -364,29 +449,24 @@ private struct AnimatedExpandedChromeView: View {
     let bodySize: CGSize
     let animateFromHover: Bool
     let isActive: Bool
+    let collapseSettledWidth: CGFloat
     let collapseSettledHeight: CGFloat
 
     @State private var expansionProgress: CGFloat = 1
     @State private var isMorePresented = false
-    @State private var collapseSettlementProgress: CGFloat = 0
-    @State private var collapseSettlementTask: Task<Void, Never>?
+    @State private var currentScaleX: CGFloat = 1
+    @State private var currentScaleY: CGFloat = 1
 
     var body: some View {
         let finalBodyFrame = OverlayPanelChromeMetrics.expandedBodyFrame(for: bodySize)
         let startScale = OverlayPanelRootPresentation.expandedAnimationStartScale(for: bodySize)
-        let currentScaleX = interpolatedCGFloat(from: startScale.width, to: 1, progress: expansionProgress)
-        let expandedScaleY = interpolatedCGFloat(from: startScale.height, to: 1, progress: expansionProgress)
+        let settledScaleX = collapseSettledWidth / bodySize.width
         let settledScaleY = collapseSettledHeight / bodySize.height
-        let currentScaleY = interpolatedCGFloat(
-            from: expandedScaleY,
-            to: settledScaleY,
-            progress: collapseSettlementProgress
-        )
 
         return ZStack(alignment: .topLeading) {
             Color.clear
 
-            FigmaExpandedNotchShellShape()
+            MorphingExpandedNotchShape(progress: expansionProgress)
                 .fill(Color.black)
                 .frame(width: finalBodyFrame.width, height: finalBodyFrame.height)
                 .scaleEffect(x: currentScaleX, y: currentScaleY, anchor: .top)
@@ -404,7 +484,7 @@ private struct AnimatedExpandedChromeView: View {
                 .foregroundStyle(.white.opacity(0.9))
                 .frame(width: finalBodyFrame.width, height: finalBodyFrame.height)
                 .mask(alignment: .top) {
-                    FigmaExpandedNotchShellShape()
+                    MorphingExpandedNotchShape(progress: expansionProgress)
                         .frame(width: finalBodyFrame.width, height: finalBodyFrame.height)
                         .scaleEffect(x: currentScaleX, y: currentScaleY, anchor: .top)
                 }
@@ -435,14 +515,12 @@ private struct AnimatedExpandedChromeView: View {
         .animation(.timingCurve(0.22, 1.0, 0.36, 1.0, duration: 0.16), value: isMorePresented)
         .onAppear {
             expansionProgress = animateFromHover ? 0 : 1
-            collapseSettlementProgress = isActive ? 0 : 1
+            currentScaleX = animateFromHover ? startScale.width : (isActive ? 1 : settledScaleX)
+            currentScaleY = animateFromHover ? startScale.height : (isActive ? 1 : settledScaleY)
             animateExpandedChrome(isActive: isActive)
         }
         .onChange(of: isActive) { newValue in
             animateExpandedChrome(isActive: newValue)
-        }
-        .onDisappear {
-            collapseSettlementTask?.cancel()
         }
     }
 
@@ -451,39 +529,31 @@ private struct AnimatedExpandedChromeView: View {
         compositionRoot.selectActiveModule(moduleID)
     }
 
-    private func interpolatedCGFloat(from start: CGFloat, to end: CGFloat, progress: CGFloat) -> CGFloat {
-        start + ((end - start) * progress)
-    }
-
     private func animateExpandedChrome(isActive: Bool) {
-        collapseSettlementTask?.cancel()
+        let settledScaleX = collapseSettledWidth / bodySize.width
+        let settledScaleY = collapseSettledHeight / bodySize.height
 
-        withAnimation(
-            .interpolatingSpring(
-                duration: OverlayPanelChromeMetrics.expandedTransitionDuration,
-                bounce: isActive ? 0.3 : 0
-            )
-        ) {
-            expansionProgress = isActive ? 1 : 0
-            if isActive {
-                collapseSettlementProgress = 0
+        if isActive {
+            withAnimation(
+                .interpolatingSpring(
+                    duration: OverlayPanelChromeMetrics.expandedTransitionDuration,
+                    bounce: 0.2
+                )
+            ) {
+                expansionProgress = 1
+                currentScaleX = 1
+                currentScaleY = 1
             }
-        }
-
-        guard isActive == false else {
-            return
-        }
-
-        collapseSettlementTask = Task { @MainActor in
-            try? await Task.sleep(
-                nanoseconds: UInt64(OverlayPanelChromeMetrics.expandedTransitionDuration * 1_000_000_000)
-            )
-            guard Task.isCancelled == false else {
-                return
-            }
-
-            withAnimation(.easeOut(duration: OverlayPanelChromeMetrics.expandedCollapseSettlingDuration)) {
-                collapseSettlementProgress = 1
+        } else {
+            withAnimation(
+                .interpolatingSpring(
+                    duration: OverlayPanelChromeMetrics.expandedTransitionDuration,
+                    bounce: 0
+                )
+            ) {
+                expansionProgress = 0
+                currentScaleX = settledScaleX
+                currentScaleY = settledScaleY
             }
         }
     }

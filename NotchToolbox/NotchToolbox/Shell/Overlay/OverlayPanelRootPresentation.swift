@@ -9,9 +9,9 @@ nonisolated enum OverlayPanelRootVisualState: Equatable {
 
 nonisolated enum OverlayPanelChromeMetrics {
     static let transitionDuration: Double = 0.2
-    static let expandedTransitionDuration: Double = 0.3
-    static let expandedCollapseSettlingDuration: Double = transitionDuration
-    static let expandedCollapseTotalDuration: Double = expandedTransitionDuration + expandedCollapseSettlingDuration
+    static let expandedTransitionDuration: Double = 0.2
+    static let expandedCollapseSettlingDuration: Double = 0
+    static let expandedCollapseTotalDuration: Double = 0.4
     static let hoverShadowColorOpacity: Double = 0.25
     static let hoverShadowRadius: CGFloat = 16
     static let hoverShadowYOffset: CGFloat = 8
@@ -142,6 +142,25 @@ nonisolated struct OverlayPanelRootPresentation {
         return requestedHeight
     }
 
+    static func collapseSettledWidth(
+        anchorKind: TopAnchorKind?,
+        idleWidth: CGFloat,
+        notchMetrics: NotchMetrics?
+    ) -> CGFloat {
+        let requestedWidth: CGFloat
+
+        switch anchorKind {
+        case .hardwareNotch:
+            requestedWidth = notchMetrics?.visibleSize.width ?? idleWidth
+        case .simulatedNotch:
+            requestedWidth = idleWidth
+        case .centerHandler, .none:
+            requestedWidth = OverlayPanelChromeMetrics.hoverBodySize.width
+        }
+
+        return requestedWidth
+    }
+
     static func hoverRevealMaskFrame(visibleHeight: CGFloat) -> CGRect {
         CGRect(
             x: 0,
@@ -171,6 +190,14 @@ nonisolated struct OverlayPanelRootPresentation {
 
     static func expandedShadowOpacity(progress: CGFloat) -> Double {
         Double(max(0, min(1, progress))) * OverlayPanelChromeMetrics.expandedShadowColorOpacity
+    }
+
+    static func collapseExpandedShellOpacity(progress: CGFloat) -> Double {
+        Double(max(0, min(1, progress)))
+    }
+
+    static func collapseTargetNotchOpacity(progress: CGFloat) -> Double {
+        Double(max(0, min(1, 1 - progress)))
     }
 }
 

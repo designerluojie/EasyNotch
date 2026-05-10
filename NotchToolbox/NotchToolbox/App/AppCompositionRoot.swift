@@ -28,9 +28,11 @@ final class AppCompositionRoot: ObservableObject {
     }
 
     func selectActiveModule(_ moduleID: NotchModuleID) {
-        Task { @MainActor in
-            activeModule = moduleID
+        guard activeModule != moduleID else {
+            return
         }
+
+        activeModule = moduleID
     }
 
     func context(for moduleID: NotchModuleID) -> NotchModuleContext {
