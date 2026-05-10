@@ -207,7 +207,7 @@ final class PanelWindowController: OverlayPanelPresenting {
 
     private func scheduleIdleFrameReset(to frame: NSRect) {
         let delay = panelModel.previousState?.isExpandedLike == true
-            ? OverlayPanelChromeMetrics.expandedTransitionDuration
+            ? OverlayPanelChromeMetrics.expandedCollapseTotalDuration
             : OverlayPanelChromeMetrics.transitionDuration
 
         pendingIdleFrameResetTask = Task { [weak self] in

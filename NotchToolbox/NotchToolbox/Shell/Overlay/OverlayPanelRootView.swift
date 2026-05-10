@@ -112,12 +112,18 @@ struct OverlayPanelRootView: View {
 
     private var expandedBody: some View {
         let bodySize = compositionRoot.panelBodySize(for: compositionRoot.activeModule)
+        let collapseSettledHeight = OverlayPanelRootPresentation.collapseSettledHeight(
+            anchorKind: panelModel.geometry?.anchorKind,
+            idleVisibleHeight: panelModel.geometry?.idleVisibleHeight ?? 6,
+            notchMetrics: panelModel.geometry?.notchMetrics
+        )
 
         return AnimatedExpandedChromeView(
             compositionRoot: compositionRoot,
             bodySize: bodySize,
             animateFromHover: panelModel.previousState?.isHoverHint == true && panelModel.state.isExpandedLike,
-            isActive: panelModel.state.isExpandedLike
+            isActive: panelModel.state.isExpandedLike,
+            collapseSettledHeight: collapseSettledHeight
         )
     }
 
@@ -358,15 +364,24 @@ private struct AnimatedExpandedChromeView: View {
     let bodySize: CGSize
     let animateFromHover: Bool
     let isActive: Bool
+    let collapseSettledHeight: CGFloat
 
     @State private var expansionProgress: CGFloat = 1
     @State private var isMorePresented = false
+    @State private var collapseSettlementProgress: CGFloat = 0
+    @State private var collapseSettlementTask: Task<Void, Never>?
 
     var body: some View {
         let finalBodyFrame = OverlayPanelChromeMetrics.expandedBodyFrame(for: bodySize)
         let startScale = OverlayPanelRootPresentation.expandedAnimationStartScale(for: bodySize)
         let currentScaleX = interpolatedCGFloat(from: startScale.width, to: 1, progress: expansionProgress)
-        let currentScaleY = interpolatedCGFloat(from: startScale.height, to: 1, progress: expansionProgress)
+        let expandedScaleY = interpolatedCGFloat(from: startScale.height, to: 1, progress: expansionProgress)
+        let settledScaleY = collapseSettledHeight / bodySize.height
+        let currentScaleY = interpolatedCGFloat(
+            from: expandedScaleY,
+            to: settledScaleY,
+            progress: collapseSettlementProgress
+        )
 
         return ZStack(alignment: .topLeading) {
             Color.clear
@@ -420,10 +435,14 @@ private struct AnimatedExpandedChromeView: View {
         .animation(.timingCurve(0.22, 1.0, 0.36, 1.0, duration: 0.16), value: isMorePresented)
         .onAppear {
             expansionProgress = animateFromHover ? 0 : 1
+            collapseSettlementProgress = isActive ? 0 : 1
             animateExpandedChrome(isActive: isActive)
         }
         .onChange(of: isActive) { newValue in
             animateExpandedChrome(isActive: newValue)
+        }
+        .onDisappear {
+            collapseSettlementTask?.cancel()
         }
     }
 
@@ -437,6 +456,8 @@ private struct AnimatedExpandedChromeView: View {
     }
 
     private func animateExpandedChrome(isActive: Bool) {
+        collapseSettlementTask?.cancel()
+
         withAnimation(
             .interpolatingSpring(
                 duration: OverlayPanelChromeMetrics.expandedTransitionDuration,
@@ -444,6 +465,26 @@ private struct AnimatedExpandedChromeView: View {
             )
         ) {
             expansionProgress = isActive ? 1 : 0
+            if isActive {
+                collapseSettlementProgress = 0
+            }
+        }
+
+        guard isActive == false else {
+            return
+        }
+
+        collapseSettlementTask = Task { @MainActor in
+            try? await Task.sleep(
+                nanoseconds: UInt64(OverlayPanelChromeMetrics.expandedTransitionDuration * 1_000_000_000)
+            )
+            guard Task.isCancelled == false else {
+                return
+            }
+
+            withAnimation(.easeOut(duration: OverlayPanelChromeMetrics.expandedCollapseSettlingDuration)) {
+                collapseSettlementProgress = 1
+            }
         }
     }
 }
