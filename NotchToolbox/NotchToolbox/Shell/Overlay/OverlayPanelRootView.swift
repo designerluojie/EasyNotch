@@ -276,18 +276,10 @@ private struct MorphingExpandedNotchShape: Shape {
         let expandedTopInset = 11.9586 * xScale
         let expandedTopControlX = 6.6046 * xScale
         let expandedTopControlY = 5.3540 * xScale
-        let expandedBottomCurveHeight = 35.8761 * xScale
-        let expandedBottomControlHeight = 16.0616 * xScale
-        let expandedBottomInset = 47.8354 * xScale
-        let expandedBottomControlInset = 28.0210 * xScale
 
         let targetTopInset = rect.width * (4 / 194)
         let targetTopControlX = rect.width * (2.2091 / 194)
         let targetTopControlY = rect.height * (4 / 32)
-        let targetBottomCurveHeight = rect.height * (12 / 32)
-        let targetBottomControlHeight = rect.height * (4.6275 / 32)
-        let targetBottomInset = rect.width * (16 / 194)
-        let targetBottomControlInset = rect.width * (9.3725 / 194)
 
         func interpolate(_ expanded: CGFloat, _ target: CGFloat) -> CGFloat {
             target + ((expanded - target) * clampedProgress)
@@ -296,16 +288,13 @@ private struct MorphingExpandedNotchShape: Shape {
         let topInset = interpolate(expandedTopInset, targetTopInset)
         let topControlX = interpolate(expandedTopControlX, targetTopControlX)
         let topControlY = interpolate(expandedTopControlY, targetTopControlY)
-        let bottomCurveHeight = interpolate(expandedBottomCurveHeight, targetBottomCurveHeight)
-        let bottomControlHeight = interpolate(expandedBottomControlHeight, targetBottomControlHeight)
-        let bottomInset = interpolate(expandedBottomInset, targetBottomInset)
-        let bottomControlInset = interpolate(expandedBottomControlInset, targetBottomControlInset)
 
-        let usableBottomCurveHeight = min(bottomCurveHeight, rect.height / 2)
-        let usableBottomControlHeight = min(bottomControlHeight, usableBottomCurveHeight)
         let usableTopInset = min(topInset, rect.height / 2)
         let usableTopControlY = min(topControlY, usableTopInset)
-        let startBottomY = rect.maxY - usableBottomCurveHeight
+        let bottomCornerRadius = OverlayPanelRootPresentation.expandedBottomCornerRadius(progress: clampedProgress)
+        let usableBottomRadius = min(bottomCornerRadius, rect.width / 2, rect.height / 2)
+        let leftEdgeX = rect.minX + usableTopInset
+        let rightEdgeX = rect.maxX - usableTopInset
 
         var path = Path()
         path.move(to: CGPoint(x: rect.minX, y: rect.minY))
@@ -315,19 +304,17 @@ private struct MorphingExpandedNotchShape: Shape {
             control1: CGPoint(x: rect.maxX - topControlX, y: rect.minY),
             control2: CGPoint(x: rect.maxX - usableTopInset, y: rect.minY + usableTopControlY)
         )
-        path.addLine(to: CGPoint(x: rect.maxX - usableTopInset, y: startBottomY))
-        path.addCurve(
-            to: CGPoint(x: rect.maxX - bottomInset, y: rect.maxY),
-            control1: CGPoint(x: rect.maxX - usableTopInset, y: rect.maxY - usableBottomControlHeight),
-            control2: CGPoint(x: rect.maxX - bottomControlInset, y: rect.maxY)
+        path.addLine(to: CGPoint(x: rightEdgeX, y: rect.maxY - usableBottomRadius))
+        path.addQuadCurve(
+            to: CGPoint(x: rightEdgeX - usableBottomRadius, y: rect.maxY),
+            control: CGPoint(x: rightEdgeX, y: rect.maxY)
         )
-        path.addLine(to: CGPoint(x: rect.minX + bottomInset, y: rect.maxY))
-        path.addCurve(
-            to: CGPoint(x: rect.minX + usableTopInset, y: startBottomY),
-            control1: CGPoint(x: rect.minX + bottomControlInset, y: rect.maxY),
-            control2: CGPoint(x: rect.minX + usableTopInset, y: rect.maxY - usableBottomControlHeight)
+        path.addLine(to: CGPoint(x: leftEdgeX + usableBottomRadius, y: rect.maxY))
+        path.addQuadCurve(
+            to: CGPoint(x: leftEdgeX, y: rect.maxY - usableBottomRadius),
+            control: CGPoint(x: leftEdgeX, y: rect.maxY)
         )
-        path.addLine(to: CGPoint(x: rect.minX + usableTopInset, y: rect.minY + usableTopInset))
+        path.addLine(to: CGPoint(x: leftEdgeX, y: rect.minY + usableTopInset))
         path.addCurve(
             to: CGPoint(x: rect.minX, y: rect.minY),
             control1: CGPoint(x: rect.minX + usableTopInset, y: rect.minY + usableTopControlY),

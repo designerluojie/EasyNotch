@@ -177,6 +177,14 @@ nonisolated struct OverlayPanelRootPresentation {
         )
     }
 
+    static func expandedBottomCornerRadius(progress: CGFloat) -> CGFloat {
+        let clampedProgress = min(max(progress, 0), 1)
+        let collapsedRadius = OverlayPanelChromeMetrics.hoverRevealBottomCornerRadius
+        let expandedRadius: CGFloat = 36
+
+        return collapsedRadius + ((expandedRadius - collapsedRadius) * clampedProgress)
+    }
+
     static func expandedAnimationStartScale(for bodySize: CGSize) -> CGSize {
         CGSize(
             width: OverlayPanelChromeMetrics.hoverBodySize.width / bodySize.width,

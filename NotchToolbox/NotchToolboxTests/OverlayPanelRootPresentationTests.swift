@@ -56,6 +56,12 @@ struct OverlayPanelRootPresentationTests {
         #expect(OverlayPanelRootPresentation.expandedShadowOpacity(progress: 1) == OverlayPanelChromeMetrics.expandedShadowColorOpacity)
     }
 
+    @Test func expandedBottomCornersInterpolateToFixedThirtySixPointRadius() {
+        #expect(OverlayPanelRootPresentation.expandedBottomCornerRadius(progress: 0) == 12)
+        #expect(OverlayPanelRootPresentation.expandedBottomCornerRadius(progress: 0.5) == 24)
+        #expect(OverlayPanelRootPresentation.expandedBottomCornerRadius(progress: 1) == 36)
+    }
+
     @Test func collapseBlendsExpandedShellIntoTargetNotchWithinSinglePass() {
         #expect(OverlayPanelRootPresentation.collapseExpandedShellOpacity(progress: 1) == 1)
         #expect(OverlayPanelRootPresentation.collapseExpandedShellOpacity(progress: 0) == 0)
