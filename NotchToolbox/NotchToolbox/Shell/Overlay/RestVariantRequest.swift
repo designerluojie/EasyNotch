@@ -1,6 +1,6 @@
 import Foundation
 
-struct RestVariantRequest: Equatable {
+nonisolated struct RestVariantRequest: Equatable, Sendable {
     let moduleID: NotchModuleID
     let kind: RestVariantKind
 }

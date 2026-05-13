@@ -6,6 +6,7 @@ import Foundation
 final class AppCompositionRoot: ObservableObject {
     let sharedServices: SharedCoreServices
     let energyGovernor: EnergyGovernor
+    let restVariantStore: RestVariantStore
 
     @Published private(set) var moduleDescriptors: [NotchModuleDescriptor]
     @Published var activeModule: NotchModuleID
@@ -15,12 +16,14 @@ final class AppCompositionRoot: ObservableObject {
     init(
         sharedServices: SharedCoreServices? = nil,
         energyGovernor: EnergyGovernor? = nil,
+        restVariantStore: RestVariantStore? = nil,
         moduleDescriptors: [NotchModuleDescriptor]? = nil,
         activeModule: NotchModuleID = .music,
         initialScreenID: String = "main"
     ) {
         self.sharedServices = sharedServices ?? SharedCoreServices.fallback()
         self.energyGovernor = energyGovernor ?? EnergyGovernor()
+        self.restVariantStore = restVariantStore ?? RestVariantStore()
         self.moduleDescriptors = moduleDescriptors ?? NotchModuleDescriptor.defaultDescriptors
         self.activeModule = activeModule
         self.overlayState = .idle(screenID: initialScreenID)

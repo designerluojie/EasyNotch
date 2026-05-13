@@ -22,7 +22,10 @@ nonisolated struct InteractionStateMachine {
                 return state
             }
 
-            return .idle(screenID: screenID)
+            return .idle(
+                screenID: screenID,
+                presentation: state.currentPresentation
+            )
         case .collapseTimeout(let screenID):
             guard case .collapsing(screenID, _) = state else {
                 return state
@@ -36,10 +39,13 @@ nonisolated struct InteractionStateMachine {
         switch state {
         case .expanded:
             return state
-        case .hoverHint(let activeScreenID) where activeScreenID == screenID:
+        case .hoverHint(let activeScreenID, _) where activeScreenID == screenID:
             return state
         default:
-            return .hoverHint(screenID: screenID)
+            return .hoverHint(
+                screenID: screenID,
+                presentation: state.currentPresentation
+            )
         }
     }
 
@@ -50,7 +56,10 @@ nonisolated struct InteractionStateMachine {
 
         switch state {
         case .hoverHint:
-            return .idle(screenID: screenID)
+            return .idle(
+                screenID: screenID,
+                presentation: state.currentPresentation
+            )
         case .expanded:
             return .collapsing(screenID: screenID, reason: .pointerExit)
         default:
@@ -62,12 +71,22 @@ nonisolated struct InteractionStateMachine {
 private extension OverlayState {
     nonisolated var screenID: String {
         switch self {
-        case .idle(let screenID),
-             .hoverHint(let screenID),
+        case .idle(let screenID, _),
+             .hoverHint(let screenID, _),
              .expanded(let screenID, _),
              .collapsing(let screenID, _),
              .toast(let screenID, _):
             return screenID
+        }
+    }
+
+    nonisolated var currentPresentation: ResolvedRestPresentation {
+        switch self {
+        case .idle(_, let presentation),
+             .hoverHint(_, let presentation):
+            return presentation
+        case .expanded, .collapsing, .toast:
+            return .none
         }
     }
 }

@@ -5,6 +5,38 @@ import Testing
 @MainActor
 struct OverlayCoordinatorTests {
 
+    @Test func startPublishesResolvedRestPresentationIntoIdleState() throws {
+        let compositionRoot = AppCompositionRoot(initialScreenID: "built-in")
+        compositionRoot.restVariantStore.setPersistentRequest(
+            RestVariantRequest(moduleID: .music, kind: .wideNotchStrip)
+        )
+        let presenter = SpyOverlayPanelPresenter()
+        let coordinator = OverlayCoordinator(
+            compositionRoot: compositionRoot,
+            topologyProvider: StubDisplayTopologyProvider(snapshots: [
+                Self.notchSnapshot(id: "built-in")
+            ]),
+            panelPresenter: presenter,
+            primaryScreenID: "built-in",
+            simulateNotchOnNonNotchScreen: true
+        )
+
+        coordinator.start()
+
+        #expect(
+            compositionRoot.overlayState
+                == .idle(
+                    screenID: "built-in",
+                    presentation: .request(
+                        RestVariantRequest(
+                            moduleID: .music,
+                            kind: .wideNotchStrip
+                        )
+                    )
+                )
+        )
+    }
+
     @Test func startPresentsIdlePanelOnEveryScreen() throws {
         let compositionRoot = AppCompositionRoot(initialScreenID: "unstarted")
         let presenter = SpyOverlayPanelPresenter()

@@ -1,6 +1,6 @@
 import Foundation
 
-enum ResolvedRestPresentation: Equatable {
+nonisolated enum ResolvedRestPresentation: Equatable, Sendable {
     case none
     case request(RestVariantRequest)
 }

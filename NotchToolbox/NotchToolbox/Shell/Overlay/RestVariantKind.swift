@@ -1,5 +1,5 @@
 import Foundation
 
-enum RestVariantKind: Equatable {
+nonisolated enum RestVariantKind: Equatable, Sendable {
     case wideNotchStrip
 }
