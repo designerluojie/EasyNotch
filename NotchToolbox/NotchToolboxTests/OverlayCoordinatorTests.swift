@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 import Testing
 @testable import NotchToolbox
 
@@ -35,6 +36,94 @@ struct OverlayCoordinatorTests {
                     )
                 )
         )
+    }
+
+    @Test func storeChangesRefreshIdlePresentationWithoutManualScreenRefresh() throws {
+        let compositionRoot = AppCompositionRoot(initialScreenID: "built-in")
+        let presenter = SpyOverlayPanelPresenter()
+        let coordinator = OverlayCoordinator(
+            compositionRoot: compositionRoot,
+            topologyProvider: StubDisplayTopologyProvider(snapshots: [
+                Self.notchSnapshot(id: "built-in")
+            ]),
+            panelPresenter: presenter,
+            primaryScreenID: "built-in",
+            simulateNotchOnNonNotchScreen: true
+        )
+
+        coordinator.start()
+
+        compositionRoot.restVariantStore.setPersistentRequest(
+            RestVariantRequest(moduleID: .pomodoro, kind: .headerlessMiniPanel)
+        )
+
+        #expect(
+            compositionRoot.overlayState
+                == .idle(
+                    screenID: "built-in",
+                    presentation: .request(
+                        RestVariantRequest(
+                            moduleID: .pomodoro,
+                            kind: .headerlessMiniPanel
+                        )
+                    )
+                )
+        )
+        #expect(
+            try #require(presenter.presentations.last).state
+                == .idle(
+                    screenID: "built-in",
+                    presentation: .request(
+                        RestVariantRequest(
+                            moduleID: .pomodoro,
+                            kind: .headerlessMiniPanel
+                        )
+                    )
+                )
+        )
+    }
+
+    @Test func transientExpiryRefreshesIdleDirectlyBackToPersistentWideNotchStrip() async throws {
+        let store = RestVariantStore(transientBridgeDelay: .zero)
+        let compositionRoot = AppCompositionRoot(restVariantStore: store, initialScreenID: "built-in")
+        compositionRoot.restVariantStore.setPersistentRequest(
+            RestVariantRequest(moduleID: .music, kind: .wideNotchStrip)
+        )
+        let presenter = SpyOverlayPanelPresenter()
+        let coordinator = OverlayCoordinator(
+            compositionRoot: compositionRoot,
+            topologyProvider: StubDisplayTopologyProvider(snapshots: [
+                Self.notchSnapshot(id: "built-in")
+            ]),
+            panelPresenter: presenter,
+            primaryScreenID: "built-in",
+            simulateNotchOnNonNotchScreen: true
+        )
+
+        coordinator.start()
+        compositionRoot.restVariantStore.enqueueTransientRequest(
+            RestVariantRequest(
+                moduleID: .pomodoro,
+                kind: .headerlessMiniPanel,
+                lifetime: .transient(
+                    token: UUID(),
+                    duration: .milliseconds(20),
+                    declaredAt: Date()
+                )
+            )
+        )
+
+        try? await Task.sleep(for: .milliseconds(40))
+
+        let expectedState = OverlayState.idle(
+            screenID: "built-in",
+            presentation: .request(
+                RestVariantRequest(moduleID: .music, kind: .wideNotchStrip)
+            )
+        )
+
+        #expect(compositionRoot.overlayState == expectedState)
+        #expect(try #require(presenter.presentations.last).state == expectedState)
     }
 
     @Test func startPresentsIdlePanelOnEveryScreen() throws {
@@ -84,7 +173,7 @@ struct OverlayCoordinatorTests {
 
         let lastPresentation = try #require(presenter.presentations.last)
         #expect(lastPresentation.state == .expanded(screenID: "built-in", moduleID: .aiChat))
-        #expect(lastPresentation.geometry.expandedFrame.width == 696)
+        #expect(lastPresentation.geometry.expandedFrame.width == 780)
         #expect(lastPresentation.geometry.expandedVisibleFrame.width == 580)
     }
 
@@ -141,6 +230,156 @@ struct OverlayCoordinatorTests {
             .moduleWillDisappear,
             .panelDidCollapse(reason: .userDismiss)
         ])
+    }
+
+    @Test func collapseFromExpandedResolvesCurrentRestPresentationAsTarget() throws {
+        let compositionRoot = AppCompositionRoot(initialScreenID: "built-in")
+        let widePresentation = ResolvedRestPresentation.request(
+            RestVariantRequest(moduleID: .music, kind: .wideNotchStrip)
+        )
+        compositionRoot.restVariantStore.setPersistentRequest(
+            RestVariantRequest(moduleID: .music, kind: .wideNotchStrip)
+        )
+        let presenter = SpyOverlayPanelPresenter()
+        let coordinator = OverlayCoordinator(
+            compositionRoot: compositionRoot,
+            topologyProvider: StubDisplayTopologyProvider(snapshots: [
+                Self.notchSnapshot(id: "built-in")
+            ]),
+            panelPresenter: presenter,
+            primaryScreenID: "built-in",
+            simulateNotchOnNonNotchScreen: true
+        )
+
+        coordinator.start()
+        coordinator.expand(moduleID: .music)
+        presenter.presentations.removeAll()
+
+        coordinator.collapse(reason: .userDismiss)
+
+        let expectedState = OverlayState.idle(
+            screenID: "built-in",
+            presentation: widePresentation
+        )
+        #expect(compositionRoot.overlayState == expectedState)
+        #expect(try #require(presenter.presentations.last).state == expectedState)
+    }
+
+    @Test func collapseFromExpandedReturnsToPresentationCapturedAtExpandTime() throws {
+        let compositionRoot = AppCompositionRoot(initialScreenID: "built-in")
+        let widePresentation = ResolvedRestPresentation.request(
+            RestVariantRequest(moduleID: .music, kind: .wideNotchStrip)
+        )
+        compositionRoot.restVariantStore.setPersistentRequest(
+            RestVariantRequest(moduleID: .music, kind: .wideNotchStrip)
+        )
+        let presenter = SpyOverlayPanelPresenter()
+        let coordinator = OverlayCoordinator(
+            compositionRoot: compositionRoot,
+            topologyProvider: StubDisplayTopologyProvider(snapshots: [
+                Self.notchSnapshot(id: "built-in")
+            ]),
+            panelPresenter: presenter,
+            primaryScreenID: "built-in",
+            simulateNotchOnNonNotchScreen: true
+        )
+
+        coordinator.start()
+        coordinator.expand(moduleID: .music)
+        compositionRoot.restVariantStore.clearPersistentRequest(for: .music)
+        compositionRoot.restVariantStore.setPersistentRequest(
+            RestVariantRequest(moduleID: .pomodoro, kind: .headerlessMiniPanel)
+        )
+        presenter.presentations.removeAll()
+
+        coordinator.collapse(reason: .userDismiss)
+
+        let expectedState = OverlayState.idle(
+            screenID: "built-in",
+            presentation: widePresentation
+        )
+        #expect(compositionRoot.overlayState == expectedState)
+        #expect(try #require(presenter.presentations.last).state == expectedState)
+    }
+
+    @Test func pointerEnteredImmediatelyAfterExpandedCollapseDoesNotForceHover() throws {
+        let compositionRoot = AppCompositionRoot(initialScreenID: "built-in")
+        let widePresentation = ResolvedRestPresentation.request(
+            RestVariantRequest(moduleID: .music, kind: .wideNotchStrip)
+        )
+        compositionRoot.restVariantStore.setPersistentRequest(
+            RestVariantRequest(moduleID: .music, kind: .wideNotchStrip)
+        )
+        let presenter = SpyOverlayPanelPresenter()
+        let coordinator = OverlayCoordinator(
+            compositionRoot: compositionRoot,
+            topologyProvider: StubDisplayTopologyProvider(snapshots: [
+                Self.notchSnapshot(id: "built-in")
+            ]),
+            panelPresenter: presenter,
+            primaryScreenID: "built-in",
+            simulateNotchOnNonNotchScreen: true
+        )
+
+        coordinator.start()
+        coordinator.expand(moduleID: .music)
+        coordinator.collapse(reason: .userDismiss)
+        presenter.presentations.removeAll()
+
+        coordinator.pointerEntered(onScreenID: "built-in")
+
+        let expectedState = OverlayState.idle(
+            screenID: "built-in",
+            presentation: widePresentation
+        )
+        #expect(compositionRoot.overlayState == expectedState)
+        #expect(presenter.presentations.isEmpty)
+    }
+
+    @Test func pointerEnteredAfterExpandedCollapseWaitsForPointerExitBeforeHoveringAgain() async throws {
+        let compositionRoot = AppCompositionRoot(initialScreenID: "built-in")
+        let widePresentation = ResolvedRestPresentation.request(
+            RestVariantRequest(moduleID: .music, kind: .wideNotchStrip)
+        )
+        compositionRoot.restVariantStore.setPersistentRequest(
+            RestVariantRequest(moduleID: .music, kind: .wideNotchStrip)
+        )
+        let presenter = SpyOverlayPanelPresenter()
+        let coordinator = OverlayCoordinator(
+            compositionRoot: compositionRoot,
+            topologyProvider: StubDisplayTopologyProvider(snapshots: [
+                Self.notchSnapshot(id: "built-in")
+            ]),
+            panelPresenter: presenter,
+            primaryScreenID: "built-in",
+            simulateNotchOnNonNotchScreen: true
+        )
+
+        coordinator.start()
+        coordinator.expand(moduleID: .music)
+        coordinator.collapse(reason: .userDismiss)
+        coordinator.pointerEntered(onScreenID: "built-in")
+        try await Task.sleep(nanoseconds: 700_000_000)
+        presenter.presentations.removeAll()
+
+        coordinator.pointerEntered(onScreenID: "built-in")
+
+        let expectedIdleState = OverlayState.idle(
+            screenID: "built-in",
+            presentation: widePresentation
+        )
+        #expect(compositionRoot.overlayState == expectedIdleState)
+        #expect(presenter.presentations.isEmpty)
+
+        coordinator.pointerExited(onScreenID: "built-in")
+        coordinator.pointerEntered(onScreenID: "built-in")
+
+        let expectedHoverState = OverlayState.hoverHint(
+            screenID: "built-in",
+            presentation: widePresentation
+        )
+        #expect(compositionRoot.overlayState == expectedHoverState)
+        #expect(try #require(presenter.presentations.last).state == expectedHoverState)
     }
 
     @Test func refreshScreensMigratesExpandedPanelWhenActiveScreenDisappears() throws {
@@ -222,6 +461,44 @@ struct OverlayCoordinatorTests {
 
         #expect(compositionRoot.overlayState == .idle(screenID: "built-in"))
         #expect(try #require(presenter.presentations.last).state == .idle(screenID: "built-in"))
+    }
+
+    @Test func pointerExitCollapseReturnsToPresentationCapturedAtExpandTime() throws {
+        let compositionRoot = AppCompositionRoot(initialScreenID: "built-in")
+        let widePresentation = ResolvedRestPresentation.request(
+            RestVariantRequest(moduleID: .music, kind: .wideNotchStrip)
+        )
+        compositionRoot.restVariantStore.setPersistentRequest(
+            RestVariantRequest(moduleID: .music, kind: .wideNotchStrip)
+        )
+        let presenter = SpyOverlayPanelPresenter()
+        let coordinator = OverlayCoordinator(
+            compositionRoot: compositionRoot,
+            topologyProvider: StubDisplayTopologyProvider(snapshots: [
+                Self.notchSnapshot(id: "built-in")
+            ]),
+            panelPresenter: presenter,
+            primaryScreenID: "built-in",
+            simulateNotchOnNonNotchScreen: true
+        )
+
+        coordinator.start()
+        coordinator.expand(moduleID: .music)
+        compositionRoot.restVariantStore.clearPersistentRequest(for: .music)
+        compositionRoot.restVariantStore.setPersistentRequest(
+            RestVariantRequest(moduleID: .pomodoro, kind: .headerlessMiniPanel)
+        )
+        coordinator.pointerExited(onScreenID: "built-in")
+        presenter.presentations.removeAll()
+
+        coordinator.completePointerExitCollapse(onScreenID: "built-in")
+
+        let expectedState = OverlayState.idle(
+            screenID: "built-in",
+            presentation: widePresentation
+        )
+        #expect(compositionRoot.overlayState == expectedState)
+        #expect(try #require(presenter.presentations.last).state == expectedState)
     }
 
     @Test func pointerExitFromHoverHintDoesNotEnterDelayedCollapse() throws {

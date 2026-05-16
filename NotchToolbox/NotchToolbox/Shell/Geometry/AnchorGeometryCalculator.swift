@@ -15,12 +15,99 @@ struct TopAnchorGeometry: Equatable {
     let idleFrame: CGRect
     let hoverHintFrame: CGRect
     let hoverHintVisibleFrame: CGRect
+    let wideNotchStripFrame: CGRect
+    let wideNotchStripVisibleFrame: CGRect
+    let wideNotchStripHoverFrame: CGRect
+    let wideNotchStripHoverVisibleFrame: CGRect
+    let headerlessMiniPanelFrame: CGRect
+    let headerlessMiniPanelVisibleFrame: CGRect
+    let headerlessMiniPanelHoverFrame: CGRect
+    let headerlessMiniPanelHoverVisibleFrame: CGRect
     let expandedFrame: CGRect
     let expandedVisibleFrame: CGRect
     let toastFrame: CGRect
     let hotzoneFrame: CGRect
     let safeTopInset: CGFloat
     let idleVisibleHeight: CGFloat
+
+    init(
+        screenID: String,
+        screenFrame: CGRect,
+        anchorKind: TopAnchorKind,
+        notchMetrics: NotchMetrics,
+        idleFrame: CGRect,
+        hoverHintFrame: CGRect,
+        hoverHintVisibleFrame: CGRect,
+        wideNotchStripFrame: CGRect? = nil,
+        wideNotchStripVisibleFrame: CGRect? = nil,
+        wideNotchStripHoverFrame: CGRect? = nil,
+        wideNotchStripHoverVisibleFrame: CGRect? = nil,
+        headerlessMiniPanelFrame: CGRect? = nil,
+        headerlessMiniPanelVisibleFrame: CGRect? = nil,
+        headerlessMiniPanelHoverFrame: CGRect? = nil,
+        headerlessMiniPanelHoverVisibleFrame: CGRect? = nil,
+        expandedFrame: CGRect,
+        expandedVisibleFrame: CGRect,
+        toastFrame: CGRect,
+        hotzoneFrame: CGRect,
+        safeTopInset: CGFloat,
+        idleVisibleHeight: CGFloat
+    ) {
+        self.screenID = screenID
+        self.screenFrame = screenFrame
+        self.anchorKind = anchorKind
+        self.notchMetrics = notchMetrics
+        self.idleFrame = idleFrame
+        self.hoverHintFrame = hoverHintFrame
+        self.hoverHintVisibleFrame = hoverHintVisibleFrame
+        self.wideNotchStripFrame = wideNotchStripFrame ?? idleFrame
+        self.wideNotchStripVisibleFrame = wideNotchStripVisibleFrame ?? self.wideNotchStripFrame
+        self.wideNotchStripHoverFrame = wideNotchStripHoverFrame ?? hoverHintFrame
+        self.wideNotchStripHoverVisibleFrame = wideNotchStripHoverVisibleFrame ?? self.wideNotchStripHoverFrame
+        self.headerlessMiniPanelFrame = headerlessMiniPanelFrame ?? idleFrame
+        self.headerlessMiniPanelVisibleFrame = headerlessMiniPanelVisibleFrame ?? self.headerlessMiniPanelFrame
+        self.headerlessMiniPanelHoverFrame = headerlessMiniPanelHoverFrame ?? hoverHintFrame
+        self.headerlessMiniPanelHoverVisibleFrame = headerlessMiniPanelHoverVisibleFrame ?? self.headerlessMiniPanelHoverFrame
+        self.expandedFrame = expandedFrame
+        self.expandedVisibleFrame = expandedVisibleFrame
+        self.toastFrame = toastFrame
+        self.hotzoneFrame = hotzoneFrame
+        self.safeTopInset = safeTopInset
+        self.idleVisibleHeight = idleVisibleHeight
+    }
+
+    func frame(for state: OverlayState) -> CGRect {
+        switch state {
+        case .idle(_, let presentation):
+            switch presentation {
+            case .none:
+                idleFrame
+            case .request(let request):
+                switch request.kind {
+                case .wideNotchStrip:
+                    wideNotchStripFrame
+                case .headerlessMiniPanel:
+                    headerlessMiniPanelFrame
+                }
+            }
+        case .hoverHint(_, let presentation):
+            switch presentation {
+            case .none:
+                hoverHintFrame
+            case .request(let request):
+                switch request.kind {
+                case .wideNotchStrip:
+                    wideNotchStripHoverFrame
+                case .headerlessMiniPanel:
+                    headerlessMiniPanelHoverFrame
+                }
+            }
+        case .expanded, .collapsing:
+            expandedFrame
+        case .toast:
+            toastFrame
+        }
+    }
 }
 
 struct AnchorGeometryCalculator {
@@ -29,6 +116,12 @@ struct AnchorGeometryCalculator {
     private let simulatedIdleWidth: CGFloat = 185
     private let simulatedIdleHeight: CGFloat = 6
     private let simulatedIdleVisibleHeight: CGFloat = 6
+    private let wideNotchStripSize = CGSize(width: 248, height: 32)
+    private let wideNotchStripHoverSize = CGSize(width: 248, height: 40)
+    private let headerlessMiniPanelSize = CGSize(width: 320, height: 128)
+    private let headerlessMiniPanelHoverSize = CGSize(width: 320, height: 136)
+    private let restVariantOuterHorizontalInset: CGFloat = 24
+    private let restVariantOuterBottomInset: CGFloat = 32
 
     func calculate(for profile: ScreenProfile) -> TopAnchorGeometry {
         let anchorKind = anchorKind(for: profile)
@@ -55,6 +148,50 @@ struct AnchorGeometryCalculator {
             hoverHintVisibleFrame: centeredFrame(
                 size: hoverVisibleSize,
                 topY: profile.frame.maxY - hoverVisibleSize.height,
+                in: profile.frame
+            ),
+            wideNotchStripFrame: topAttachedOuterFrame(
+                outerSize: outerSize(for: wideNotchStripSize),
+                visibleHeight: wideNotchStripSize.height,
+                bottomInset: restVariantOuterBottomInset,
+                screenFrame: profile.frame
+            ),
+            wideNotchStripVisibleFrame: centeredFrame(
+                size: wideNotchStripSize,
+                topY: profile.frame.maxY - wideNotchStripSize.height,
+                in: profile.frame
+            ),
+            wideNotchStripHoverFrame: topAttachedOuterFrame(
+                outerSize: outerSize(for: wideNotchStripHoverSize),
+                visibleHeight: wideNotchStripHoverSize.height,
+                bottomInset: restVariantOuterBottomInset,
+                screenFrame: profile.frame
+            ),
+            wideNotchStripHoverVisibleFrame: centeredFrame(
+                size: wideNotchStripHoverSize,
+                topY: profile.frame.maxY - wideNotchStripHoverSize.height,
+                in: profile.frame
+            ),
+            headerlessMiniPanelFrame: topAttachedOuterFrame(
+                outerSize: outerSize(for: headerlessMiniPanelSize),
+                visibleHeight: headerlessMiniPanelSize.height,
+                bottomInset: restVariantOuterBottomInset,
+                screenFrame: profile.frame
+            ),
+            headerlessMiniPanelVisibleFrame: centeredFrame(
+                size: headerlessMiniPanelSize,
+                topY: profile.frame.maxY - headerlessMiniPanelSize.height,
+                in: profile.frame
+            ),
+            headerlessMiniPanelHoverFrame: topAttachedOuterFrame(
+                outerSize: outerSize(for: headerlessMiniPanelHoverSize),
+                visibleHeight: headerlessMiniPanelHoverSize.height,
+                bottomInset: restVariantOuterBottomInset,
+                screenFrame: profile.frame
+            ),
+            headerlessMiniPanelHoverVisibleFrame: centeredFrame(
+                size: headerlessMiniPanelHoverSize,
+                topY: profile.frame.maxY - headerlessMiniPanelHoverSize.height,
                 in: profile.frame
             ),
             expandedFrame: OverlayPanelChromeMetrics.expandedOuterFrame(
@@ -144,6 +281,13 @@ struct AnchorGeometryCalculator {
             y: screenFrame.maxY - visibleHeight - bottomInset,
             width: outerSize.width,
             height: outerSize.height
+        )
+    }
+
+    private func outerSize(for bodySize: CGSize) -> CGSize {
+        CGSize(
+            width: bodySize.width + (restVariantOuterHorizontalInset * 2),
+            height: bodySize.height + restVariantOuterBottomInset
         )
     }
 }

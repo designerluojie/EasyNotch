@@ -17,7 +17,9 @@ struct NotchShellRuntimeTests {
             ]),
             panelPresenter: presenter,
             primaryScreenID: "built-in",
-            simulateNotchOnNonNotchScreen: true
+            simulateNotchOnNonNotchScreen: true,
+            enableDebugRestVariantSeed: false,
+            debugRestVariantSeedDelay: .milliseconds(10)
         )
 
         runtime.start()
@@ -30,6 +32,90 @@ struct NotchShellRuntimeTests {
         #expect(presenter.presentations[0].state == .idle(screenID: "built-in"))
         #expect(presenter.presentations[1].state == .expanded(screenID: "built-in", moduleID: .music))
         #expect(presenter.presentations[2].state == .idle(screenID: "built-in"))
+    }
+
+    @Test func startSeedsWideNotchStripDebugRequestAfterDelay() async throws {
+        let compositionRoot = AppCompositionRoot(activeModule: .music, initialScreenID: "built-in")
+        let interactions = OverlayPanelInteractions()
+        let presenter = RuntimeSpyOverlayPanelPresenter()
+        let runtime = NotchShellRuntime(
+            compositionRoot: compositionRoot,
+            interactions: interactions,
+            topologyProvider: RuntimeStubDisplayTopologyProvider(snapshots: [
+                Self.notchSnapshot(id: "built-in")
+            ]),
+            panelPresenter: presenter,
+            primaryScreenID: "built-in",
+            simulateNotchOnNonNotchScreen: true,
+            enableDebugRestVariantSeed: true,
+            debugRestVariantSeedDelay: .milliseconds(10),
+            debugHeaderlessMiniPanelDelayAfterWide: .seconds(1),
+            debugHeaderlessMiniPanelDuration: .seconds(1)
+        )
+
+        runtime.start()
+        try await Task.sleep(for: .milliseconds(100))
+
+        #expect(
+            compositionRoot.restVariantStore.resolvedPresentation
+                == .request(
+                    RestVariantRequest(
+                        moduleID: .music,
+                        kind: .wideNotchStrip
+                    )
+                )
+        )
+        #expect(
+            presenter.presentations.contains {
+                $0.state == .idle(
+                    screenID: "built-in",
+                    presentation: .request(
+                        RestVariantRequest(
+                            moduleID: .music,
+                            kind: .wideNotchStrip
+                        )
+                    )
+                )
+            }
+        )
+    }
+
+    @Test func startSeedsTransientHeaderlessMiniPanelAfterWideNotchStrip() async throws {
+        let compositionRoot = AppCompositionRoot(activeModule: .music, initialScreenID: "built-in")
+        let interactions = OverlayPanelInteractions()
+        let presenter = RuntimeSpyOverlayPanelPresenter()
+        let runtime = NotchShellRuntime(
+            compositionRoot: compositionRoot,
+            interactions: interactions,
+            topologyProvider: RuntimeStubDisplayTopologyProvider(snapshots: [
+                Self.notchSnapshot(id: "built-in")
+            ]),
+            panelPresenter: presenter,
+            primaryScreenID: "built-in",
+            simulateNotchOnNonNotchScreen: true,
+            enableDebugRestVariantSeed: true,
+            debugRestVariantSeedDelay: .milliseconds(10),
+            debugHeaderlessMiniPanelDelayAfterWide: .milliseconds(10),
+            debugHeaderlessMiniPanelDuration: .milliseconds(20)
+        )
+
+        runtime.start()
+        try await Task.sleep(for: .milliseconds(40))
+
+        #expect(compositionRoot.restVariantStore.resolvedPresentation.activeRequest?.moduleID == .pomodoro)
+        #expect(compositionRoot.restVariantStore.resolvedPresentation.activeRequest?.kind == .headerlessMiniPanel)
+
+        try await Task.sleep(for: .milliseconds(40))
+
+        #expect(
+            compositionRoot.restVariantStore.resolvedPresentation
+                == .request(
+                    RestVariantRequest(
+                        moduleID: .music,
+                        kind: .wideNotchStrip
+                    )
+                )
+        )
     }
 
     private static func notchSnapshot(id: String) -> ScreenSnapshot {
@@ -60,5 +146,16 @@ private final class RuntimeSpyOverlayPanelPresenter: OverlayPanelPresenting {
 
     func present(state: OverlayState, geometry: TopAnchorGeometry) {
         presentations.append((state, geometry))
+    }
+}
+
+private extension ResolvedRestPresentation {
+    var activeRequest: RestVariantRequest? {
+        switch self {
+        case .none:
+            nil
+        case .request(let request):
+            request
+        }
     }
 }

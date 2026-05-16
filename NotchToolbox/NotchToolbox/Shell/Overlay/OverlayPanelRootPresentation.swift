@@ -7,8 +7,28 @@ nonisolated enum OverlayPanelRootVisualState: Equatable {
     case expanded
 }
 
+nonisolated struct NotchTopShoulderMetrics: Equatable {
+    let insetX: CGFloat
+    let insetY: CGFloat
+    let controlX: CGFloat
+    let controlY: CGFloat
+}
+
+nonisolated struct NotchShadowMetrics: Equatable {
+    let opacity: Double
+    let radius: CGFloat
+    let yOffset: CGFloat
+}
+
+nonisolated enum OverlayPanelCollapsedAppearance: Equatable {
+    case transparent
+    case wideNotchStrip
+    case headerlessMiniPanel
+}
+
 nonisolated enum OverlayPanelChromeMetrics {
     static let transitionDuration: Double = 0.2
+    static let restVariantSettledContentRevealDuration: Double = 0.08
     static let expandedTransitionDuration: Double = 0.2
     static let expandedCollapseSettlingDuration: Double = 0
     static let expandedCollapseTotalDuration: Double = 0.4
@@ -44,8 +64,12 @@ nonisolated enum OverlayPanelChromeMetrics {
     }
 
     static func expandedBodyFrame(for bodySize: CGSize) -> CGRect {
+        expandedBodyFrame(for: bodySize, in: expandedOuterSize(for: bodySize))
+    }
+
+    static func expandedBodyFrame(for bodySize: CGSize, in containerSize: CGSize) -> CGRect {
         return CGRect(
-            x: expandedOuterHorizontalInset,
+            x: (containerSize.width - bodySize.width) / 2,
             y: 0,
             width: bodySize.width,
             height: bodySize.height
@@ -85,6 +109,52 @@ nonisolated enum OverlayPanelChromeMetrics {
 nonisolated struct OverlayPanelRootPresentation {
     static let hoverShadowStartOpacity: Double = 0
     static let hoverShadowEndOpacity = OverlayPanelChromeMetrics.hoverShadowColorOpacity
+    static let notchReferenceTopInset: CGFloat = 4
+    static let notchReferenceTopControlX: CGFloat = 2.6
+    static let notchReferenceTopControlY: CGFloat = 2.25
+
+    static func collapsedAppearance(for presentation: ResolvedRestPresentation) -> OverlayPanelCollapsedAppearance {
+        switch presentation {
+        case .none:
+            return .transparent
+        case .request(let request):
+            switch request.kind {
+            case .wideNotchStrip:
+                return .wideNotchStrip
+            case .headerlessMiniPanel:
+                return .headerlessMiniPanel
+            }
+        }
+    }
+
+    static func collapsedAppearance(for state: OverlayState) -> OverlayPanelCollapsedAppearance {
+        switch state {
+        case .idle(_, let presentation), .hoverHint(_, let presentation):
+            return collapsedAppearance(for: presentation)
+        case .expanded, .collapsing, .toast:
+            return .transparent
+        }
+    }
+
+    static func expandedTransitionAppearance(
+        currentState: OverlayState,
+        previousState: OverlayState?,
+        latchedExpandedCollapsePresentation: ResolvedRestPresentation?
+    ) -> OverlayPanelCollapsedAppearance {
+        if currentState.isExpandedLike,
+           let previousState,
+           previousState.isHoverHint || previousState.isIdle {
+            return collapsedAppearance(for: previousState)
+        }
+
+        if currentState.isRestLike,
+           previousState?.isExpandedLike == true,
+           let latchedExpandedCollapsePresentation {
+            return collapsedAppearance(for: latchedExpandedCollapsePresentation)
+        }
+
+        return collapsedAppearance(for: currentState)
+    }
 
     static func visualState(for state: OverlayState) -> OverlayPanelRootVisualState {
         switch state {
@@ -97,7 +167,26 @@ nonisolated struct OverlayPanelRootPresentation {
         }
     }
 
+    static func shouldHideCollapsedBodyDuringExpandedCarryover(
+        currentState: OverlayState,
+        previousState: OverlayState?
+    ) -> Bool {
+        currentState.isIdle
+            && previousState?.isExpandedLike == true
+    }
+
+    static func shouldShowCollapsedShellDuringExpandedCarryover(
+        currentState: OverlayState,
+        previousState: OverlayState?
+    ) -> Bool {
+        false
+    }
+
     static func shouldAnimateWindowFrameTransition(from previousState: OverlayState, to nextState: OverlayState) -> Bool {
+        if shouldMorphVisibleRestVariants(from: previousState, to: nextState) {
+            return false
+        }
+
         if previousState.isHoverHint && nextState.isExpandedLike {
             return false
         }
@@ -107,6 +196,42 @@ nonisolated struct OverlayPanelRootPresentation {
         }
 
         return true
+    }
+
+    static func shouldMorphVisibleRestVariants(
+        from previousState: OverlayState,
+        to nextState: OverlayState
+    ) -> Bool {
+        guard previousState.isRestLike, nextState.isRestLike else {
+            return false
+        }
+
+        let previousAppearance = collapsedAppearance(for: previousState)
+        let nextAppearance = collapsedAppearance(for: nextState)
+
+        guard previousAppearance != .transparent, nextAppearance != .transparent else {
+            return false
+        }
+
+        return previousAppearance != nextAppearance
+    }
+
+    static func shouldAnimateRestVariantChromeTransition(
+        from previousState: OverlayState,
+        to nextState: OverlayState
+    ) -> Bool {
+        guard previousState.isRestLike, nextState.isRestLike else {
+            return false
+        }
+
+        let previousAppearance = collapsedAppearance(for: previousState)
+        let nextAppearance = collapsedAppearance(for: nextState)
+
+        guard previousAppearance != .transparent, nextAppearance != .transparent else {
+            return false
+        }
+
+        return previousAppearance != nextAppearance || previousState.isHoverHint != nextState.isHoverHint
     }
 
     static func hoverRevealStartHeight(
@@ -170,6 +295,30 @@ nonisolated struct OverlayPanelRootPresentation {
         )
     }
 
+    static func restVariantSourceContentOpacity(
+        progress: CGFloat,
+        isGrowing: Bool
+    ) -> Double {
+        let clampedProgress = min(max(progress, 0), 1)
+        if isGrowing {
+            return Double(1 - clampedProgress)
+        }
+
+        return expandedContentOpacity(progress: 1 - clampedProgress)
+    }
+
+    static func restVariantTargetContentOpacity(
+        shapeProgress: CGFloat,
+        settledRevealProgress: CGFloat,
+        isGrowing: Bool
+    ) -> Double {
+        if isGrowing {
+            return Double(min(max(shapeProgress, 0), 1))
+        }
+
+        return Double(min(max(settledRevealProgress, 0), 1))
+    }
+
     static func hoverRevealCornerRadius(visibleHeight: CGFloat) -> CGFloat {
         min(
             OverlayPanelChromeMetrics.hoverRevealBottomCornerRadius,
@@ -177,18 +326,85 @@ nonisolated struct OverlayPanelRootPresentation {
         )
     }
 
-    static func expandedBottomCornerRadius(progress: CGFloat) -> CGFloat {
-        let clampedProgress = min(max(progress, 0), 1)
-        let collapsedRadius = OverlayPanelChromeMetrics.hoverRevealBottomCornerRadius
-        let expandedRadius: CGFloat = 36
-
-        return collapsedRadius + ((expandedRadius - collapsedRadius) * clampedProgress)
+    static func collapsedBottomCornerRadius(for kind: RestVariantKind) -> CGFloat {
+        switch kind {
+        case .wideNotchStrip:
+            12
+        case .headerlessMiniPanel:
+            36
+        }
     }
 
-    static func expandedAnimationStartScale(for bodySize: CGSize) -> CGSize {
+    static func collapsedShadowMetrics(
+        for appearance: OverlayPanelCollapsedAppearance,
+        isHovering: Bool
+    ) -> NotchShadowMetrics {
+        switch appearance {
+        case .transparent, .wideNotchStrip:
+            return NotchShadowMetrics(
+                opacity: isHovering ? hoverShadowEndOpacity : hoverShadowStartOpacity,
+                radius: OverlayPanelChromeMetrics.hoverShadowRadius,
+                yOffset: OverlayPanelChromeMetrics.hoverShadowYOffset
+            )
+        case .headerlessMiniPanel:
+            return NotchShadowMetrics(
+                opacity: OverlayPanelChromeMetrics.expandedShadowColorOpacity,
+                radius: OverlayPanelChromeMetrics.expandedShadowRadius,
+                yOffset: OverlayPanelChromeMetrics.expandedShadowYOffset
+            )
+        }
+    }
+
+    static func expandedBottomCornerRadius(
+        progress: CGFloat,
+        startRadius: CGFloat,
+        endRadius: CGFloat = 36
+    ) -> CGFloat {
+        let clampedProgress = min(max(progress, 0), 1)
+        return startRadius + ((endRadius - startRadius) * clampedProgress)
+    }
+
+    static func expandedBottomCornerRadii(
+        progress: CGFloat,
+        startRadius: CGFloat,
+        endRadius: CGFloat = 36,
+        scaleX: CGFloat,
+        scaleY: CGFloat
+    ) -> CGPoint {
+        let radius = expandedBottomCornerRadius(
+            progress: progress,
+            startRadius: startRadius,
+            endRadius: endRadius
+        )
+        let safeScaleX = max(scaleX, 0.0001)
+        let safeScaleY = max(scaleY, 0.0001)
+
+        return CGPoint(x: radius / safeScaleX, y: radius / safeScaleY)
+    }
+
+    static func compensatedTopShoulderMetrics(scaleX: CGFloat, scaleY: CGFloat) -> NotchTopShoulderMetrics {
+        let safeScaleX = max(scaleX, 0.0001)
+        let safeScaleY = max(scaleY, 0.0001)
+
+        return NotchTopShoulderMetrics(
+            insetX: notchReferenceTopInset / safeScaleX,
+            insetY: notchReferenceTopInset / safeScaleY,
+            controlX: notchReferenceTopControlX / safeScaleX,
+            controlY: notchReferenceTopControlY / safeScaleY
+        )
+    }
+
+    static func sourceContentMaskScale(sourceSize: CGSize, targetSize: CGSize) -> CGSize {
         CGSize(
-            width: OverlayPanelChromeMetrics.hoverBodySize.width / bodySize.width,
-            height: OverlayPanelChromeMetrics.hoverBodySize.height / bodySize.height
+            width: sourceSize.width / max(targetSize.width, 0.0001),
+            height: sourceSize.height / max(targetSize.height, 0.0001)
+        )
+    }
+
+    static func expandedAnimationStartScale(for bodySize: CGSize, startSize: CGSize) -> CGSize {
+        CGSize(
+            width: startSize.width / bodySize.width,
+            height: startSize.height / bodySize.height
         )
     }
 
@@ -201,15 +417,35 @@ nonisolated struct OverlayPanelRootPresentation {
     }
 
     static func collapseExpandedShellOpacity(progress: CGFloat) -> Double {
-        Double(max(0, min(1, progress)))
+        1
     }
 
     static func collapseTargetNotchOpacity(progress: CGFloat) -> Double {
-        Double(max(0, min(1, 1 - progress)))
+        0
+    }
+}
+
+private extension OverlayState {
+    nonisolated var restPresentation: ResolvedRestPresentation {
+        switch self {
+        case .idle(_, let presentation), .hoverHint(_, let presentation):
+            return presentation
+        case .expanded, .collapsing, .toast:
+            return .none
+        }
     }
 }
 
 extension OverlayState {
+    nonisolated var isRestLike: Bool {
+        switch self {
+        case .idle, .hoverHint:
+            return true
+        default:
+            return false
+        }
+    }
+
     nonisolated var isIdle: Bool {
         if case .idle = self {
             return true

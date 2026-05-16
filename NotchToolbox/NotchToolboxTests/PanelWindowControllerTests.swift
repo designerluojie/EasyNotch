@@ -156,6 +156,70 @@ struct PanelWindowControllerTests {
         #expect(controller.panel.frame == geometry.hoverHintFrame)
     }
 
+    @Test func presentingHoverHintUsesWideNotchStripHoverFrame() {
+        let controller = PanelWindowController(compositionRoot: AppCompositionRoot())
+        let geometry = TopAnchorGeometry(
+            screenID: "built-in",
+            screenFrame: NSRect(x: 0, y: 0, width: 1512, height: 982),
+            anchorKind: .hardwareNotch,
+            notchMetrics: NotchMetrics(visibleSize: CGSize(width: 185, height: 32), source: .hardware),
+            idleFrame: NSRect(x: 100, y: 900, width: 185, height: 32),
+            hoverHintFrame: NSRect(x: 82, y: 910, width: 242, height: 72),
+            hoverHintVisibleFrame: NSRect(x: 106, y: 942, width: 194, height: 40),
+            expandedFrame: NSRect(x: 40, y: 670, width: 628, height: 312),
+            expandedVisibleFrame: NSRect(x: 64, y: 702, width: 580, height: 280),
+            toastFrame: NSRect(x: 170, y: 916, width: 320, height: 52),
+            hotzoneFrame: NSRect(x: 100, y: 900, width: 185, height: 32),
+            safeTopInset: 32,
+            idleVisibleHeight: 0
+        )
+
+        controller.present(
+            state: .hoverHint(
+                screenID: "built-in",
+                presentation: .request(
+                    RestVariantRequest(moduleID: .music, kind: .wideNotchStrip)
+                )
+            ),
+            geometry: geometry
+        )
+
+        #expect(controller.panel.frame == geometry.wideNotchStripHoverFrame)
+    }
+
+    @Test func presentingHoverHintUsesHeaderlessMiniPanelHoverFrame() {
+        let controller = PanelWindowController(compositionRoot: AppCompositionRoot())
+        let geometry = TopAnchorGeometry(
+            screenID: "built-in",
+            screenFrame: NSRect(x: 0, y: 0, width: 1512, height: 982),
+            anchorKind: .hardwareNotch,
+            notchMetrics: NotchMetrics(visibleSize: CGSize(width: 185, height: 32), source: .hardware),
+            idleFrame: NSRect(x: 100, y: 900, width: 185, height: 32),
+            hoverHintFrame: NSRect(x: 82, y: 910, width: 242, height: 72),
+            hoverHintVisibleFrame: NSRect(x: 106, y: 942, width: 194, height: 40),
+            wideNotchStripFrame: NSRect(x: 90, y: 950, width: 248, height: 32),
+            wideNotchStripHoverFrame: NSRect(x: 90, y: 942, width: 248, height: 40),
+            expandedFrame: NSRect(x: 40, y: 670, width: 628, height: 312),
+            expandedVisibleFrame: NSRect(x: 64, y: 702, width: 580, height: 280),
+            toastFrame: NSRect(x: 170, y: 916, width: 320, height: 52),
+            hotzoneFrame: NSRect(x: 100, y: 900, width: 185, height: 32),
+            safeTopInset: 32,
+            idleVisibleHeight: 0
+        )
+
+        controller.present(
+            state: .hoverHint(
+                screenID: "built-in",
+                presentation: .request(
+                    RestVariantRequest(moduleID: .pomodoro, kind: .headerlessMiniPanel)
+                )
+            ),
+            geometry: geometry
+        )
+
+        #expect(controller.panel.frame == geometry.headerlessMiniPanelHoverFrame)
+    }
+
     @Test func hoverExitDefersIdleFrameResetUntilHoverAnimationCompletes() async {
         let controller = PanelWindowController(compositionRoot: AppCompositionRoot())
         let geometry = TopAnchorGeometry(
@@ -179,9 +243,145 @@ struct PanelWindowControllerTests {
 
         #expect(controller.panel.frame == geometry.hoverHintFrame)
 
-        try? await Task.sleep(nanoseconds: 300_000_000)
+        try? await Task.sleep(nanoseconds: 500_000_000)
 
         #expect(controller.panel.frame == geometry.idleFrame)
+    }
+
+    @Test func wideToHeaderlessTransitionUsesImmediateLargerFrameWithoutWindowTween() {
+        let controller = PanelWindowController(compositionRoot: AppCompositionRoot())
+        let geometry = TopAnchorGeometry(
+            screenID: "built-in",
+            screenFrame: NSRect(x: 0, y: 0, width: 1512, height: 982),
+            anchorKind: .hardwareNotch,
+            notchMetrics: NotchMetrics(visibleSize: CGSize(width: 185, height: 32), source: .hardware),
+            idleFrame: NSRect(x: 100, y: 900, width: 185, height: 32),
+            hoverHintFrame: NSRect(x: 82, y: 910, width: 242, height: 72),
+            hoverHintVisibleFrame: NSRect(x: 106, y: 942, width: 194, height: 40),
+            wideNotchStripFrame: NSRect(x: 632, y: 950, width: 248, height: 32),
+            wideNotchStripHoverFrame: NSRect(x: 632, y: 942, width: 248, height: 40),
+            headerlessMiniPanelFrame: NSRect(x: 596, y: 854, width: 320, height: 128),
+            headerlessMiniPanelHoverFrame: NSRect(x: 596, y: 846, width: 320, height: 136),
+            expandedFrame: NSRect(x: 40, y: 670, width: 628, height: 312),
+            expandedVisibleFrame: NSRect(x: 64, y: 702, width: 580, height: 280),
+            toastFrame: NSRect(x: 170, y: 916, width: 320, height: 52),
+            hotzoneFrame: NSRect(x: 100, y: 900, width: 185, height: 32),
+            safeTopInset: 32,
+            idleVisibleHeight: 0
+        )
+
+        controller.present(
+            state: .idle(
+                screenID: "built-in",
+                presentation: .request(RestVariantRequest(moduleID: .music, kind: .wideNotchStrip))
+            ),
+            geometry: geometry
+        )
+        controller.present(
+            state: .idle(
+                screenID: "built-in",
+                presentation: .request(RestVariantRequest(moduleID: .pomodoro, kind: .headerlessMiniPanel))
+            ),
+            geometry: geometry
+        )
+
+        #expect(controller.panel.frame == geometry.headerlessMiniPanelFrame)
+    }
+
+    @Test func headerlessToWideTransitionDefersSmallerFrameResetUntilMorphCompletes() async {
+        let controller = PanelWindowController(compositionRoot: AppCompositionRoot())
+        let geometry = TopAnchorGeometry(
+            screenID: "built-in",
+            screenFrame: NSRect(x: 0, y: 0, width: 1512, height: 982),
+            anchorKind: .hardwareNotch,
+            notchMetrics: NotchMetrics(visibleSize: CGSize(width: 185, height: 32), source: .hardware),
+            idleFrame: NSRect(x: 100, y: 900, width: 185, height: 32),
+            hoverHintFrame: NSRect(x: 82, y: 910, width: 242, height: 72),
+            hoverHintVisibleFrame: NSRect(x: 106, y: 942, width: 194, height: 40),
+            wideNotchStripFrame: NSRect(x: 632, y: 950, width: 248, height: 32),
+            wideNotchStripHoverFrame: NSRect(x: 632, y: 942, width: 248, height: 40),
+            headerlessMiniPanelFrame: NSRect(x: 596, y: 854, width: 320, height: 128),
+            headerlessMiniPanelHoverFrame: NSRect(x: 596, y: 846, width: 320, height: 136),
+            expandedFrame: NSRect(x: 40, y: 670, width: 628, height: 312),
+            expandedVisibleFrame: NSRect(x: 64, y: 702, width: 580, height: 280),
+            toastFrame: NSRect(x: 170, y: 916, width: 320, height: 52),
+            hotzoneFrame: NSRect(x: 100, y: 900, width: 185, height: 32),
+            safeTopInset: 32,
+            idleVisibleHeight: 0
+        )
+
+        controller.present(
+            state: .idle(
+                screenID: "built-in",
+                presentation: .request(RestVariantRequest(moduleID: .pomodoro, kind: .headerlessMiniPanel))
+            ),
+            geometry: geometry
+        )
+        controller.present(
+            state: .idle(
+                screenID: "built-in",
+                presentation: .request(RestVariantRequest(moduleID: .music, kind: .wideNotchStrip))
+            ),
+            geometry: geometry
+        )
+
+        #expect(controller.panel.frame == geometry.headerlessMiniPanelFrame)
+
+        try? await Task.sleep(nanoseconds: 220_000_000)
+
+        #expect(controller.panel.frame == geometry.headerlessMiniPanelFrame)
+
+        try? await Task.sleep(nanoseconds: 200_000_000)
+
+        #expect(controller.panel.frame == geometry.wideNotchStripFrame)
+    }
+
+    @Test func headerlessToWideTransitionLatchesWideTargetAcrossIntermediateTransparentIdle() async {
+        let controller = PanelWindowController(compositionRoot: AppCompositionRoot())
+        let geometry = TopAnchorGeometry(
+            screenID: "built-in",
+            screenFrame: NSRect(x: 0, y: 0, width: 1512, height: 982),
+            anchorKind: .hardwareNotch,
+            notchMetrics: NotchMetrics(visibleSize: CGSize(width: 185, height: 32), source: .hardware),
+            idleFrame: NSRect(x: 100, y: 900, width: 185, height: 32),
+            hoverHintFrame: NSRect(x: 82, y: 910, width: 242, height: 72),
+            hoverHintVisibleFrame: NSRect(x: 106, y: 942, width: 194, height: 40),
+            wideNotchStripFrame: NSRect(x: 632, y: 950, width: 248, height: 32),
+            wideNotchStripHoverFrame: NSRect(x: 632, y: 942, width: 248, height: 40),
+            headerlessMiniPanelFrame: NSRect(x: 596, y: 854, width: 320, height: 128),
+            headerlessMiniPanelHoverFrame: NSRect(x: 596, y: 846, width: 320, height: 136),
+            expandedFrame: NSRect(x: 40, y: 670, width: 628, height: 312),
+            expandedVisibleFrame: NSRect(x: 64, y: 702, width: 580, height: 280),
+            toastFrame: NSRect(x: 170, y: 916, width: 320, height: 52),
+            hotzoneFrame: NSRect(x: 100, y: 900, width: 185, height: 32),
+            safeTopInset: 32,
+            idleVisibleHeight: 0
+        )
+
+        let widePresentation = ResolvedRestPresentation.request(
+            RestVariantRequest(moduleID: .music, kind: .wideNotchStrip)
+        )
+
+        controller.present(
+            state: .idle(
+                screenID: "built-in",
+                presentation: .request(RestVariantRequest(moduleID: .pomodoro, kind: .headerlessMiniPanel))
+            ),
+            geometry: geometry
+        )
+        controller.present(
+            state: .idle(screenID: "built-in", presentation: widePresentation),
+            geometry: geometry
+        )
+        controller.present(
+            state: .idle(screenID: "built-in"),
+            geometry: geometry
+        )
+
+        #expect(controller.panelModel.state == .idle(screenID: "built-in", presentation: widePresentation))
+        try? await Task.sleep(nanoseconds: 450_000_000)
+
+        #expect(controller.panel.frame == geometry.wideNotchStripFrame)
     }
 
     @Test func collapseDefersIdleFrameResetUntilExpandedAnimationCompletes() async {
@@ -214,7 +414,186 @@ struct PanelWindowControllerTests {
             )
         )
 
-        try? await Task.sleep(nanoseconds: 400_000_000)
+        try? await Task.sleep(nanoseconds: 700_000_000)
+
+        #expect(controller.panel.frame == geometry.idleFrame)
+    }
+
+    @Test func collapseFromExpandedToWideLatchesWideTargetAcrossIntermediateTransparentIdle() async {
+        let compositionRoot = AppCompositionRoot()
+        compositionRoot.setPanelBodySize(CGSize(width: 580, height: 280), for: .music)
+        let controller = PanelWindowController(compositionRoot: compositionRoot)
+        let geometry = TopAnchorGeometry(
+            screenID: "built-in",
+            screenFrame: NSRect(x: 0, y: 0, width: 1512, height: 982),
+            anchorKind: .hardwareNotch,
+            notchMetrics: NotchMetrics(visibleSize: CGSize(width: 185, height: 32), source: .hardware),
+            idleFrame: NSRect(x: 100, y: 900, width: 185, height: 32),
+            hoverHintFrame: NSRect(x: 82, y: 910, width: 242, height: 72),
+            hoverHintVisibleFrame: NSRect(x: 106, y: 942, width: 194, height: 40),
+            wideNotchStripFrame: NSRect(x: 632, y: 950, width: 248, height: 32),
+            wideNotchStripHoverFrame: NSRect(x: 632, y: 942, width: 248, height: 40),
+            headerlessMiniPanelFrame: NSRect(x: 596, y: 854, width: 320, height: 128),
+            headerlessMiniPanelHoverFrame: NSRect(x: 596, y: 846, width: 320, height: 136),
+            expandedFrame: NSRect(x: 40, y: 670, width: 628, height: 312),
+            expandedVisibleFrame: NSRect(x: 64, y: 702, width: 580, height: 280),
+            toastFrame: NSRect(x: 170, y: 916, width: 320, height: 52),
+            hotzoneFrame: NSRect(x: 100, y: 900, width: 185, height: 32),
+            safeTopInset: 32,
+            idleVisibleHeight: 0
+        )
+
+        let widePresentation = ResolvedRestPresentation.request(
+            RestVariantRequest(moduleID: .music, kind: .wideNotchStrip)
+        )
+
+        controller.present(state: .expanded(screenID: "built-in", moduleID: .music), geometry: geometry)
+        controller.present(
+            state: .idle(screenID: "built-in", presentation: widePresentation),
+            geometry: geometry
+        )
+        controller.present(
+            state: .idle(screenID: "built-in"),
+            geometry: geometry
+        )
+
+        #expect(controller.panelModel.state == .idle(screenID: "built-in", presentation: widePresentation))
+
+        try? await Task.sleep(nanoseconds: 450_000_000)
+
+        #expect(controller.panel.frame == geometry.wideNotchStripFrame)
+    }
+
+    @Test func collapseFromExpandedToWideKeepsExpandedFrameDuringMorphThenResetsToWide() async {
+        let compositionRoot = AppCompositionRoot()
+        compositionRoot.setPanelBodySize(CGSize(width: 580, height: 280), for: .music)
+        let controller = PanelWindowController(compositionRoot: compositionRoot)
+        let geometry = TopAnchorGeometry(
+            screenID: "built-in",
+            screenFrame: NSRect(x: 0, y: 0, width: 1512, height: 982),
+            anchorKind: .hardwareNotch,
+            notchMetrics: NotchMetrics(visibleSize: CGSize(width: 185, height: 32), source: .hardware),
+            idleFrame: NSRect(x: 100, y: 900, width: 185, height: 32),
+            hoverHintFrame: NSRect(x: 82, y: 910, width: 242, height: 72),
+            hoverHintVisibleFrame: NSRect(x: 106, y: 942, width: 194, height: 40),
+            wideNotchStripFrame: NSRect(x: 632, y: 950, width: 248, height: 32),
+            wideNotchStripHoverFrame: NSRect(x: 632, y: 942, width: 248, height: 40),
+            headerlessMiniPanelFrame: NSRect(x: 596, y: 854, width: 320, height: 128),
+            headerlessMiniPanelHoverFrame: NSRect(x: 596, y: 846, width: 320, height: 136),
+            expandedFrame: NSRect(x: 40, y: 670, width: 628, height: 312),
+            expandedVisibleFrame: NSRect(x: 64, y: 702, width: 580, height: 280),
+            toastFrame: NSRect(x: 170, y: 916, width: 320, height: 52),
+            hotzoneFrame: NSRect(x: 100, y: 900, width: 185, height: 32),
+            safeTopInset: 32,
+            idleVisibleHeight: 0
+        )
+
+        let widePresentation = ResolvedRestPresentation.request(
+            RestVariantRequest(moduleID: .music, kind: .wideNotchStrip)
+        )
+
+        controller.present(state: .expanded(screenID: "built-in", moduleID: .music), geometry: geometry)
+        controller.present(
+            state: .idle(screenID: "built-in", presentation: widePresentation),
+            geometry: geometry
+        )
+
+        #expect(
+            controller.panel.frame
+                == OverlayPanelChromeMetrics.expandedOuterFrame(
+                    for: CGSize(width: 580, height: 280),
+                    on: geometry.screenFrame
+                )
+        )
+        #expect(controller.panel.frame != geometry.wideNotchStripHoverFrame)
+
+        try? await Task.sleep(nanoseconds: 450_000_000)
+
+        #expect(controller.panel.frame == geometry.wideNotchStripFrame)
+    }
+
+    @Test func collapseFromExpandedToWideIgnoresHoverWhileCarryoverIsSettling() async {
+        let compositionRoot = AppCompositionRoot()
+        compositionRoot.setPanelBodySize(CGSize(width: 580, height: 280), for: .music)
+        let controller = PanelWindowController(compositionRoot: compositionRoot)
+        let geometry = TopAnchorGeometry(
+            screenID: "built-in",
+            screenFrame: NSRect(x: 0, y: 0, width: 1512, height: 982),
+            anchorKind: .hardwareNotch,
+            notchMetrics: NotchMetrics(visibleSize: CGSize(width: 185, height: 32), source: .hardware),
+            idleFrame: NSRect(x: 100, y: 900, width: 185, height: 32),
+            hoverHintFrame: NSRect(x: 82, y: 910, width: 242, height: 72),
+            hoverHintVisibleFrame: NSRect(x: 106, y: 942, width: 194, height: 40),
+            wideNotchStripFrame: NSRect(x: 632, y: 950, width: 248, height: 32),
+            wideNotchStripHoverFrame: NSRect(x: 632, y: 942, width: 248, height: 40),
+            headerlessMiniPanelFrame: NSRect(x: 596, y: 854, width: 320, height: 128),
+            headerlessMiniPanelHoverFrame: NSRect(x: 596, y: 846, width: 320, height: 136),
+            expandedFrame: NSRect(x: 40, y: 670, width: 628, height: 312),
+            expandedVisibleFrame: NSRect(x: 64, y: 702, width: 580, height: 280),
+            toastFrame: NSRect(x: 170, y: 916, width: 320, height: 52),
+            hotzoneFrame: NSRect(x: 100, y: 900, width: 185, height: 32),
+            safeTopInset: 32,
+            idleVisibleHeight: 0
+        )
+
+        let widePresentation = ResolvedRestPresentation.request(
+            RestVariantRequest(moduleID: .music, kind: .wideNotchStrip)
+        )
+        let wideIdleState = OverlayState.idle(screenID: "built-in", presentation: widePresentation)
+
+        controller.present(state: .expanded(screenID: "built-in", moduleID: .music), geometry: geometry)
+        controller.present(state: wideIdleState, geometry: geometry)
+        controller.present(
+            state: .hoverHint(screenID: "built-in", presentation: widePresentation),
+            geometry: geometry
+        )
+
+        #expect(controller.panelModel.state == wideIdleState)
+
+        try? await Task.sleep(nanoseconds: 450_000_000)
+
+        #expect(controller.panel.frame == geometry.wideNotchStripFrame)
+    }
+
+    @Test func collapseFromExpandedToTransparentKeepsTransparentTargetAcrossIntermediateWideIdle() async {
+        let compositionRoot = AppCompositionRoot()
+        compositionRoot.setPanelBodySize(CGSize(width: 580, height: 280), for: .music)
+        let controller = PanelWindowController(compositionRoot: compositionRoot)
+        let geometry = TopAnchorGeometry(
+            screenID: "built-in",
+            screenFrame: NSRect(x: 0, y: 0, width: 1512, height: 982),
+            anchorKind: .hardwareNotch,
+            notchMetrics: NotchMetrics(visibleSize: CGSize(width: 185, height: 32), source: .hardware),
+            idleFrame: NSRect(x: 100, y: 900, width: 185, height: 32),
+            hoverHintFrame: NSRect(x: 82, y: 910, width: 242, height: 72),
+            hoverHintVisibleFrame: NSRect(x: 106, y: 942, width: 194, height: 40),
+            wideNotchStripFrame: NSRect(x: 632, y: 950, width: 248, height: 32),
+            wideNotchStripHoverFrame: NSRect(x: 632, y: 942, width: 248, height: 40),
+            headerlessMiniPanelFrame: NSRect(x: 596, y: 854, width: 320, height: 128),
+            headerlessMiniPanelHoverFrame: NSRect(x: 596, y: 846, width: 320, height: 136),
+            expandedFrame: NSRect(x: 40, y: 670, width: 628, height: 312),
+            expandedVisibleFrame: NSRect(x: 64, y: 702, width: 580, height: 280),
+            toastFrame: NSRect(x: 170, y: 916, width: 320, height: 52),
+            hotzoneFrame: NSRect(x: 100, y: 900, width: 185, height: 32),
+            safeTopInset: 32,
+            idleVisibleHeight: 0
+        )
+
+        let widePresentation = ResolvedRestPresentation.request(
+            RestVariantRequest(moduleID: .music, kind: .wideNotchStrip)
+        )
+
+        controller.present(state: .expanded(screenID: "built-in", moduleID: .music), geometry: geometry)
+        controller.present(state: .idle(screenID: "built-in"), geometry: geometry)
+        controller.present(
+            state: .idle(screenID: "built-in", presentation: widePresentation),
+            geometry: geometry
+        )
+
+        #expect(controller.panelModel.state == .idle(screenID: "built-in"))
+        #expect(controller.panelModel.previousState == .expanded(screenID: "built-in", moduleID: .music))
+
+        try? await Task.sleep(nanoseconds: 700_000_000)
 
         #expect(controller.panel.frame == geometry.idleFrame)
     }

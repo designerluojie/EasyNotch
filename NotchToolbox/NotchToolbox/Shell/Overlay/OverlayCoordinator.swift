@@ -15,6 +15,10 @@ final class OverlayCoordinator {
     private var profiles: [ScreenProfile] = []
     private var activeScreenID: String?
     private var pendingPointerExitCollapseModuleID: NotchModuleID?
+    private var expandedCollapseTargetPresentation: ResolvedRestPresentation?
+    private var suppressedPointerEnterScreenIDs: Set<String> = []
+    private var pointerEnterRequiresExitScreenIDs: Set<String> = []
+    private var pointerEnterSuppressionTasks: [String: Task<Void, Never>] = [:]
 
     init(
         compositionRoot: AppCompositionRoot,
@@ -41,6 +45,13 @@ final class OverlayCoordinator {
     }
 
     func start() {
+        compositionRoot.restVariantStore.onResolvedPresentationChange = { [weak self] _ in
+            guard let self else {
+                return
+            }
+
+            self.refreshScreens(primaryScreenID: self.activeScreenID)
+        }
         refreshProfiles(primaryScreenID: activeScreenID)
         guard let profile = activeProfile() ?? profiles.first else {
             return
@@ -63,13 +74,18 @@ final class OverlayCoordinator {
         }
         let previousState = compositionRoot.overlayState
         let targetProfile = screenID.flatMap(profile(for:)) ?? profile
+        let collapseTargetPresentation = expandedCollapseTargetPresentation
+            ?? restPresentation(for: previousState)
+            ?? resolvedPresentation()
 
         dispatchBeforeExpand(
             previousState: previousState,
             moduleID: moduleID,
             targetScreenID: targetProfile.id
         )
+        clearPointerEnterSuppression(onScreenID: targetProfile.id)
         activeScreenID = targetProfile.id
+        expandedCollapseTargetPresentation = collapseTargetPresentation
         compositionRoot.activeModule = moduleID
         let state = interactionStateMachine.reduce(
             previousState,
@@ -102,11 +118,24 @@ final class OverlayCoordinator {
         }
         activeScreenID = targetProfile.id
         pendingPointerExitCollapseModuleID = nil
+        let collapseTargetPresentation = expandedCollapseTargetPresentation
+        if case .expanded = previousState {
+            suppressPointerEnterDuringExpandedCollapse(onScreenID: targetProfile.id)
+        }
         let state = interactionStateMachine.reduce(
             previousState,
             event: .collapse(screenID: targetProfile.id, reason: reason)
         )
-        applyState(state)
+        if case .expanded = previousState,
+           let collapseTargetPresentation {
+            applyState(
+                state.withRestPresentation(collapseTargetPresentation),
+                resolvesRestPresentation: false
+            )
+            expandedCollapseTargetPresentation = nil
+        } else {
+            applyState(state)
+        }
         if case .expanded(_, let moduleID) = previousState {
             lifecycleDispatcher.send(.panelDidCollapse(reason: reason), to: moduleID)
         }
@@ -114,6 +143,15 @@ final class OverlayCoordinator {
 
     func pointerEntered(onScreenID screenID: String?) {
         guard let targetProfile = screenID.flatMap({ profile(for: $0) }) ?? activeProfile() ?? profiles.first else {
+            return
+        }
+
+        if suppressedPointerEnterScreenIDs.contains(targetProfile.id) {
+            pointerEnterRequiresExitScreenIDs.insert(targetProfile.id)
+            return
+        }
+
+        guard pointerEnterRequiresExitScreenIDs.contains(targetProfile.id) == false else {
             return
         }
 
@@ -135,6 +173,10 @@ final class OverlayCoordinator {
 
     func pointerExited(onScreenID screenID: String?) {
         guard let targetProfile = screenID.flatMap({ profile(for: $0) }) ?? activeProfile() ?? profiles.first else {
+            return
+        }
+
+        if pointerEnterRequiresExitScreenIDs.remove(targetProfile.id) != nil {
             return
         }
 
@@ -168,7 +210,16 @@ final class OverlayCoordinator {
             compositionRoot.overlayState,
             event: .collapseTimeout(screenID: targetProfile.id)
         )
-        applyState(state)
+        if case .idle = state,
+           let collapseTargetPresentation = expandedCollapseTargetPresentation {
+            applyState(
+                state.withRestPresentation(collapseTargetPresentation),
+                resolvesRestPresentation: false
+            )
+            expandedCollapseTargetPresentation = nil
+        } else {
+            applyState(state)
+        }
 
         if case .idle = state,
            let moduleID {
@@ -261,8 +312,8 @@ final class OverlayCoordinator {
         }
     }
 
-    private func applyState(_ state: OverlayState) {
-        let resolvedState = resolvedState(for: state)
+    private func applyState(_ state: OverlayState, resolvesRestPresentation: Bool = true) {
+        let resolvedState = resolvesRestPresentation ? resolvedState(for: state) : state
         activeScreenID = screenID(for: resolvedState)
         compositionRoot.overlayState = resolvedState
         presentPanels(activeState: resolvedState)
@@ -282,6 +333,16 @@ final class OverlayCoordinator {
 
     private func resolvedPresentation() -> ResolvedRestPresentation {
         compositionRoot.restVariantStore.resolvedPresentation
+    }
+
+    private func restPresentation(for state: OverlayState) -> ResolvedRestPresentation? {
+        switch state {
+        case .idle(_, let presentation),
+             .hoverHint(_, let presentation):
+            return presentation
+        case .expanded, .collapsing, .toast:
+            return nil
+        }
     }
 
     private func resolvedIdleState(screenID: String) -> OverlayState {
@@ -339,6 +400,47 @@ final class OverlayCoordinator {
         default:
             lifecycleDispatcher.send(.moduleDidAppear, to: moduleID)
             lifecycleDispatcher.send(.panelDidExpand(screenID: targetScreenID), to: moduleID)
+        }
+    }
+
+    private func suppressPointerEnterDuringExpandedCollapse(onScreenID screenID: String) {
+        suppressedPointerEnterScreenIDs.insert(screenID)
+        pointerEnterSuppressionTasks[screenID]?.cancel()
+        pointerEnterSuppressionTasks[screenID] = Task { [weak self] in
+            let delay = OverlayPanelChromeMetrics.expandedCollapseTotalDuration
+                + OverlayPanelChromeMetrics.transitionDuration
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard Task.isCancelled == false else {
+                return
+            }
+
+            await MainActor.run {
+                self?.stopSuppressingPointerEnter(onScreenID: screenID)
+            }
+        }
+    }
+
+    private func stopSuppressingPointerEnter(onScreenID screenID: String) {
+        suppressedPointerEnterScreenIDs.remove(screenID)
+        pointerEnterSuppressionTasks[screenID]?.cancel()
+        pointerEnterSuppressionTasks[screenID] = nil
+    }
+
+    private func clearPointerEnterSuppression(onScreenID screenID: String) {
+        stopSuppressingPointerEnter(onScreenID: screenID)
+        pointerEnterRequiresExitScreenIDs.remove(screenID)
+    }
+}
+
+private extension OverlayState {
+    func withRestPresentation(_ presentation: ResolvedRestPresentation) -> OverlayState {
+        switch self {
+        case .idle(let screenID, _):
+            return .idle(screenID: screenID, presentation: presentation)
+        case .hoverHint(let screenID, _):
+            return .hoverHint(screenID: screenID, presentation: presentation)
+        case .expanded, .collapsing, .toast:
+            return self
         }
     }
 }
