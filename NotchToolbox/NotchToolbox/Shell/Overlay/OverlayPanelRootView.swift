@@ -37,13 +37,68 @@ struct OverlayPanelRootView: View {
 
     @ViewBuilder
     private var idleBody: some View {
-        switch panelModel.geometry?.anchorKind {
-        case .hardwareNotch:
-            invisibleHotzoneButton
-        case .simulatedNotch:
-            simulatedIdleButton
-        default:
-            legacyCollapsedButton
+        if OverlayPanelRootPresentation.shouldShowCollapsedShellDuringExpandedCarryover(
+            currentState: panelModel.state,
+            previousState: panelModel.previousState
+        ) {
+            switch currentCollapsedAppearance {
+            case .wideNotchStrip:
+                collapsedRestVariantChrome(
+                    appearance: .wideNotchStrip,
+                    bodySize: collapsedBodySize(
+                        for: .wideNotchStrip,
+                        isHovering: false,
+                        defaultTransparentSize: OverlayPanelChromeMetrics.hoverBodySize
+                    ),
+                    bottomCornerRadius: OverlayPanelRootPresentation.collapsedBottomCornerRadius(for: .wideNotchStrip),
+                    shadowMetrics: OverlayPanelRootPresentation.collapsedShadowMetrics(
+                        for: .wideNotchStrip,
+                        isHovering: false
+                    ),
+                    contentOpacity: 0
+                )
+            case .headerlessMiniPanel:
+                collapsedRestVariantChrome(
+                    appearance: .headerlessMiniPanel,
+                    bodySize: collapsedBodySize(
+                        for: .headerlessMiniPanel,
+                        isHovering: false,
+                        defaultTransparentSize: OverlayPanelChromeMetrics.hoverBodySize
+                    ),
+                    bottomCornerRadius: OverlayPanelRootPresentation.collapsedBottomCornerRadius(for: .headerlessMiniPanel),
+                    shadowMetrics: OverlayPanelRootPresentation.collapsedShadowMetrics(
+                        for: .headerlessMiniPanel,
+                        isHovering: false
+                    ),
+                    contentOpacity: 0
+                )
+            case .transparent:
+                EmptyView()
+            }
+        } else if OverlayPanelRootPresentation.shouldHideCollapsedBodyDuringExpandedCarryover(
+            currentState: panelModel.state,
+            previousState: panelModel.previousState
+        ) {
+            EmptyView()
+        } else
+        if let transition = restVariantTransition {
+            animatedRestVariantTransitionButton(transition)
+        } else {
+            switch currentCollapsedAppearance {
+            case .wideNotchStrip:
+                wideNotchStripButton(isHovering: false)
+            case .headerlessMiniPanel:
+                headerlessMiniPanelButton(isHovering: false)
+            case .transparent:
+                switch panelModel.geometry?.anchorKind {
+                case .hardwareNotch:
+                    invisibleHotzoneButton
+                case .simulatedNotch:
+                    simulatedIdleButton
+                default:
+                    legacyCollapsedButton
+                }
+            }
         }
     }
 
@@ -101,17 +156,211 @@ struct OverlayPanelRootView: View {
     }
 
     private var hoverHintBody: some View {
-        AnimatedHoverChromeButton(
-            bodyFrame: hoverBodyFrame,
-            initialVisibleHeight: hoverInitialVisibleHeight,
-            isActive: panelModel.state.isHoverHint
-        ) {
+        Group {
+            if let transition = restVariantTransition {
+                animatedRestVariantTransitionButton(transition)
+            } else {
+                switch currentCollapsedAppearance {
+                case .wideNotchStrip:
+                    wideNotchStripButton(isHovering: true)
+                case .headerlessMiniPanel:
+                    headerlessMiniPanelButton(isHovering: true)
+                case .transparent:
+                    AnimatedHoverChromeButton(
+                        bodyFrame: hoverBodyFrame,
+                        initialVisibleHeight: hoverInitialVisibleHeight,
+                        isActive: panelModel.state.isHoverHint
+                    ) {
+                        interactions.expand(screenID: panelModel.screenID)
+                    }
+                }
+            }
+        }
+    }
+
+    private func wideNotchStripButton(isHovering: Bool) -> some View {
+        collapsedRestVariantButton(
+            appearance: .wideNotchStrip,
+            bodySize: collapsedBodySize(
+                for: .wideNotchStrip,
+                isHovering: isHovering,
+                defaultTransparentSize: OverlayPanelChromeMetrics.hoverBodySize
+            ),
+            bottomCornerRadius: OverlayPanelRootPresentation.collapsedBottomCornerRadius(for: .wideNotchStrip),
+            shadowMetrics: OverlayPanelRootPresentation.collapsedShadowMetrics(
+                for: .wideNotchStrip,
+                isHovering: isHovering
+            )
+        )
+    }
+
+    private func headerlessMiniPanelButton(isHovering: Bool) -> some View {
+        collapsedRestVariantButton(
+            appearance: .headerlessMiniPanel,
+            bodySize: collapsedBodySize(
+                for: .headerlessMiniPanel,
+                isHovering: isHovering,
+                defaultTransparentSize: OverlayPanelChromeMetrics.hoverBodySize
+            ),
+            bottomCornerRadius: OverlayPanelRootPresentation.collapsedBottomCornerRadius(for: .headerlessMiniPanel),
+            shadowMetrics: OverlayPanelRootPresentation.collapsedShadowMetrics(
+                for: .headerlessMiniPanel,
+                isHovering: isHovering
+            )
+        )
+    }
+
+    private func collapsedRestVariantButton(
+        appearance: OverlayPanelCollapsedAppearance,
+        bodySize: CGSize,
+        bottomCornerRadius: CGFloat,
+        shadowMetrics: NotchShadowMetrics
+    ) -> some View {
+        Button {
             interactions.expand(screenID: panelModel.screenID)
+        } label: {
+            collapsedRestVariantChrome(
+                appearance: appearance,
+                bodySize: bodySize,
+                bottomCornerRadius: bottomCornerRadius,
+                shadowMetrics: shadowMetrics,
+                contentOpacity: 1
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(ShellChromeButtonStyle())
+    }
+
+    private func collapsedRestVariantChrome(
+        appearance: OverlayPanelCollapsedAppearance,
+        bodySize: CGSize,
+        bottomCornerRadius: CGFloat,
+        shadowMetrics: NotchShadowMetrics,
+        contentOpacity: Double
+    ) -> some View {
+        GeometryReader { proxy in
+            let originX = (proxy.size.width - bodySize.width) / 2
+
+            ZStack(alignment: .topLeading) {
+                RestVariantShellShape(bottomCornerRadius: bottomCornerRadius)
+                    .fill(Color.black.opacity(0.94))
+                    .shadow(
+                        color: .black.opacity(shadowMetrics.opacity),
+                        radius: shadowMetrics.radius,
+                        y: shadowMetrics.yOffset
+                    )
+                    .frame(width: bodySize.width, height: bodySize.height)
+                    .offset(x: originX, y: 0)
+
+                restVariantContent(for: appearance)
+                    .frame(width: bodySize.width, height: bodySize.height, alignment: .topLeading)
+                    .opacity(contentOpacity)
+                    .offset(x: originX, y: 0)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+    }
+
+    @ViewBuilder
+    private func restVariantContent(for appearance: OverlayPanelCollapsedAppearance) -> some View {
+        switch appearance {
+        case .wideNotchStrip:
+            HStack(spacing: 10) {
+                Image(systemName: "music.note")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.92))
+                    .frame(width: 18, height: 18)
+                    .background(
+                        Circle()
+                            .fill(Color.green.opacity(0.28))
+                    )
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Music")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.92))
+
+                    Text("Wide Notch Strip")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.56))
+                }
+
+                Spacer(minLength: 0)
+
+                Circle()
+                    .fill(Color.green.opacity(0.9))
+                    .frame(width: 6, height: 6)
+            }
+            .padding(.horizontal, 14)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        case .headerlessMiniPanel:
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .center, spacing: 12) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "timer")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.orange.opacity(0.95))
+                            .frame(width: 22, height: 22)
+                            .background(
+                                Circle()
+                                    .fill(Color.orange.opacity(0.18))
+                            )
+
+                        Text("Pomodoro")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.92))
+                    }
+
+                    Spacer(minLength: 0)
+
+                    Text("Ready")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color.orange.opacity(0.92))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(
+                            Capsule()
+                                .fill(Color.orange.opacity(0.18))
+                        )
+                }
+
+                Text("25:00")
+                    .font(.system(size: 30, weight: .heavy, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.96))
+
+                Text("Focus sprint ready")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.62))
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, headerlessMiniPanelContentTopInset)
+            .padding(.bottom, 18)
+        case .transparent:
+            EmptyView()
         }
     }
 
     private var expandedBody: some View {
         let bodySize = compositionRoot.panelBodySize(for: compositionRoot.activeModule)
+        let defaultCollapseTargetSize = CGSize(
+            width: OverlayPanelRootPresentation.collapseSettledWidth(
+                anchorKind: panelModel.geometry?.anchorKind,
+                idleWidth: panelModel.geometry?.idleFrame.width ?? OverlayPanelChromeMetrics.hoverBodySize.width,
+                notchMetrics: panelModel.geometry?.notchMetrics
+            ),
+            height: OverlayPanelRootPresentation.collapseSettledHeight(
+                anchorKind: panelModel.geometry?.anchorKind,
+                idleVisibleHeight: panelModel.geometry?.idleVisibleHeight ?? 6,
+                notchMetrics: panelModel.geometry?.notchMetrics
+            )
+        )
+        let sourceAppearance = expandedTransitionAppearance
+        let isExpanding = panelModel.state.isExpandedLike
+        let transitionSize = collapsedBodySize(
+            for: sourceAppearance,
+            isHovering: isExpanding,
+            defaultTransparentSize: defaultCollapseTargetSize
+        )
         let collapseSettledWidth = OverlayPanelRootPresentation.collapseSettledWidth(
             anchorKind: panelModel.geometry?.anchorKind,
             idleWidth: panelModel.geometry?.idleFrame.width ?? OverlayPanelChromeMetrics.hoverBodySize.width,
@@ -128,6 +377,13 @@ struct OverlayPanelRootView: View {
             bodySize: bodySize,
             animateFromHover: panelModel.previousState?.isHoverHint == true && panelModel.state.isExpandedLike,
             isActive: panelModel.state.isExpandedLike,
+            collapseTargetAppearance: sourceAppearance,
+            collapsedBodySize: transitionSize,
+            collapsedBottomCornerRadius: collapsedBottomCornerRadius(for: sourceAppearance),
+            collapseTargetShadowMetrics: OverlayPanelRootPresentation.collapsedShadowMetrics(
+                for: sourceAppearance,
+                isHovering: false
+            ),
             collapseSettledWidth: collapseSettledWidth,
             collapseSettledHeight: collapseSettledHeight
         )
@@ -147,6 +403,134 @@ struct OverlayPanelRootView: View {
             idleVisibleHeight: panelModel.geometry?.idleVisibleHeight ?? 6,
             notchMetrics: panelModel.geometry?.notchMetrics
         )
+    }
+
+    private var currentCollapsedAppearance: OverlayPanelCollapsedAppearance {
+        OverlayPanelRootPresentation.collapsedAppearance(for: panelModel.state)
+    }
+
+    private var restVariantTransition: RestVariantTransition? {
+        guard let previousState = panelModel.previousState,
+              OverlayPanelRootPresentation.shouldAnimateRestVariantChromeTransition(
+                from: previousState,
+                to: panelModel.state
+              ) else {
+            return nil
+        }
+
+        let sourceAppearance = OverlayPanelRootPresentation.collapsedAppearance(for: previousState)
+        let targetAppearance = currentCollapsedAppearance
+        let sourceIsHovering = previousState.isHoverHint
+        let targetIsHovering = panelModel.state.isHoverHint
+        let transparentFallback = CGSize(
+            width: OverlayPanelChromeMetrics.hoverBodySize.width,
+            height: OverlayPanelChromeMetrics.hoverBodySize.height
+        )
+
+        return RestVariantTransition(
+            sourceAppearance: sourceAppearance,
+            targetAppearance: targetAppearance,
+            sourceSize: collapsedBodySize(
+                for: sourceAppearance,
+                isHovering: sourceIsHovering,
+                defaultTransparentSize: transparentFallback
+            ),
+            targetSize: collapsedBodySize(
+                for: targetAppearance,
+                isHovering: targetIsHovering,
+                defaultTransparentSize: transparentFallback
+            ),
+            sourceBottomCornerRadius: collapsedBottomCornerRadius(for: sourceAppearance),
+            targetBottomCornerRadius: collapsedBottomCornerRadius(for: targetAppearance),
+            sourceShadowMetrics: OverlayPanelRootPresentation.collapsedShadowMetrics(
+                for: sourceAppearance,
+                isHovering: sourceIsHovering
+            ),
+            targetShadowMetrics: OverlayPanelRootPresentation.collapsedShadowMetrics(
+                for: targetAppearance,
+                isHovering: targetIsHovering
+            )
+        )
+    }
+
+    private var expandedTransitionAppearance: OverlayPanelCollapsedAppearance {
+        OverlayPanelRootPresentation.expandedTransitionAppearance(
+            currentState: panelModel.state,
+            previousState: panelModel.previousState,
+            latchedExpandedCollapsePresentation: panelModel.latchedExpandedCollapsePresentation
+        )
+    }
+
+    private var headerlessMiniPanelContentTopInset: CGFloat {
+        max(panelModel.geometry?.safeTopInset ?? 32, 32) + 8
+    }
+
+    private func collapsedBodySize(
+        for appearance: OverlayPanelCollapsedAppearance,
+        isHovering: Bool,
+        defaultTransparentSize: CGSize
+    ) -> CGSize {
+        guard let geometry = panelModel.geometry else {
+            return appearance == .transparent
+                ? defaultTransparentSize
+                : OverlayPanelChromeMetrics.hoverBodySize
+        }
+
+        switch appearance {
+        case .transparent:
+            return isHovering ? OverlayPanelChromeMetrics.hoverBodySize : defaultTransparentSize
+        case .wideNotchStrip:
+            return isHovering
+                ? geometry.wideNotchStripHoverVisibleFrame.size
+                : geometry.wideNotchStripVisibleFrame.size
+        case .headerlessMiniPanel:
+            return isHovering
+                ? geometry.headerlessMiniPanelHoverVisibleFrame.size
+                : geometry.headerlessMiniPanelVisibleFrame.size
+        }
+    }
+
+    private func collapsedBottomCornerRadius(for appearance: OverlayPanelCollapsedAppearance) -> CGFloat {
+        switch appearance {
+        case .transparent:
+            OverlayPanelChromeMetrics.hoverRevealBottomCornerRadius
+        case .wideNotchStrip:
+            OverlayPanelRootPresentation.collapsedBottomCornerRadius(for: .wideNotchStrip)
+        case .headerlessMiniPanel:
+            OverlayPanelRootPresentation.collapsedBottomCornerRadius(for: .headerlessMiniPanel)
+        }
+    }
+
+    private func animatedRestVariantTransitionButton(_ transition: RestVariantTransition) -> some View {
+        Button {
+            interactions.expand(screenID: panelModel.screenID)
+        } label: {
+            AnimatedRestVariantChromeView(
+                transition: transition,
+                content: { appearance in
+                    restVariantContent(for: appearance)
+                }
+            )
+            .id(transition.id)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(ShellChromeButtonStyle())
+    }
+}
+
+private struct RestVariantTransition: Equatable {
+    let sourceAppearance: OverlayPanelCollapsedAppearance
+    let targetAppearance: OverlayPanelCollapsedAppearance
+    let sourceSize: CGSize
+    let targetSize: CGSize
+    let sourceBottomCornerRadius: CGFloat
+    let targetBottomCornerRadius: CGFloat
+    let sourceShadowMetrics: NotchShadowMetrics
+    let targetShadowMetrics: NotchShadowMetrics
+
+    var id: String {
+        "\(sourceAppearance)-\(targetAppearance)-\(sourceSize.width)-\(sourceSize.height)-\(targetSize.width)-\(targetSize.height)-\(sourceShadowMetrics.opacity)-\(targetShadowMetrics.opacity)-\(sourceShadowMetrics.radius)-\(targetShadowMetrics.radius)"
     }
 }
 
@@ -171,40 +555,27 @@ private struct ShallowAttachedNotchShape: Shape {
 }
 
 private struct FigmaHoverNotchShape: Shape {
-    private let referenceSize = CGSize(width: 194, height: 40)
+    func path(in rect: CGRect) -> Path {
+        NotchShellPathBuilder.path(
+            in: rect,
+            visibleHeight: rect.height,
+            bottomCornerRadii: CGPoint(
+                x: OverlayPanelChromeMetrics.hoverRevealBottomCornerRadius,
+                y: OverlayPanelChromeMetrics.hoverRevealBottomCornerRadius
+            )
+        )
+    }
+}
+
+private struct RestVariantShellShape: Shape {
+    let bottomCornerRadius: CGFloat
 
     func path(in rect: CGRect) -> Path {
-        var path = Path()
-        path.move(to: .zero)
-        path.addLine(to: CGPoint(x: 194, y: 0))
-        path.addCurve(
-            to: CGPoint(x: 190, y: 4),
-            control1: CGPoint(x: 191.791, y: 0),
-            control2: CGPoint(x: 190, y: 1.7909)
+        NotchShellPathBuilder.path(
+            in: rect,
+            visibleHeight: rect.height,
+            bottomCornerRadii: CGPoint(x: bottomCornerRadius, y: bottomCornerRadius)
         )
-        path.addLine(to: CGPoint(x: 190, y: 28))
-        path.addCurve(
-            to: CGPoint(x: 178, y: 40),
-            control1: CGPoint(x: 190, y: 34.6274),
-            control2: CGPoint(x: 184.627, y: 40)
-        )
-        path.addLine(to: CGPoint(x: 16, y: 40))
-        path.addCurve(
-            to: CGPoint(x: 4, y: 28),
-            control1: CGPoint(x: 9.3725, y: 40),
-            control2: CGPoint(x: 4, y: 34.6274)
-        )
-        path.addLine(to: CGPoint(x: 4, y: 4))
-        path.addCurve(
-            to: CGPoint(x: 0, y: 0),
-            control1: CGPoint(x: 4, y: 1.7908),
-            control2: CGPoint(x: 2.2091, y: 0)
-        )
-        path.closeSubpath()
-
-        let transform = CGAffineTransform(translationX: rect.minX, y: rect.minY)
-            .scaledBy(x: rect.width / referenceSize.width, y: rect.height / referenceSize.height)
-        return path.applying(transform)
     }
 }
 
@@ -261,67 +632,261 @@ private struct FigmaExpandedNotchShellShape: Shape {
 
 private struct MorphingExpandedNotchShape: Shape {
     var progress: CGFloat
+    var collapsedBottomCornerRadius: CGFloat
+    var scaleX: CGFloat = 1
+    var scaleY: CGFloat = 1
 
-    var animatableData: CGFloat {
-        get { progress }
-        set { progress = newValue }
+    var animatableData: AnimatablePair<CGFloat, AnimatablePair<CGFloat, AnimatablePair<CGFloat, CGFloat>>> {
+        get { AnimatablePair(progress, AnimatablePair(collapsedBottomCornerRadius, AnimatablePair(scaleX, scaleY))) }
+        set {
+            progress = newValue.first
+            collapsedBottomCornerRadius = newValue.second.first
+            scaleX = newValue.second.second.first
+            scaleY = newValue.second.second.second
+        }
     }
 
     func path(in rect: CGRect) -> Path {
         let clampedProgress = min(max(progress, 0), 1)
+        let bottomCornerRadii = OverlayPanelRootPresentation.expandedBottomCornerRadii(
+            progress: clampedProgress,
+            startRadius: collapsedBottomCornerRadius,
+            endRadius: 36,
+            scaleX: scaleX,
+            scaleY: scaleY
+        )
 
-        let referenceWidth: CGFloat = 580
-        let xScale = rect.width / referenceWidth
+        return NotchShellPathBuilder.path(
+            in: rect,
+            visibleHeight: rect.height,
+            bottomCornerRadii: bottomCornerRadii,
+            scaleX: scaleX,
+            scaleY: scaleY
+        )
+    }
+}
 
-        let expandedTopInset = 11.9586 * xScale
-        let expandedTopControlX = 6.6046 * xScale
-        let expandedTopControlY = 5.3540 * xScale
+private struct AnimatedRestVariantChromeView<Content: View>: View {
+    let transition: RestVariantTransition
+    @ViewBuilder let content: (OverlayPanelCollapsedAppearance) -> Content
 
-        let targetTopInset = rect.width * (4 / 194)
-        let targetTopControlX = rect.width * (2.2091 / 194)
-        let targetTopControlY = rect.height * (4 / 32)
+    @State private var shapeProgress: CGFloat = 0
+    @State private var currentScaleX: CGFloat = 1
+    @State private var currentScaleY: CGFloat = 1
+    @State private var settledTargetRevealProgress: CGFloat = 1
+    @State private var settledTargetRevealTask: Task<Void, Never>?
 
-        func interpolate(_ expanded: CGFloat, _ target: CGFloat) -> CGFloat {
-            target + ((expanded - target) * clampedProgress)
+    var body: some View {
+        GeometryReader { proxy in
+            let isGrowing = transition.targetSize.width * transition.targetSize.height
+                >= transition.sourceSize.width * transition.sourceSize.height
+            let clampedProgress = min(max(shapeProgress, 0), 1)
+            let baseSize = isGrowing ? transition.targetSize : transition.sourceSize
+            let compensatedCornerRadii = OverlayPanelRootPresentation.expandedBottomCornerRadii(
+                progress: clampedProgress,
+                startRadius: transition.sourceBottomCornerRadius,
+                endRadius: transition.targetBottomCornerRadius,
+                scaleX: currentScaleX,
+                scaleY: currentScaleY
+            )
+            let currentShadowOpacity = lerp(
+                transition.sourceShadowMetrics.opacity,
+                transition.targetShadowMetrics.opacity,
+                clampedProgress
+            )
+            let currentShadowRadius = lerp(
+                transition.sourceShadowMetrics.radius,
+                transition.targetShadowMetrics.radius,
+                clampedProgress
+            )
+            let currentShadowYOffset = lerp(
+                transition.sourceShadowMetrics.yOffset,
+                transition.targetShadowMetrics.yOffset,
+                clampedProgress
+            )
+            let targetContentOpacity = OverlayPanelRootPresentation.restVariantTargetContentOpacity(
+                shapeProgress: clampedProgress,
+                settledRevealProgress: settledTargetRevealProgress,
+                isGrowing: isGrowing
+            )
+            let outgoingOpacity = OverlayPanelRootPresentation.restVariantSourceContentOpacity(
+                progress: clampedProgress,
+                isGrowing: isGrowing
+            )
+            let baseOriginX = (proxy.size.width - baseSize.width) / 2
+            let sourceOriginX = (proxy.size.width - transition.sourceSize.width) / 2
+            let targetOriginX = (proxy.size.width - transition.targetSize.width) / 2
+            let sourceMaskScale = CGSize(
+                width: transition.sourceSize.width / max(baseSize.width, 0.0001),
+                height: transition.sourceSize.height / max(baseSize.height, 0.0001)
+            )
+            let sourceCompensatedCornerRadii = OverlayPanelRootPresentation.expandedBottomCornerRadii(
+                progress: 0,
+                startRadius: transition.sourceBottomCornerRadius,
+                endRadius: transition.sourceBottomCornerRadius,
+                scaleX: sourceMaskScale.width,
+                scaleY: sourceMaskScale.height
+            )
+
+            ZStack(alignment: .topLeading) {
+                VariableRestVariantShellShape(
+                    bottomCornerRadii: compensatedCornerRadii,
+                    scaleX: currentScaleX,
+                    scaleY: currentScaleY
+                )
+                    .fill(Color.black.opacity(0.94))
+                    .shadow(
+                        color: .black.opacity(currentShadowOpacity),
+                        radius: currentShadowRadius,
+                        y: currentShadowYOffset
+                    )
+                    .frame(width: baseSize.width, height: baseSize.height)
+                    .scaleEffect(x: currentScaleX, y: currentScaleY, anchor: .top)
+                    .offset(x: baseOriginX, y: 0)
+
+                content(transition.sourceAppearance)
+                    .frame(
+                        width: transition.sourceSize.width,
+                        height: transition.sourceSize.height,
+                        alignment: .topLeading
+                    )
+                    .opacity(outgoingOpacity)
+                    .mask {
+                        VariableRestVariantShellShape(
+                            bottomCornerRadii: sourceCompensatedCornerRadii,
+                            scaleX: sourceMaskScale.width,
+                            scaleY: sourceMaskScale.height
+                        )
+                            .frame(width: baseSize.width, height: baseSize.height)
+                            .scaleEffect(x: sourceMaskScale.width, y: sourceMaskScale.height, anchor: .top)
+                    }
+                    .offset(x: sourceOriginX, y: 0)
+
+                content(transition.targetAppearance)
+                    .frame(
+                        width: transition.targetSize.width,
+                        height: transition.targetSize.height,
+                        alignment: .topLeading
+                    )
+                    .opacity(targetContentOpacity)
+                    .mask {
+                        VariableRestVariantShellShape(
+                            bottomCornerRadii: compensatedCornerRadii,
+                            scaleX: currentScaleX,
+                            scaleY: currentScaleY
+                        )
+                            .frame(width: baseSize.width, height: baseSize.height)
+                            .scaleEffect(x: currentScaleX, y: currentScaleY, anchor: .top)
+                    }
+                    .offset(x: targetOriginX, y: 0)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .onAppear {
+            restartAnimation()
+        }
+        .onChange(of: transition) { _ in
+            restartAnimation()
+        }
+        .onDisappear {
+            settledTargetRevealTask?.cancel()
+        }
+    }
+
+    private func restartAnimation() {
+        settledTargetRevealTask?.cancel()
+        shapeProgress = 0
+        currentScaleX = startScaleX
+        currentScaleY = startScaleY
+        settledTargetRevealProgress = isGrowing ? 1 : 0
+        animateTransition()
+    }
+
+    private func animateTransition() {
+        withAnimation(
+            .interpolatingSpring(
+                duration: OverlayPanelChromeMetrics.transitionDuration,
+                bounce: isGrowing ? 0.2 : 0
+            )
+        ) {
+            currentScaleX = endScaleX
+            currentScaleY = endScaleY
         }
 
-        let topInset = interpolate(expandedTopInset, targetTopInset)
-        let topControlX = interpolate(expandedTopControlX, targetTopControlX)
-        let topControlY = interpolate(expandedTopControlY, targetTopControlY)
+        withAnimation(.easeOut(duration: OverlayPanelChromeMetrics.transitionDuration)) {
+            shapeProgress = 1
+        }
 
-        let usableTopInset = min(topInset, rect.height / 2)
-        let usableTopControlY = min(topControlY, usableTopInset)
-        let bottomCornerRadius = OverlayPanelRootPresentation.expandedBottomCornerRadius(progress: clampedProgress)
-        let usableBottomRadius = min(bottomCornerRadius, rect.width / 2, rect.height / 2)
-        let leftEdgeX = rect.minX + usableTopInset
-        let rightEdgeX = rect.maxX - usableTopInset
+        guard isGrowing == false else {
+            return
+        }
 
-        var path = Path()
-        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
-        path.addCurve(
-            to: CGPoint(x: rect.maxX - usableTopInset, y: rect.minY + usableTopInset),
-            control1: CGPoint(x: rect.maxX - topControlX, y: rect.minY),
-            control2: CGPoint(x: rect.maxX - usableTopInset, y: rect.minY + usableTopControlY)
+        settledTargetRevealTask = Task {
+            try? await Task.sleep(
+                nanoseconds: UInt64(OverlayPanelChromeMetrics.transitionDuration * 1_000_000_000)
+            )
+            guard Task.isCancelled == false else {
+                return
+            }
+
+            withAnimation(.easeIn(duration: OverlayPanelChromeMetrics.restVariantSettledContentRevealDuration)) {
+                settledTargetRevealProgress = 1
+            }
+        }
+    }
+
+    private var startScaleX: CGFloat {
+        isGrowing ? (transition.sourceSize.width / max(transition.targetSize.width, 0.0001)) : 1
+    }
+
+    private var startScaleY: CGFloat {
+        isGrowing ? (transition.sourceSize.height / max(transition.targetSize.height, 0.0001)) : 1
+    }
+
+    private var endScaleX: CGFloat {
+        isGrowing ? 1 : (transition.targetSize.width / max(transition.sourceSize.width, 0.0001))
+    }
+
+    private var endScaleY: CGFloat {
+        isGrowing ? 1 : (transition.targetSize.height / max(transition.sourceSize.height, 0.0001))
+    }
+
+    private var isGrowing: Bool {
+        transition.targetSize.width * transition.targetSize.height
+            >= transition.sourceSize.width * transition.sourceSize.height
+    }
+
+    private func lerp(_ start: Double, _ end: Double, _ progress: CGFloat) -> Double {
+        start + ((end - start) * Double(progress))
+    }
+
+    private func lerp(_ start: CGFloat, _ end: CGFloat, _ progress: CGFloat) -> CGFloat {
+        start + ((end - start) * progress)
+    }
+}
+
+private struct VariableRestVariantShellShape: Shape {
+    var bottomCornerRadii: CGPoint
+    var scaleX: CGFloat = 1
+    var scaleY: CGFloat = 1
+
+    var animatableData: AnimatablePair<CGPoint.AnimatableData, AnimatablePair<CGFloat, CGFloat>> {
+        get { AnimatablePair(bottomCornerRadii.animatableData, AnimatablePair(scaleX, scaleY)) }
+        set {
+            bottomCornerRadii.animatableData = newValue.first
+            scaleX = newValue.second.first
+            scaleY = newValue.second.second
+        }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        NotchShellPathBuilder.path(
+            in: rect,
+            visibleHeight: rect.height,
+            bottomCornerRadii: bottomCornerRadii,
+            scaleX: scaleX,
+            scaleY: scaleY
         )
-        path.addLine(to: CGPoint(x: rightEdgeX, y: rect.maxY - usableBottomRadius))
-        path.addQuadCurve(
-            to: CGPoint(x: rightEdgeX - usableBottomRadius, y: rect.maxY),
-            control: CGPoint(x: rightEdgeX, y: rect.maxY)
-        )
-        path.addLine(to: CGPoint(x: leftEdgeX + usableBottomRadius, y: rect.maxY))
-        path.addQuadCurve(
-            to: CGPoint(x: leftEdgeX, y: rect.maxY - usableBottomRadius),
-            control: CGPoint(x: leftEdgeX, y: rect.maxY)
-        )
-        path.addLine(to: CGPoint(x: leftEdgeX, y: rect.minY + usableTopInset))
-        path.addCurve(
-            to: CGPoint(x: rect.minX, y: rect.minY),
-            control1: CGPoint(x: rect.minX + usableTopInset, y: rect.minY + usableTopControlY),
-            control2: CGPoint(x: rect.minX + topControlX, y: rect.minY)
-        )
-        path.closeSubpath()
-        return path
     }
 }
 
@@ -390,44 +955,69 @@ struct VariableHeightHoverNotchShape: Shape {
     }
 
     func path(in rect: CGRect) -> Path {
-        let height = min(
-            OverlayPanelRootPresentation.hoverRevealMaskFrame(visibleHeight: visibleHeight).height,
-            rect.height
-        )
+        let height = OverlayPanelRootPresentation.hoverRevealMaskFrame(visibleHeight: visibleHeight).height
         let radius = OverlayPanelRootPresentation.hoverRevealCornerRadius(visibleHeight: height)
-        let referenceSize = CGSize(width: 194, height: 40)
-        let leftShoulderX: CGFloat = 4
-        let rightShoulderX: CGFloat = 190
+
+        return NotchShellPathBuilder.path(
+            in: rect,
+            visibleHeight: height,
+            bottomCornerRadii: CGPoint(x: radius, y: radius)
+        )
+    }
+}
+
+private enum NotchShellPathBuilder {
+    static func path(
+        in rect: CGRect,
+        visibleHeight: CGFloat,
+        bottomCornerRadii: CGPoint,
+        scaleX: CGFloat = 1,
+        scaleY: CGFloat = 1
+    ) -> Path {
+        let shoulder = OverlayPanelRootPresentation.compensatedTopShoulderMetrics(
+            scaleX: scaleX,
+            scaleY: scaleY
+        )
+
+        let height = min(max(visibleHeight, 0.01), rect.height)
+        let bottomY = rect.minY + height
+        let insetX = min(shoulder.insetX, rect.width / 2)
+        let insetY = min(shoulder.insetY, height / 2)
+        let controlX = min(shoulder.controlX, insetX)
+        let controlY = min(shoulder.controlY, insetY)
+        let maxBottomRadiusX = max(0, (rect.width - (insetX * 2)) / 2)
+        let maxBottomRadiusY = max(0, height - insetY)
+        let bottomRadiusX = min(bottomCornerRadii.x, maxBottomRadiusX)
+        let bottomRadiusY = min(bottomCornerRadii.y, maxBottomRadiusY)
+        let leftEdgeX = rect.minX + insetX
+        let rightEdgeX = rect.maxX - insetX
 
         var path = Path()
-        path.move(to: .zero)
-        path.addLine(to: CGPoint(x: referenceSize.width, y: 0))
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
         path.addCurve(
-            to: CGPoint(x: rightShoulderX, y: 4),
-            control1: CGPoint(x: 191.791, y: 0),
-            control2: CGPoint(x: rightShoulderX, y: 1.7909)
+            to: CGPoint(x: rect.maxX - insetX, y: rect.minY + insetY),
+            control1: CGPoint(x: rect.maxX - controlX, y: rect.minY),
+            control2: CGPoint(x: rect.maxX - insetX, y: rect.minY + controlY)
         )
-        path.addLine(to: CGPoint(x: rightShoulderX, y: height - radius))
+        path.addLine(to: CGPoint(x: rightEdgeX, y: bottomY - bottomRadiusY))
         path.addQuadCurve(
-            to: CGPoint(x: rightShoulderX - radius, y: height),
-            control: CGPoint(x: rightShoulderX, y: height)
+            to: CGPoint(x: rightEdgeX - bottomRadiusX, y: bottomY),
+            control: CGPoint(x: rightEdgeX, y: bottomY)
         )
-        path.addLine(to: CGPoint(x: leftShoulderX + radius, y: height))
+        path.addLine(to: CGPoint(x: leftEdgeX + bottomRadiusX, y: bottomY))
         path.addQuadCurve(
-            to: CGPoint(x: leftShoulderX, y: height - radius),
-            control: CGPoint(x: leftShoulderX, y: height)
+            to: CGPoint(x: leftEdgeX, y: bottomY - bottomRadiusY),
+            control: CGPoint(x: leftEdgeX, y: bottomY)
         )
-        path.addLine(to: CGPoint(x: leftShoulderX, y: 4))
+        path.addLine(to: CGPoint(x: leftEdgeX, y: rect.minY + insetY))
         path.addCurve(
-            to: CGPoint(x: 0, y: 0),
-            control1: CGPoint(x: leftShoulderX, y: 1.7908),
-            control2: CGPoint(x: 2.2091, y: 0)
+            to: CGPoint(x: rect.minX, y: rect.minY),
+            control1: CGPoint(x: rect.minX + insetX, y: rect.minY + controlY),
+            control2: CGPoint(x: rect.minX + controlX, y: rect.minY)
         )
         path.closeSubpath()
-
-        let transform = CGAffineTransform(translationX: rect.minX, y: rect.minY)
-            .scaledBy(x: rect.width / referenceSize.width, y: 1)
-        return path.applying(transform)
+        return path
     }
 }
 
@@ -436,6 +1026,10 @@ private struct AnimatedExpandedChromeView: View {
     let bodySize: CGSize
     let animateFromHover: Bool
     let isActive: Bool
+    let collapseTargetAppearance: OverlayPanelCollapsedAppearance
+    let collapsedBodySize: CGSize
+    let collapsedBottomCornerRadius: CGFloat
+    let collapseTargetShadowMetrics: NotchShadowMetrics
     let collapseSettledWidth: CGFloat
     let collapseSettledHeight: CGFloat
 
@@ -445,58 +1039,82 @@ private struct AnimatedExpandedChromeView: View {
     @State private var currentScaleY: CGFloat = 1
 
     var body: some View {
-        let finalBodyFrame = OverlayPanelChromeMetrics.expandedBodyFrame(for: bodySize)
-        let startScale = OverlayPanelRootPresentation.expandedAnimationStartScale(for: bodySize)
-        let settledScaleX = collapseSettledWidth / bodySize.width
-        let settledScaleY = collapseSettledHeight / bodySize.height
+        let startScale = OverlayPanelRootPresentation.expandedAnimationStartScale(
+            for: bodySize,
+            startSize: collapsedBodySize
+        )
+        let settledScaleX = collapsedBodySize.width / bodySize.width
+        let settledScaleY = collapsedBodySize.height / bodySize.height
 
-        return ZStack(alignment: .topLeading) {
-            Color.clear
-
-            MorphingExpandedNotchShape(progress: expansionProgress)
-                .fill(Color.black)
-                .frame(width: finalBodyFrame.width, height: finalBodyFrame.height)
-                .scaleEffect(x: currentScaleX, y: currentScaleY, anchor: .top)
-                .shadow(
-                    color: .black.opacity(OverlayPanelRootPresentation.expandedShadowOpacity(progress: expansionProgress)),
-                    radius: OverlayPanelChromeMetrics.expandedShadowRadius,
-                    y: OverlayPanelChromeMetrics.expandedShadowYOffset
-                )
-                .offset(x: finalBodyFrame.minX, y: finalBodyFrame.minY)
-
-            PanelShellView(
-                compositionRoot: compositionRoot,
-                isMorePresented: $isMorePresented
+        return GeometryReader { proxy in
+            let finalBodyFrame = OverlayPanelChromeMetrics.expandedBodyFrame(
+                for: bodySize,
+                in: proxy.size
             )
-                .foregroundStyle(.white.opacity(0.9))
-                .frame(width: finalBodyFrame.width, height: finalBodyFrame.height)
-                .mask(alignment: .top) {
-                    MorphingExpandedNotchShape(progress: expansionProgress)
-                        .frame(width: finalBodyFrame.width, height: finalBodyFrame.height)
-                        .scaleEffect(x: currentScaleX, y: currentScaleY, anchor: .top)
-                }
-                .opacity(OverlayPanelRootPresentation.expandedContentOpacity(progress: expansionProgress))
-                .offset(x: finalBodyFrame.minX, y: finalBodyFrame.minY)
 
-            if isMorePresented {
-                PanelMoreModulesPopoverView(
-                    activeModule: compositionRoot.activeModule,
-                    items: PanelMoreModuleItem.defaultItems,
-                    onSelectModule: selectModule
+            ZStack(alignment: .topLeading) {
+                Color.clear
+
+                MorphingExpandedNotchShape(
+                    progress: expansionProgress,
+                    collapsedBottomCornerRadius: collapsedBottomCornerRadius,
+                    scaleX: currentScaleX,
+                    scaleY: currentScaleY
                 )
-                .offset(
-                    x: finalBodyFrame.minX + 32,
-                    y: finalBodyFrame.minY + 38
-                )
-                .transition(
-                    .asymmetric(
-                        insertion: .offset(y: -8)
-                            .combined(with: .opacity),
-                        removal: .offset(y: -4)
-                            .combined(with: .opacity)
+                    .fill(Color.black)
+                    .frame(width: finalBodyFrame.width, height: finalBodyFrame.height)
+                    .scaleEffect(x: currentScaleX, y: currentScaleY, anchor: .top)
+                    .shadow(
+                        color: .black.opacity(
+                            OverlayPanelRootPresentation.expandedShadowOpacity(progress: expansionProgress)
+                                * OverlayPanelRootPresentation.collapseExpandedShellOpacity(progress: expansionProgress)
+                        ),
+                        radius: OverlayPanelChromeMetrics.expandedShadowRadius,
+                        y: OverlayPanelChromeMetrics.expandedShadowYOffset
                     )
+                    .offset(x: finalBodyFrame.minX, y: finalBodyFrame.minY)
+                    .opacity(OverlayPanelRootPresentation.collapseExpandedShellOpacity(progress: expansionProgress))
+
+                PanelShellView(
+                    compositionRoot: compositionRoot,
+                    isMorePresented: $isMorePresented
                 )
+                    .foregroundStyle(.white.opacity(0.9))
+                    .frame(width: finalBodyFrame.width, height: finalBodyFrame.height)
+                    .mask(alignment: .top) {
+                        MorphingExpandedNotchShape(
+                            progress: expansionProgress,
+                            collapsedBottomCornerRadius: collapsedBottomCornerRadius,
+                            scaleX: currentScaleX,
+                            scaleY: currentScaleY
+                        )
+                            .frame(width: finalBodyFrame.width, height: finalBodyFrame.height)
+                            .scaleEffect(x: currentScaleX, y: currentScaleY, anchor: .top)
+                    }
+                    .opacity(OverlayPanelRootPresentation.expandedContentOpacity(progress: expansionProgress))
+                    .offset(x: finalBodyFrame.minX, y: finalBodyFrame.minY)
+
+                if isMorePresented {
+                    PanelMoreModulesPopoverView(
+                        activeModule: compositionRoot.activeModule,
+                        items: PanelMoreModuleItem.defaultItems,
+                        onSelectModule: selectModule
+                    )
+                    .offset(
+                        x: finalBodyFrame.minX + 32,
+                        y: finalBodyFrame.minY + 38
+                    )
+                    .transition(
+                        .asymmetric(
+                            insertion: .offset(y: -8)
+                                .combined(with: .opacity),
+                            removal: .offset(y: -4)
+                                .combined(with: .opacity)
+                        )
+                    )
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .animation(.timingCurve(0.22, 1.0, 0.36, 1.0, duration: 0.16), value: isMorePresented)
@@ -517,8 +1135,8 @@ private struct AnimatedExpandedChromeView: View {
     }
 
     private func animateExpandedChrome(isActive: Bool) {
-        let settledScaleX = collapseSettledWidth / bodySize.width
-        let settledScaleY = collapseSettledHeight / bodySize.height
+        let settledScaleX = collapsedBodySize.width / bodySize.width
+        let settledScaleY = collapsedBodySize.height / bodySize.height
 
         if isActive {
             withAnimation(
