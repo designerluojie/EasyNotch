@@ -9,6 +9,10 @@ final class NotchShellRuntime: NSObject {
     private let globalShortcutService: any GlobalShortcutServicing
     private let launchAtLoginService: any LaunchAtLoginServicing
     private let appLifecycleObserver: AppLifecycleObserver
+    private let isDebugRestVariantSeedEnabled: Bool
+    private let debugRestVariantSeedDelay: Duration
+    private let debugRestVariantSequenceStepDelay: Duration
+    private var debugRestVariantTask: Task<Void, Never>?
     private var isStarted = false
 
     init(
@@ -18,12 +22,18 @@ final class NotchShellRuntime: NSObject {
         panelPresenter: OverlayPanelPresenting,
         primaryScreenID: String? = nil,
         simulateNotchOnNonNotchScreen: Bool,
+        enableDebugRestVariantSeed: Bool = true,
+        debugRestVariantSeedDelay: Duration = .seconds(1),
+        debugRestVariantSequenceStepDelay: Duration = .seconds(1),
         globalShortcutService: (any GlobalShortcutServicing)? = nil,
         launchAtLoginService: (any LaunchAtLoginServicing)? = nil,
         appLifecycleObserver: AppLifecycleObserver? = nil
     ) {
         self.compositionRoot = compositionRoot
         self.interactions = interactions
+        self.isDebugRestVariantSeedEnabled = enableDebugRestVariantSeed
+        self.debugRestVariantSeedDelay = debugRestVariantSeedDelay
+        self.debugRestVariantSequenceStepDelay = debugRestVariantSequenceStepDelay
         self.globalShortcutService = globalShortcutService ?? InMemoryGlobalShortcutService()
         self.launchAtLoginService = launchAtLoginService ?? InMemoryLaunchAtLoginService()
         self.appLifecycleObserver = appLifecycleObserver ?? AppLifecycleObserver()
@@ -54,7 +64,8 @@ final class NotchShellRuntime: NSObject {
             simulateNotchOnNonNotchScreen: sharedServices
                 .settingsStore
                 .settings
-                .simulateNotchOnNonNotchScreen
+                .simulateNotchOnNonNotchScreen,
+            enableDebugRestVariantSeed: true
         )
     }
 
@@ -107,13 +118,96 @@ final class NotchShellRuntime: NSObject {
             object: nil
         )
         coordinator.start()
+        scheduleDebugRestVariantSeed()
     }
 
     deinit {
+        debugRestVariantTask?.cancel()
         NotificationCenter.default.removeObserver(self)
     }
 
     @objc private func screenParametersDidChange(_ notification: Notification) {
         coordinator.refreshScreens()
+    }
+
+    private func scheduleDebugRestVariantSeed() {
+        guard isDebugRestVariantSeedEnabled else {
+            return
+        }
+
+        debugRestVariantTask?.cancel()
+        debugRestVariantTask = Task { @MainActor [weak self] in
+            do {
+                guard let self else {
+                    return
+                }
+
+                try await Task.sleep(for: self.debugRestVariantSeedDelay)
+            } catch {
+                return
+            }
+
+            guard let self else {
+                return
+            }
+
+            await self.runDebugRestVariantDemoSequence()
+        }
+    }
+
+    private func runDebugRestVariantDemoSequence() async {
+        let wideRequest = RestVariantRequest(
+            moduleID: .music,
+            kind: .wideNotchStrip
+        )
+
+        compositionRoot.restVariantStore.setPersistentRequest(wideRequest)
+        guard await sleepDebugRestVariantSequenceStep() else {
+            return
+        }
+
+        compositionRoot.restVariantStore.enqueueTransientRequest(
+            debugHeaderlessMiniPanelTransientRequest()
+        )
+        guard await sleepDebugRestVariantSequenceStep() else {
+            return
+        }
+
+        guard await sleepDebugRestVariantSequenceStep() else {
+            return
+        }
+
+        compositionRoot.restVariantStore.clearPersistentRequest(for: .music)
+        guard await sleepDebugRestVariantSequenceStep() else {
+            return
+        }
+
+        compositionRoot.restVariantStore.enqueueTransientRequest(
+            debugHeaderlessMiniPanelTransientRequest()
+        )
+        guard await sleepDebugRestVariantSequenceStep() else {
+            return
+        }
+    }
+
+    private func sleepDebugRestVariantSequenceStep() async -> Bool {
+        do {
+            try await Task.sleep(for: debugRestVariantSequenceStepDelay)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private func debugHeaderlessMiniPanelTransientRequest() -> RestVariantRequest {
+        RestVariantRequest(
+            moduleID: .pomodoro,
+            kind: .headerlessMiniPanel,
+            lifetime: .transient(
+                token: UUID(),
+                duration: debugRestVariantSequenceStepDelay,
+                declaredAt: Date()
+            )
+        )
     }
 }
