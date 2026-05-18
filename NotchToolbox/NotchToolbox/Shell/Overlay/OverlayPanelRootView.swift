@@ -1,5 +1,9 @@
 import SwiftUI
 
+private enum OverlayPanelChromeColors {
+    static let shellFill = Color.black.opacity(OverlayPanelChromeMetrics.shellFillOpacity)
+}
+
 struct OverlayPanelRootView: View {
     @ObservedObject var compositionRoot: AppCompositionRoot
     @ObservedObject var panelModel: OverlayPanelModel
@@ -9,14 +13,26 @@ struct OverlayPanelRootView: View {
         let visualState = OverlayPanelRootPresentation.visualState(for: panelModel.state)
         let showsHoverChrome = panelModel.state.isHoverHint || (panelModel.state.isIdle && panelModel.previousState?.isHoverHint == true)
         let showsExpandedChrome = panelModel.state.isExpandedLike || (panelModel.state.isIdle && panelModel.previousState?.isExpandedLike == true)
+        let suppressRestChrome = OverlayPanelRootPresentation.shouldSuppressRestChromeDuringExpandedCarryover(
+            currentState: panelModel.state,
+            previousState: panelModel.previousState
+        )
+        let usesRootHoverTracking = OverlayPanelRootPresentation.shouldUseRootHoverTracking(for: panelModel.state)
+        let restTransition = restVariantTransition
 
         ZStack(alignment: .top) {
-            if visualState == .idle {
-                idleBody
-            }
+            if !suppressRestChrome {
+                if let restTransition {
+                    animatedRestVariantTransitionButton(restTransition)
+                } else {
+                    if visualState == .idle {
+                        idleBody
+                    }
 
-            if showsHoverChrome {
-                hoverHintBody
+                    if showsHoverChrome {
+                        hoverHintBody
+                    }
+                }
             }
 
             if showsExpandedChrome {
@@ -27,6 +43,10 @@ struct OverlayPanelRootView: View {
         .preferredColorScheme(.dark)
         .contentShape(Rectangle())
         .onHover { isInside in
+            guard usesRootHoverTracking else {
+                return
+            }
+
             if isInside {
                 interactions.pointerEntered(screenID: panelModel.screenID)
             } else {
@@ -37,50 +57,6 @@ struct OverlayPanelRootView: View {
 
     @ViewBuilder
     private var idleBody: some View {
-        if OverlayPanelRootPresentation.shouldShowCollapsedShellDuringExpandedCarryover(
-            currentState: panelModel.state,
-            previousState: panelModel.previousState
-        ) {
-            switch currentCollapsedAppearance {
-            case .wideNotchStrip:
-                collapsedRestVariantChrome(
-                    appearance: .wideNotchStrip,
-                    bodySize: collapsedBodySize(
-                        for: .wideNotchStrip,
-                        isHovering: false,
-                        defaultTransparentSize: OverlayPanelChromeMetrics.hoverBodySize
-                    ),
-                    bottomCornerRadius: OverlayPanelRootPresentation.collapsedBottomCornerRadius(for: .wideNotchStrip),
-                    shadowMetrics: OverlayPanelRootPresentation.collapsedShadowMetrics(
-                        for: .wideNotchStrip,
-                        isHovering: false
-                    ),
-                    contentOpacity: 0
-                )
-            case .headerlessMiniPanel:
-                collapsedRestVariantChrome(
-                    appearance: .headerlessMiniPanel,
-                    bodySize: collapsedBodySize(
-                        for: .headerlessMiniPanel,
-                        isHovering: false,
-                        defaultTransparentSize: OverlayPanelChromeMetrics.hoverBodySize
-                    ),
-                    bottomCornerRadius: OverlayPanelRootPresentation.collapsedBottomCornerRadius(for: .headerlessMiniPanel),
-                    shadowMetrics: OverlayPanelRootPresentation.collapsedShadowMetrics(
-                        for: .headerlessMiniPanel,
-                        isHovering: false
-                    ),
-                    contentOpacity: 0
-                )
-            case .transparent:
-                EmptyView()
-            }
-        } else if OverlayPanelRootPresentation.shouldHideCollapsedBodyDuringExpandedCarryover(
-            currentState: panelModel.state,
-            previousState: panelModel.previousState
-        ) {
-            EmptyView()
-        } else
         if let transition = restVariantTransition {
             animatedRestVariantTransitionButton(transition)
         } else {
@@ -121,7 +97,7 @@ struct OverlayPanelRootView: View {
                 Color.clear
 
                 ShallowAttachedNotchShape()
-                    .fill(Color.black)
+                    .fill(OverlayPanelChromeColors.shellFill)
                     .frame(
                         width: simulatedIdlePreviewWidth,
                         height: panelModel.geometry?.idleVisibleHeight ?? 6
@@ -149,7 +125,7 @@ struct OverlayPanelRootView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(
                 Capsule()
-                    .fill(Color.black.opacity(0.88))
+                    .fill(OverlayPanelChromeColors.shellFill)
             )
         }
         .buttonStyle(ShellChromeButtonStyle())
@@ -183,6 +159,7 @@ struct OverlayPanelRootView: View {
             appearance: .wideNotchStrip,
             bodySize: collapsedBodySize(
                 for: .wideNotchStrip,
+                request: currentRestVariantRequest,
                 isHovering: isHovering,
                 defaultTransparentSize: OverlayPanelChromeMetrics.hoverBodySize
             ),
@@ -199,6 +176,7 @@ struct OverlayPanelRootView: View {
             appearance: .headerlessMiniPanel,
             bodySize: collapsedBodySize(
                 for: .headerlessMiniPanel,
+                request: currentRestVariantRequest,
                 isHovering: isHovering,
                 defaultTransparentSize: OverlayPanelChromeMetrics.hoverBodySize
             ),
@@ -216,19 +194,42 @@ struct OverlayPanelRootView: View {
         bottomCornerRadius: CGFloat,
         shadowMetrics: NotchShadowMetrics
     ) -> some View {
-        Button {
-            interactions.expand(screenID: panelModel.screenID)
-        } label: {
-            collapsedRestVariantChrome(
-                appearance: appearance,
-                bodySize: bodySize,
-                bottomCornerRadius: bottomCornerRadius,
-                shadowMetrics: shadowMetrics,
-                contentOpacity: 1
+        GeometryReader { proxy in
+            let bodyHitFrame = OverlayPanelRootPresentation.restVariantBodyHitFrame(
+                containerSize: proxy.size,
+                bodySize: bodySize
             )
-            .contentShape(Rectangle())
+
+            ZStack(alignment: .topLeading) {
+                collapsedRestVariantChrome(
+                    appearance: appearance,
+                    bodySize: bodySize,
+                    bottomCornerRadius: bottomCornerRadius,
+                    shadowMetrics: shadowMetrics,
+                    contentOpacity: 1
+                )
+                .allowsHitTesting(false)
+
+                Button {
+                    interactions.expand(screenID: panelModel.screenID)
+                } label: {
+                    Rectangle()
+                        .fill(Color.black.opacity(OverlayPanelRootPresentation.restVariantHitTargetOpacity))
+                        .frame(width: bodyHitFrame.width, height: bodyHitFrame.height)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(ShellChromeButtonStyle())
+                .offset(x: bodyHitFrame.minX, y: bodyHitFrame.minY)
+                .onHover { isInside in
+                    if isInside {
+                        interactions.pointerEntered(screenID: panelModel.screenID)
+                    } else {
+                        interactions.pointerExited(screenID: panelModel.screenID)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .buttonStyle(ShellChromeButtonStyle())
     }
 
     private func collapsedRestVariantChrome(
@@ -240,10 +241,14 @@ struct OverlayPanelRootView: View {
     ) -> some View {
         GeometryReader { proxy in
             let originX = (proxy.size.width - bodySize.width) / 2
+            let contentFrame = OverlayPanelRootPresentation.restVariantContentFrame(
+                for: appearance,
+                bodySize: bodySize
+            )
 
             ZStack(alignment: .topLeading) {
                 RestVariantShellShape(bottomCornerRadius: bottomCornerRadius)
-                    .fill(Color.black.opacity(0.94))
+                    .fill(OverlayPanelChromeColors.shellFill)
                     .shadow(
                         color: .black.opacity(shadowMetrics.opacity),
                         radius: shadowMetrics.radius,
@@ -253,9 +258,9 @@ struct OverlayPanelRootView: View {
                     .offset(x: originX, y: 0)
 
                 restVariantContent(for: appearance)
-                    .frame(width: bodySize.width, height: bodySize.height, alignment: .topLeading)
+                    .frame(width: contentFrame.width, height: contentFrame.height, alignment: .topLeading)
                     .opacity(contentOpacity)
-                    .offset(x: originX, y: 0)
+                    .offset(x: originX + contentFrame.minX, y: contentFrame.minY)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
@@ -355,37 +360,38 @@ struct OverlayPanelRootView: View {
             )
         )
         let sourceAppearance = expandedTransitionAppearance
-        let isExpanding = panelModel.state.isExpandedLike
-        let transitionSize = collapsedBodySize(
-            for: sourceAppearance,
-            isHovering: isExpanding,
-            defaultTransparentSize: defaultCollapseTargetSize
+        // Treat `collapsing` as part of the collapse phase, not the expand phase.
+        // Otherwise during state=collapsing this falls into the source-size branch
+        // and computes hoverBodySize, which then leaks into the spring's settle value
+        // via stale SwiftUI closure capture at the .onChange(of: isActive) fire site.
+        let isExpanding: Bool = {
+            if case .expanded = panelModel.state { return true }
+            return false
+        }()
+        let collapsedBodyFrame = expandedCollapseTargetBodyFrame(
+            bodySize: bodySize,
+            sourceAppearance: sourceAppearance,
+            isExpanding: isExpanding,
+            defaultCollapseTargetSize: defaultCollapseTargetSize
         )
-        let collapseSettledWidth = OverlayPanelRootPresentation.collapseSettledWidth(
-            anchorKind: panelModel.geometry?.anchorKind,
-            idleWidth: panelModel.geometry?.idleFrame.width ?? OverlayPanelChromeMetrics.hoverBodySize.width,
-            notchMetrics: panelModel.geometry?.notchMetrics
-        )
-        let collapseSettledHeight = OverlayPanelRootPresentation.collapseSettledHeight(
-            anchorKind: panelModel.geometry?.anchorKind,
-            idleVisibleHeight: panelModel.geometry?.idleVisibleHeight ?? 6,
-            notchMetrics: panelModel.geometry?.notchMetrics
-        )
-
+        let transitionBottomCornerRadius = panelModel.state.isRestLike && panelModel.previousState?.isExpandedLike == true
+            ? (panelModel.expandedCollapseTarget?.bottomCornerRadius ?? collapsedBottomCornerRadius(for: sourceAppearance))
+            : collapsedBottomCornerRadius(for: sourceAppearance)
         return AnimatedExpandedChromeView(
             compositionRoot: compositionRoot,
             bodySize: bodySize,
             animateFromHover: panelModel.previousState?.isHoverHint == true && panelModel.state.isExpandedLike,
             isActive: panelModel.state.isExpandedLike,
-            collapseTargetAppearance: sourceAppearance,
-            collapsedBodySize: transitionSize,
-            collapsedBottomCornerRadius: collapsedBottomCornerRadius(for: sourceAppearance),
-            collapseTargetShadowMetrics: OverlayPanelRootPresentation.collapsedShadowMetrics(
-                for: sourceAppearance,
-                isHovering: false
-            ),
-            collapseSettledWidth: collapseSettledWidth,
-            collapseSettledHeight: collapseSettledHeight
+            collapsedBodyFrame: collapsedBodyFrame,
+            collapsedBottomCornerRadius: transitionBottomCornerRadius,
+            collapseRestAppearance: expandedCollapseRestContentAppearance
+        ) { appearance in
+            restVariantContent(for: appearance)
+        }
+        .frame(
+            width: OverlayPanelChromeMetrics.expandedOuterSize(for: bodySize).width,
+            height: OverlayPanelChromeMetrics.expandedOuterSize(for: bodySize).height,
+            alignment: .topLeading
         )
     }
 
@@ -420,23 +426,24 @@ struct OverlayPanelRootView: View {
 
         let sourceAppearance = OverlayPanelRootPresentation.collapsedAppearance(for: previousState)
         let targetAppearance = currentCollapsedAppearance
+        let sourceRequest = restVariantRequest(for: previousState)
+        let targetRequest = currentRestVariantRequest
         let sourceIsHovering = previousState.isHoverHint
         let targetIsHovering = panelModel.state.isHoverHint
-        let transparentFallback = CGSize(
-            width: OverlayPanelChromeMetrics.hoverBodySize.width,
-            height: OverlayPanelChromeMetrics.hoverBodySize.height
-        )
+        let transparentFallback = transparentRestBodySize
 
         return RestVariantTransition(
             sourceAppearance: sourceAppearance,
             targetAppearance: targetAppearance,
             sourceSize: collapsedBodySize(
                 for: sourceAppearance,
+                request: sourceRequest,
                 isHovering: sourceIsHovering,
                 defaultTransparentSize: transparentFallback
             ),
             targetSize: collapsedBodySize(
                 for: targetAppearance,
+                request: targetRequest,
                 isHovering: targetIsHovering,
                 defaultTransparentSize: transparentFallback
             ),
@@ -457,16 +464,50 @@ struct OverlayPanelRootView: View {
         OverlayPanelRootPresentation.expandedTransitionAppearance(
             currentState: panelModel.state,
             previousState: panelModel.previousState,
-            latchedExpandedCollapsePresentation: panelModel.latchedExpandedCollapsePresentation
+            collapseTarget: panelModel.expandedCollapseTarget
         )
+    }
+
+    private var expandedCollapseRestContentAppearance: OverlayPanelCollapsedAppearance? {
+        guard panelModel.previousState?.isExpandedLike == true,
+              let appearance = panelModel.expandedCollapseTarget?.appearance,
+              appearance != .transparent else {
+            return nil
+        }
+
+        return appearance
+    }
+
+    private var currentRestVariantRequest: RestVariantRequest? {
+        restVariantRequest(for: panelModel.state)
     }
 
     private var headerlessMiniPanelContentTopInset: CGFloat {
         max(panelModel.geometry?.safeTopInset ?? 32, 32) + 8
     }
 
+    private var transparentRestBodySize: CGSize {
+        guard let geometry = panelModel.geometry else {
+            return OverlayPanelChromeMetrics.hoverBodySize
+        }
+
+        return CGSize(
+            width: OverlayPanelRootPresentation.collapseSettledWidth(
+                anchorKind: geometry.anchorKind,
+                idleWidth: geometry.idleFrame.width,
+                notchMetrics: geometry.notchMetrics
+            ),
+            height: OverlayPanelRootPresentation.collapseSettledHeight(
+                anchorKind: geometry.anchorKind,
+                idleVisibleHeight: geometry.idleVisibleHeight,
+                notchMetrics: geometry.notchMetrics
+            )
+        )
+    }
+
     private func collapsedBodySize(
         for appearance: OverlayPanelCollapsedAppearance,
+        request: RestVariantRequest?,
         isHovering: Bool,
         defaultTransparentSize: CGSize
     ) -> CGSize {
@@ -480,14 +521,78 @@ struct OverlayPanelRootView: View {
         case .transparent:
             return isHovering ? OverlayPanelChromeMetrics.hoverBodySize : defaultTransparentSize
         case .wideNotchStrip:
+            if let request {
+                return geometry.visibleBodySize(for: request, isHovering: isHovering)
+            }
             return isHovering
                 ? geometry.wideNotchStripHoverVisibleFrame.size
                 : geometry.wideNotchStripVisibleFrame.size
         case .headerlessMiniPanel:
+            if let request {
+                return geometry.visibleBodySize(for: request, isHovering: isHovering)
+            }
             return isHovering
                 ? geometry.headerlessMiniPanelHoverVisibleFrame.size
                 : geometry.headerlessMiniPanelVisibleFrame.size
         }
+    }
+
+    private func expandedCollapseTargetBodyFrame(
+        bodySize: CGSize,
+        sourceAppearance: OverlayPanelCollapsedAppearance,
+        isExpanding: Bool,
+        defaultCollapseTargetSize: CGSize
+    ) -> CGRect {
+        if isExpanding {
+            let sourceSize = collapsedBodySize(
+                for: sourceAppearance,
+                request: restVariantRequest(for: panelModel.previousState),
+                isHovering: true,
+                defaultTransparentSize: defaultCollapseTargetSize
+            )
+            return centeredExpandedCollapseBodyFrame(
+                bodySize: bodySize,
+                collapsedSize: sourceSize
+            )
+        }
+
+        if isExpanding == false,
+           panelModel.previousState?.isExpandedLike == true,
+           let collapseTarget = panelModel.expandedCollapseTarget,
+           let geometry = panelModel.geometry {
+            let expandedOuterFrame = OverlayPanelChromeMetrics.expandedOuterFrame(
+                for: bodySize,
+                on: geometry.screenFrame
+            )
+            return OverlayPanelRootPresentation.expandedCollapseTargetBodyFrame(
+                targetBodyFrame: collapseTarget.bodyFrame,
+                expandedOuterFrame: expandedOuterFrame
+            )
+        }
+
+        let collapsedSize = collapsedBodySize(
+            for: sourceAppearance,
+            request: currentRestVariantRequest,
+            isHovering: isExpanding,
+            defaultTransparentSize: defaultCollapseTargetSize
+        )
+        return centeredExpandedCollapseBodyFrame(
+            bodySize: bodySize,
+            collapsedSize: collapsedSize
+        )
+    }
+
+    private func centeredExpandedCollapseBodyFrame(
+        bodySize: CGSize,
+        collapsedSize: CGSize
+    ) -> CGRect {
+        let expandedBodyFrame = OverlayPanelChromeMetrics.expandedBodyFrame(for: bodySize)
+        return CGRect(
+            x: expandedBodyFrame.midX - collapsedSize.width / 2,
+            y: expandedBodyFrame.minY,
+            width: collapsedSize.width,
+            height: collapsedSize.height
+        )
     }
 
     private func collapsedBottomCornerRadius(for appearance: OverlayPanelCollapsedAppearance) -> CGFloat {
@@ -501,21 +606,59 @@ struct OverlayPanelRootView: View {
         }
     }
 
-    private func animatedRestVariantTransitionButton(_ transition: RestVariantTransition) -> some View {
-        Button {
-            interactions.expand(screenID: panelModel.screenID)
-        } label: {
-            AnimatedRestVariantChromeView(
-                transition: transition,
-                content: { appearance in
-                    restVariantContent(for: appearance)
-                }
-            )
-            .id(transition.id)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .contentShape(Rectangle())
+    private func restVariantRequest(for state: OverlayState?) -> RestVariantRequest? {
+        guard let state else {
+            return nil
         }
-        .buttonStyle(ShellChromeButtonStyle())
+
+        switch state {
+        case .idle(_, .request(let request)),
+             .hoverHint(_, .request(let request)):
+            return request
+        case .idle, .hoverHint, .expanded, .collapsing, .toast:
+            return nil
+        }
+    }
+
+    private func animatedRestVariantTransitionButton(_ transition: RestVariantTransition) -> some View {
+        GeometryReader { proxy in
+            let bodyHitFrame = OverlayPanelRootPresentation.restVariantTransitionBodyHitFrame(
+                containerSize: proxy.size,
+                sourceSize: transition.sourceSize,
+                targetSize: transition.targetSize
+            )
+
+            ZStack(alignment: .topLeading) {
+                AnimatedRestVariantChromeView(
+                    transition: transition,
+                    content: { appearance in
+                        restVariantContent(for: appearance)
+                    }
+                )
+                .id(transition.id)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .allowsHitTesting(false)
+
+                Button {
+                    interactions.expand(screenID: panelModel.screenID)
+                } label: {
+                    Rectangle()
+                        .fill(Color.black.opacity(OverlayPanelRootPresentation.restVariantHitTargetOpacity))
+                        .frame(width: bodyHitFrame.width, height: bodyHitFrame.height)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(ShellChromeButtonStyle())
+                .offset(x: bodyHitFrame.minX, y: bodyHitFrame.minY)
+                .onHover { isInside in
+                    if isInside {
+                        interactions.pointerEntered(screenID: panelModel.screenID)
+                    } else {
+                        interactions.pointerExited(screenID: panelModel.screenID)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
     }
 }
 
@@ -720,6 +863,22 @@ private struct AnimatedRestVariantChromeView<Content: View>: View {
                 width: transition.sourceSize.width / max(baseSize.width, 0.0001),
                 height: transition.sourceSize.height / max(baseSize.height, 0.0001)
             )
+            let sourceContentFrame = OverlayPanelRootPresentation.restVariantContentFrame(
+                for: transition.sourceAppearance,
+                bodySize: transition.sourceSize
+            )
+            let targetContentFrame = OverlayPanelRootPresentation.restVariantContentFrame(
+                for: transition.targetAppearance,
+                bodySize: transition.targetSize
+            )
+            let persistentContentFrame = OverlayPanelRootPresentation.restVariantContentFrame(
+                for: transition.targetAppearance,
+                bodySize: baseSize
+            )
+            let shouldCrossfadeContent = OverlayPanelRootPresentation.shouldCrossfadeRestVariantContent(
+                sourceAppearance: transition.sourceAppearance,
+                targetAppearance: transition.targetAppearance
+            )
             let sourceCompensatedCornerRadii = OverlayPanelRootPresentation.expandedBottomCornerRadii(
                 progress: 0,
                 startRadius: transition.sourceBottomCornerRadius,
@@ -734,7 +893,7 @@ private struct AnimatedRestVariantChromeView<Content: View>: View {
                     scaleX: currentScaleX,
                     scaleY: currentScaleY
                 )
-                    .fill(Color.black.opacity(0.94))
+                    .fill(OverlayPanelChromeColors.shellFill)
                     .shadow(
                         color: .black.opacity(currentShadowOpacity),
                         radius: currentShadowRadius,
@@ -744,41 +903,61 @@ private struct AnimatedRestVariantChromeView<Content: View>: View {
                     .scaleEffect(x: currentScaleX, y: currentScaleY, anchor: .top)
                     .offset(x: baseOriginX, y: 0)
 
-                content(transition.sourceAppearance)
-                    .frame(
-                        width: transition.sourceSize.width,
-                        height: transition.sourceSize.height,
-                        alignment: .topLeading
-                    )
-                    .opacity(outgoingOpacity)
-                    .mask {
-                        VariableRestVariantShellShape(
-                            bottomCornerRadii: sourceCompensatedCornerRadii,
-                            scaleX: sourceMaskScale.width,
-                            scaleY: sourceMaskScale.height
+                if shouldCrossfadeContent {
+                    content(transition.sourceAppearance)
+                        .frame(
+                            width: sourceContentFrame.width,
+                            height: sourceContentFrame.height,
+                            alignment: .topLeading
                         )
-                            .frame(width: baseSize.width, height: baseSize.height)
-                            .scaleEffect(x: sourceMaskScale.width, y: sourceMaskScale.height, anchor: .top)
-                    }
-                    .offset(x: sourceOriginX, y: 0)
+                        .opacity(outgoingOpacity)
+                        .mask {
+                            VariableRestVariantShellShape(
+                                bottomCornerRadii: sourceCompensatedCornerRadii,
+                                scaleX: sourceMaskScale.width,
+                                scaleY: sourceMaskScale.height
+                            )
+                                .frame(width: baseSize.width, height: baseSize.height)
+                                .scaleEffect(x: sourceMaskScale.width, y: sourceMaskScale.height, anchor: .top)
+                        }
+                        .offset(x: sourceOriginX + sourceContentFrame.minX, y: sourceContentFrame.minY)
 
-                content(transition.targetAppearance)
-                    .frame(
-                        width: transition.targetSize.width,
-                        height: transition.targetSize.height,
-                        alignment: .topLeading
-                    )
-                    .opacity(targetContentOpacity)
-                    .mask {
-                        VariableRestVariantShellShape(
-                            bottomCornerRadii: compensatedCornerRadii,
-                            scaleX: currentScaleX,
-                            scaleY: currentScaleY
+                    content(transition.targetAppearance)
+                        .frame(
+                            width: targetContentFrame.width,
+                            height: targetContentFrame.height,
+                            alignment: .topLeading
                         )
-                            .frame(width: baseSize.width, height: baseSize.height)
-                            .scaleEffect(x: currentScaleX, y: currentScaleY, anchor: .top)
-                    }
-                    .offset(x: targetOriginX, y: 0)
+                        .opacity(targetContentOpacity)
+                        .mask {
+                            VariableRestVariantShellShape(
+                                bottomCornerRadii: compensatedCornerRadii,
+                                scaleX: currentScaleX,
+                                scaleY: currentScaleY
+                            )
+                                .frame(width: baseSize.width, height: baseSize.height)
+                                .scaleEffect(x: currentScaleX, y: currentScaleY, anchor: .top)
+                        }
+                        .offset(x: targetOriginX + targetContentFrame.minX, y: targetContentFrame.minY)
+                } else {
+                    content(transition.targetAppearance)
+                        .frame(
+                            width: persistentContentFrame.width,
+                            height: persistentContentFrame.height,
+                            alignment: .topLeading
+                        )
+                        .opacity(1)
+                        .mask {
+                            VariableRestVariantShellShape(
+                                bottomCornerRadii: compensatedCornerRadii,
+                                scaleX: currentScaleX,
+                                scaleY: currentScaleY
+                            )
+                                .frame(width: baseSize.width, height: baseSize.height)
+                                .scaleEffect(x: currentScaleX, y: currentScaleY, anchor: .top)
+                        }
+                        .offset(x: baseOriginX + persistentContentFrame.minX, y: persistentContentFrame.minY)
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
@@ -905,7 +1084,7 @@ private struct AnimatedHoverChromeButton: View {
                 Color.clear
 
                 VariableHeightHoverNotchShape(visibleHeight: currentVisibleHeight)
-                    .fill(Color.black)
+                    .fill(OverlayPanelChromeColors.shellFill)
                     .frame(width: bodyFrame.width, height: bodyFrame.height)
                     .shadow(
                         color: .black.opacity(currentShadowOpacity),
@@ -1021,36 +1200,44 @@ private enum NotchShellPathBuilder {
     }
 }
 
-private struct AnimatedExpandedChromeView: View {
+private struct AnimatedExpandedChromeView<CollapseContent: View>: View {
     @ObservedObject var compositionRoot: AppCompositionRoot
     let bodySize: CGSize
     let animateFromHover: Bool
     let isActive: Bool
-    let collapseTargetAppearance: OverlayPanelCollapsedAppearance
-    let collapsedBodySize: CGSize
+    let collapsedBodyFrame: CGRect
     let collapsedBottomCornerRadius: CGFloat
-    let collapseTargetShadowMetrics: NotchShadowMetrics
-    let collapseSettledWidth: CGFloat
-    let collapseSettledHeight: CGFloat
+    let collapseRestAppearance: OverlayPanelCollapsedAppearance?
+    @ViewBuilder let collapseContent: (OverlayPanelCollapsedAppearance) -> CollapseContent
 
     @State private var expansionProgress: CGFloat = 1
     @State private var isMorePresented = false
-    @State private var currentScaleX: CGFloat = 1
-    @State private var currentScaleY: CGFloat = 1
+    @State private var currentBodyMinX: CGFloat = 0
+    @State private var currentBodyMinY: CGFloat = 0
+    @State private var currentBodyWidth: CGFloat = 0
+    @State private var currentBodyHeight: CGFloat = 0
 
     var body: some View {
-        let startScale = OverlayPanelRootPresentation.expandedAnimationStartScale(
-            for: bodySize,
-            startSize: collapsedBodySize
-        )
-        let settledScaleX = collapsedBodySize.width / bodySize.width
-        let settledScaleY = collapsedBodySize.height / bodySize.height
-
         return GeometryReader { proxy in
             let finalBodyFrame = OverlayPanelChromeMetrics.expandedBodyFrame(
                 for: bodySize,
                 in: proxy.size
             )
+            let bodyFrame = currentBodyFrame(
+                finalBodyFrame: finalBodyFrame
+            )
+            let contentMaskFrame = OverlayPanelRootPresentation.expandedContentMaskFrame(
+                bodyFrame: bodyFrame,
+                expandedBodyFrame: finalBodyFrame
+            )
+            let collapseContentFrame = collapseRestAppearance.map {
+                OverlayPanelRootPresentation.restVariantContentFrame(
+                    for: $0,
+                    bodySize: collapsedBodyFrame.size
+                )
+            } ?? .zero
+            let collapseContentOriginX = bodyFrame.midX - (collapsedBodyFrame.width / 2) + collapseContentFrame.minX
+            let collapseContentOriginY = bodyFrame.minY + collapseContentFrame.minY
 
             ZStack(alignment: .topLeading) {
                 Color.clear
@@ -1058,22 +1245,19 @@ private struct AnimatedExpandedChromeView: View {
                 MorphingExpandedNotchShape(
                     progress: expansionProgress,
                     collapsedBottomCornerRadius: collapsedBottomCornerRadius,
-                    scaleX: currentScaleX,
-                    scaleY: currentScaleY
+                    scaleX: 1,
+                    scaleY: 1
                 )
-                    .fill(Color.black)
-                    .frame(width: finalBodyFrame.width, height: finalBodyFrame.height)
-                    .scaleEffect(x: currentScaleX, y: currentScaleY, anchor: .top)
+                    .fill(OverlayPanelChromeColors.shellFill)
+                    .frame(width: bodyFrame.width, height: bodyFrame.height)
                     .shadow(
                         color: .black.opacity(
                             OverlayPanelRootPresentation.expandedShadowOpacity(progress: expansionProgress)
-                                * OverlayPanelRootPresentation.collapseExpandedShellOpacity(progress: expansionProgress)
                         ),
                         radius: OverlayPanelChromeMetrics.expandedShadowRadius,
                         y: OverlayPanelChromeMetrics.expandedShadowYOffset
                     )
-                    .offset(x: finalBodyFrame.minX, y: finalBodyFrame.minY)
-                    .opacity(OverlayPanelRootPresentation.collapseExpandedShellOpacity(progress: expansionProgress))
+                    .offset(x: bodyFrame.minX, y: bodyFrame.minY)
 
                 PanelShellView(
                     compositionRoot: compositionRoot,
@@ -1081,18 +1265,33 @@ private struct AnimatedExpandedChromeView: View {
                 )
                     .foregroundStyle(.white.opacity(0.9))
                     .frame(width: finalBodyFrame.width, height: finalBodyFrame.height)
-                    .mask(alignment: .top) {
+                    .mask(alignment: .topLeading) {
                         MorphingExpandedNotchShape(
                             progress: expansionProgress,
                             collapsedBottomCornerRadius: collapsedBottomCornerRadius,
-                            scaleX: currentScaleX,
-                            scaleY: currentScaleY
+                            scaleX: 1,
+                            scaleY: 1
                         )
-                            .frame(width: finalBodyFrame.width, height: finalBodyFrame.height)
-                            .scaleEffect(x: currentScaleX, y: currentScaleY, anchor: .top)
+                            .frame(width: bodyFrame.width, height: bodyFrame.height)
+                            .offset(x: contentMaskFrame.minX, y: contentMaskFrame.minY)
                     }
                     .opacity(OverlayPanelRootPresentation.expandedContentOpacity(progress: expansionProgress))
                     .offset(x: finalBodyFrame.minX, y: finalBodyFrame.minY)
+
+                if let collapseRestAppearance {
+                    collapseContent(collapseRestAppearance)
+                        .frame(
+                            width: collapseContentFrame.width,
+                            height: collapseContentFrame.height,
+                            alignment: .topLeading
+                        )
+                        .opacity(
+                            OverlayPanelRootPresentation.expandedCollapseTargetContentOpacity(
+                                expansionProgress: expansionProgress
+                            )
+                        )
+                        .offset(x: collapseContentOriginX, y: collapseContentOriginY)
+                }
 
                 if isMorePresented {
                     PanelMoreModulesPopoverView(
@@ -1101,8 +1300,8 @@ private struct AnimatedExpandedChromeView: View {
                         onSelectModule: selectModule
                     )
                     .offset(
-                        x: finalBodyFrame.minX + 32,
-                        y: finalBodyFrame.minY + 38
+                        x: bodyFrame.minX + 32,
+                        y: bodyFrame.minY + 38
                     )
                     .transition(
                         .asymmetric(
@@ -1115,18 +1314,25 @@ private struct AnimatedExpandedChromeView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .onAppear {
+                let initialFrame = animateFromHover
+                    ? collapsedBodyFrame
+                    : (isActive ? finalBodyFrame : collapsedBodyFrame)
+                expansionProgress = animateFromHover ? 0 : (isActive ? 1 : 0)
+                setCurrentBodyFrame(initialFrame)
+                animateExpandedChrome(isActive: isActive, finalBodyFrame: finalBodyFrame)
+            }
+            .onChange(of: isActive) { newValue in
+                animateExpandedChrome(isActive: newValue, finalBodyFrame: finalBodyFrame)
+            }
+            .onChange(of: collapsedBodyFrame) { _ in
+                if isActive == false {
+                    animateExpandedChrome(isActive: false, finalBodyFrame: finalBodyFrame)
+                }
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .animation(.timingCurve(0.22, 1.0, 0.36, 1.0, duration: 0.16), value: isMorePresented)
-        .onAppear {
-            expansionProgress = animateFromHover ? 0 : 1
-            currentScaleX = animateFromHover ? startScale.width : (isActive ? 1 : settledScaleX)
-            currentScaleY = animateFromHover ? startScale.height : (isActive ? 1 : settledScaleY)
-            animateExpandedChrome(isActive: isActive)
-        }
-        .onChange(of: isActive) { newValue in
-            animateExpandedChrome(isActive: newValue)
-        }
     }
 
     private func selectModule(_ moduleID: NotchModuleID) {
@@ -1134,10 +1340,7 @@ private struct AnimatedExpandedChromeView: View {
         compositionRoot.selectActiveModule(moduleID)
     }
 
-    private func animateExpandedChrome(isActive: Bool) {
-        let settledScaleX = collapsedBodySize.width / bodySize.width
-        let settledScaleY = collapsedBodySize.height / bodySize.height
-
+    private func animateExpandedChrome(isActive: Bool, finalBodyFrame: CGRect) {
         if isActive {
             withAnimation(
                 .interpolatingSpring(
@@ -1146,8 +1349,7 @@ private struct AnimatedExpandedChromeView: View {
                 )
             ) {
                 expansionProgress = 1
-                currentScaleX = 1
-                currentScaleY = 1
+                setCurrentBodyFrame(finalBodyFrame)
             }
         } else {
             withAnimation(
@@ -1157,9 +1359,28 @@ private struct AnimatedExpandedChromeView: View {
                 )
             ) {
                 expansionProgress = 0
-                currentScaleX = settledScaleX
-                currentScaleY = settledScaleY
+                setCurrentBodyFrame(collapsedBodyFrame)
             }
         }
+    }
+
+    private func currentBodyFrame(finalBodyFrame: CGRect) -> CGRect {
+        if currentBodyWidth <= 0 || currentBodyHeight <= 0 {
+            return isActive ? finalBodyFrame : collapsedBodyFrame
+        }
+
+        return CGRect(
+            x: currentBodyMinX,
+            y: currentBodyMinY,
+            width: currentBodyWidth,
+            height: currentBodyHeight
+        )
+    }
+
+    private func setCurrentBodyFrame(_ frame: CGRect) {
+        currentBodyMinX = frame.minX
+        currentBodyMinY = frame.minY
+        currentBodyWidth = frame.width
+        currentBodyHeight = frame.height
     }
 }

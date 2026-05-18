@@ -34,7 +34,7 @@ struct NotchShellRuntimeTests {
         #expect(presenter.presentations[2].state == .idle(screenID: "built-in"))
     }
 
-    @Test func startSeedsWideNotchStripDebugRequestAfterDelay() async throws {
+    @Test func startRunsDebugRestVariantDemoSequenceAfterDelay() async throws {
         let compositionRoot = AppCompositionRoot(activeModule: .music, initialScreenID: "built-in")
         let interactions = OverlayPanelInteractions()
         let presenter = RuntimeSpyOverlayPanelPresenter()
@@ -49,73 +49,31 @@ struct NotchShellRuntimeTests {
             simulateNotchOnNonNotchScreen: true,
             enableDebugRestVariantSeed: true,
             debugRestVariantSeedDelay: .milliseconds(10),
-            debugHeaderlessMiniPanelDelayAfterWide: .seconds(1),
-            debugHeaderlessMiniPanelDuration: .seconds(1)
+            debugRestVariantSequenceStepDelay: .milliseconds(10)
         )
 
         runtime.start()
+
+        #expect(compositionRoot.restVariantStore.resolvedPresentation == .none)
+
         try await Task.sleep(for: .milliseconds(100))
 
-        #expect(
-            compositionRoot.restVariantStore.resolvedPresentation
-                == .request(
-                    RestVariantRequest(
-                        moduleID: .music,
-                        kind: .wideNotchStrip
-                    )
-                )
-        )
-        #expect(
-            presenter.presentations.contains {
-                $0.state == .idle(
-                    screenID: "built-in",
-                    presentation: .request(
-                        RestVariantRequest(
-                            moduleID: .music,
-                            kind: .wideNotchStrip
-                        )
-                    )
-                )
-            }
-        )
-    }
+        #expect(compositionRoot.restVariantStore.resolvedPresentation == .none)
 
-    @Test func startSeedsTransientHeaderlessMiniPanelAfterWideNotchStrip() async throws {
-        let compositionRoot = AppCompositionRoot(activeModule: .music, initialScreenID: "built-in")
-        let interactions = OverlayPanelInteractions()
-        let presenter = RuntimeSpyOverlayPanelPresenter()
-        let runtime = NotchShellRuntime(
-            compositionRoot: compositionRoot,
-            interactions: interactions,
-            topologyProvider: RuntimeStubDisplayTopologyProvider(snapshots: [
-                Self.notchSnapshot(id: "built-in")
-            ]),
-            panelPresenter: presenter,
-            primaryScreenID: "built-in",
-            simulateNotchOnNonNotchScreen: true,
-            enableDebugRestVariantSeed: true,
-            debugRestVariantSeedDelay: .milliseconds(10),
-            debugHeaderlessMiniPanelDelayAfterWide: .milliseconds(10),
-            debugHeaderlessMiniPanelDuration: .milliseconds(20)
-        )
+        let compactPresentations = presenter.presentations
+            .map(\.state.restPresentation)
+            .map(\.debugDemoStep)
+            .removingConsecutiveDuplicates()
 
-        runtime.start()
-        try await Task.sleep(for: .milliseconds(40))
-
-        #expect(compositionRoot.restVariantStore.resolvedPresentation.activeRequest?.moduleID == .pomodoro)
-        #expect(compositionRoot.restVariantStore.resolvedPresentation.activeRequest?.kind == .headerlessMiniPanel)
-
-        try await Task.sleep(for: .milliseconds(40))
-
-        #expect(
-            compositionRoot.restVariantStore.resolvedPresentation
-                == .request(
-                    RestVariantRequest(
-                        moduleID: .music,
-                        kind: .wideNotchStrip
-                    )
-                )
-        )
+        #expect(compactPresentations == [
+            .rest,
+            .wide,
+            .headerless,
+            .wide,
+            .rest,
+            .headerless,
+            .rest
+        ])
     }
 
     private static func notchSnapshot(id: String) -> ScreenSnapshot {
@@ -156,6 +114,47 @@ private extension ResolvedRestPresentation {
             nil
         case .request(let request):
             request
+        }
+    }
+
+    var debugDemoStep: RuntimeDebugDemoStep {
+        switch self {
+        case .none:
+            .rest
+        case .request(let request):
+            switch request.kind {
+            case .wideNotchStrip:
+                .wide
+            case .headerlessMiniPanel:
+                .headerless
+            }
+        }
+    }
+}
+
+private enum RuntimeDebugDemoStep: Equatable {
+    case rest
+    case wide
+    case headerless
+}
+
+private extension OverlayState {
+    var restPresentation: ResolvedRestPresentation {
+        switch self {
+        case .idle(_, let presentation), .hoverHint(_, let presentation):
+            presentation
+        case .expanded, .collapsing, .toast:
+            .none
+        }
+    }
+}
+
+private extension Array where Element: Equatable {
+    func removingConsecutiveDuplicates() -> [Element] {
+        reduce(into: []) { result, element in
+            if result.last != element {
+                result.append(element)
+            }
         }
     }
 }

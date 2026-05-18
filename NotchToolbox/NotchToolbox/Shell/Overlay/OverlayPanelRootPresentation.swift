@@ -30,8 +30,7 @@ nonisolated enum OverlayPanelChromeMetrics {
     static let transitionDuration: Double = 0.2
     static let restVariantSettledContentRevealDuration: Double = 0.08
     static let expandedTransitionDuration: Double = 0.2
-    static let expandedCollapseSettlingDuration: Double = 0
-    static let expandedCollapseTotalDuration: Double = 0.4
+    static let shellFillOpacity: Double = 1
     static let hoverShadowColorOpacity: Double = 0.25
     static let hoverShadowRadius: CGFloat = 16
     static let hoverShadowYOffset: CGFloat = 8
@@ -109,6 +108,8 @@ nonisolated enum OverlayPanelChromeMetrics {
 nonisolated struct OverlayPanelRootPresentation {
     static let hoverShadowStartOpacity: Double = 0
     static let hoverShadowEndOpacity = OverlayPanelChromeMetrics.hoverShadowColorOpacity
+    static let restVariantHitTargetOpacity: Double = 0.001
+    static let wideNotchStripContentHeight: CGFloat = 32
     static let notchReferenceTopInset: CGFloat = 4
     static let notchReferenceTopControlX: CGFloat = 2.6
     static let notchReferenceTopControlY: CGFloat = 2.25
@@ -136,10 +137,58 @@ nonisolated struct OverlayPanelRootPresentation {
         }
     }
 
+    static func shouldUseRootHoverTracking(for state: OverlayState) -> Bool {
+        switch collapsedAppearance(for: state) {
+        case .transparent:
+            return true
+        case .wideNotchStrip, .headerlessMiniPanel:
+            return false
+        }
+    }
+
+    static func restVariantBodyHitFrame(containerSize: CGSize, bodySize: CGSize) -> CGRect {
+        CGRect(
+            x: (containerSize.width - bodySize.width) / 2,
+            y: 0,
+            width: bodySize.width,
+            height: bodySize.height
+        )
+    }
+
+    static func restVariantTransitionBodyHitFrame(
+        containerSize: CGSize,
+        sourceSize: CGSize,
+        targetSize: CGSize
+    ) -> CGRect {
+        let width = max(sourceSize.width, targetSize.width)
+        let height = max(sourceSize.height, targetSize.height)
+        return restVariantBodyHitFrame(
+            containerSize: containerSize,
+            bodySize: CGSize(width: width, height: height)
+        )
+    }
+
+    static func restVariantContentFrame(
+        for appearance: OverlayPanelCollapsedAppearance,
+        bodySize: CGSize
+    ) -> CGRect {
+        switch appearance {
+        case .wideNotchStrip:
+            return CGRect(
+                x: 0,
+                y: 0,
+                width: bodySize.width,
+                height: min(bodySize.height, wideNotchStripContentHeight)
+            )
+        case .headerlessMiniPanel, .transparent:
+            return CGRect(origin: .zero, size: bodySize)
+        }
+    }
+
     static func expandedTransitionAppearance(
         currentState: OverlayState,
         previousState: OverlayState?,
-        latchedExpandedCollapsePresentation: ResolvedRestPresentation?
+        collapseTarget: ExpandedCollapseTarget? = nil
     ) -> OverlayPanelCollapsedAppearance {
         if currentState.isExpandedLike,
            let previousState,
@@ -149,8 +198,8 @@ nonisolated struct OverlayPanelRootPresentation {
 
         if currentState.isRestLike,
            previousState?.isExpandedLike == true,
-           let latchedExpandedCollapsePresentation {
-            return collapsedAppearance(for: latchedExpandedCollapsePresentation)
+           let collapseTarget {
+            return collapseTarget.appearance
         }
 
         return collapsedAppearance(for: currentState)
@@ -165,21 +214,6 @@ nonisolated struct OverlayPanelRootPresentation {
         case .idle, .toast:
             return .idle
         }
-    }
-
-    static func shouldHideCollapsedBodyDuringExpandedCarryover(
-        currentState: OverlayState,
-        previousState: OverlayState?
-    ) -> Bool {
-        currentState.isIdle
-            && previousState?.isExpandedLike == true
-    }
-
-    static func shouldShowCollapsedShellDuringExpandedCarryover(
-        currentState: OverlayState,
-        previousState: OverlayState?
-    ) -> Bool {
-        false
     }
 
     static func shouldAnimateWindowFrameTransition(from previousState: OverlayState, to nextState: OverlayState) -> Bool {
@@ -209,7 +243,7 @@ nonisolated struct OverlayPanelRootPresentation {
         let previousAppearance = collapsedAppearance(for: previousState)
         let nextAppearance = collapsedAppearance(for: nextState)
 
-        guard previousAppearance != .transparent, nextAppearance != .transparent else {
+        guard previousAppearance != .transparent || nextAppearance != .transparent else {
             return false
         }
 
@@ -227,7 +261,7 @@ nonisolated struct OverlayPanelRootPresentation {
         let previousAppearance = collapsedAppearance(for: previousState)
         let nextAppearance = collapsedAppearance(for: nextState)
 
-        guard previousAppearance != .transparent, nextAppearance != .transparent else {
+        guard previousAppearance != .transparent || nextAppearance != .transparent else {
             return false
         }
 
@@ -319,6 +353,13 @@ nonisolated struct OverlayPanelRootPresentation {
         return Double(min(max(settledRevealProgress, 0), 1))
     }
 
+    static func shouldCrossfadeRestVariantContent(
+        sourceAppearance: OverlayPanelCollapsedAppearance,
+        targetAppearance: OverlayPanelCollapsedAppearance
+    ) -> Bool {
+        sourceAppearance != targetAppearance
+    }
+
     static func hoverRevealCornerRadius(visibleHeight: CGFloat) -> CGFloat {
         min(
             OverlayPanelChromeMetrics.hoverRevealBottomCornerRadius,
@@ -401,6 +442,37 @@ nonisolated struct OverlayPanelRootPresentation {
         )
     }
 
+    static func expandedCollapseTargetBodyFrame(
+        targetBodyFrame: CGRect,
+        expandedOuterFrame: CGRect
+    ) -> CGRect {
+        CGRect(
+            x: targetBodyFrame.minX - expandedOuterFrame.minX,
+            y: expandedOuterFrame.maxY - targetBodyFrame.maxY,
+            width: targetBodyFrame.width,
+            height: targetBodyFrame.height
+        )
+    }
+
+    static func shouldSuppressRestChromeDuringExpandedCarryover(
+        currentState: OverlayState,
+        previousState: OverlayState?
+    ) -> Bool {
+        currentState.isRestLike && previousState?.isExpandedLike == true
+    }
+
+    static func expandedContentMaskFrame(
+        bodyFrame: CGRect,
+        expandedBodyFrame: CGRect
+    ) -> CGRect {
+        CGRect(
+            x: bodyFrame.minX - expandedBodyFrame.minX,
+            y: bodyFrame.minY - expandedBodyFrame.minY,
+            width: bodyFrame.width,
+            height: bodyFrame.height
+        )
+    }
+
     static func expandedAnimationStartScale(for bodySize: CGSize, startSize: CGSize) -> CGSize {
         CGSize(
             width: startSize.width / bodySize.width,
@@ -412,16 +484,13 @@ nonisolated struct OverlayPanelRootPresentation {
         Double(max(0, min(1, (progress - 0.7) / 0.3)))
     }
 
+    static func expandedCollapseTargetContentOpacity(expansionProgress: CGFloat) -> Double {
+        let collapseProgress = 1 - min(max(expansionProgress, 0), 1)
+        return Double(max(0, min(1, (collapseProgress - 0.7) / 0.3)))
+    }
+
     static func expandedShadowOpacity(progress: CGFloat) -> Double {
         Double(max(0, min(1, progress))) * OverlayPanelChromeMetrics.expandedShadowColorOpacity
-    }
-
-    static func collapseExpandedShellOpacity(progress: CGFloat) -> Double {
-        1
-    }
-
-    static func collapseTargetNotchOpacity(progress: CGFloat) -> Double {
-        0
     }
 }
 

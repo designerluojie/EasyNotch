@@ -166,11 +166,48 @@ struct DisplayGeometryTests {
         #expect(restFrame.height == 32)
         #expect(hoverFrame.height == 40)
         #expect(outerRestFrame.width > restFrame.width)
-        #expect(outerRestFrame.height > restFrame.height)
+        #expect(outerRestFrame.height == restFrame.height + 32)
         #expect(outerHoverFrame.width > hoverFrame.width)
-        #expect(outerHoverFrame.height > hoverFrame.height)
+        #expect(outerHoverFrame.height == hoverFrame.height + 52)
         #expect(restFrame.maxY == profile.frame.maxY)
         #expect(hoverFrame.maxY == profile.frame.maxY)
+    }
+
+    @Test func wideNotchStripRequestCanOverrideWidth() {
+        let profile = ScreenProfile(
+            id: "built-in",
+            kind: .builtInWithNotch,
+            displayName: "Built-in Display",
+            frame: CGRect(x: 0, y: 0, width: 1512, height: 982),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1512, height: 949),
+            scaleFactor: 2,
+            supportsHardwareNotch: true,
+            shouldUseSimulatedNotch: false,
+            notchMetrics: NotchMetrics(visibleSize: CGSize(width: 185, height: 32), source: .hardware)
+        )
+
+        let geometry = AnchorGeometryCalculator().calculate(for: profile)
+        let request = RestVariantRequest(
+            moduleID: .music,
+            kind: .wideNotchStrip,
+            preferredWidth: 300
+        )
+        let presentation = ResolvedRestPresentation.request(request)
+        let restFrame = geometry.frame(for: .idle(screenID: "built-in", presentation: presentation))
+        let hoverFrame = geometry.frame(for: .hoverHint(screenID: "built-in", presentation: presentation))
+        let restBodyFrame = geometry.visibleBodyFrame(for: request, isHovering: false)
+        let hoverBodyFrame = geometry.visibleBodyFrame(for: request, isHovering: true)
+
+        #expect(restBodyFrame.width == 300)
+        #expect(restBodyFrame.height == 32)
+        #expect(hoverBodyFrame.width == 300)
+        #expect(hoverBodyFrame.height == 40)
+        #expect(restBodyFrame.midX == profile.frame.midX)
+        #expect(hoverBodyFrame.midX == profile.frame.midX)
+        #expect(restFrame.width == 348)
+        #expect(restFrame.height == 64)
+        #expect(hoverFrame.width == 348)
+        #expect(hoverFrame.height == 92)
     }
 
     @Test func headerlessMiniPanelHoverFrameStaysCenteredAndAddsEightPointsOfHeight() {
@@ -203,12 +240,52 @@ struct DisplayGeometryTests {
         #expect(restFrame.midX == hoverFrame.midX)
         #expect(restFrame.height == 128)
         #expect(hoverFrame.height == 136)
-        #expect(outerRestFrame.width > restFrame.width)
-        #expect(outerRestFrame.height > restFrame.height)
-        #expect(outerHoverFrame.width > hoverFrame.width)
-        #expect(outerHoverFrame.height > hoverFrame.height)
+        #expect(outerRestFrame.width == restFrame.width + 100)
+        #expect(outerRestFrame.height == restFrame.height + 50)
+        #expect(outerHoverFrame.width == hoverFrame.width + 100)
+        #expect(outerHoverFrame.height == hoverFrame.height + 70)
         #expect(restFrame.maxY == profile.frame.maxY)
         #expect(hoverFrame.maxY == profile.frame.maxY)
+    }
+
+    @Test func headerlessMiniPanelRequestCanOverrideSize() {
+        let profile = ScreenProfile(
+            id: "built-in",
+            kind: .builtInWithNotch,
+            displayName: "Built-in Display",
+            frame: CGRect(x: 0, y: 0, width: 1512, height: 982),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1512, height: 949),
+            scaleFactor: 2,
+            supportsHardwareNotch: true,
+            shouldUseSimulatedNotch: false,
+            notchMetrics: NotchMetrics(visibleSize: CGSize(width: 185, height: 32), source: .hardware)
+        )
+
+        let geometry = AnchorGeometryCalculator().calculate(for: profile)
+        let request = RestVariantRequest(
+            moduleID: .pomodoro,
+            kind: .headerlessMiniPanel,
+            preferredWidth: 360,
+            preferredHeight: 144
+        )
+        let presentation = ResolvedRestPresentation.request(request)
+        let restFrame = geometry.frame(for: .idle(screenID: "built-in", presentation: presentation))
+        let hoverFrame = geometry.frame(for: .hoverHint(screenID: "built-in", presentation: presentation))
+        let restBodyFrame = geometry.visibleBodyFrame(for: request, isHovering: false)
+        let hoverBodyFrame = geometry.visibleBodyFrame(for: request, isHovering: true)
+
+        #expect(restBodyFrame.width == 360)
+        #expect(restBodyFrame.height == 144)
+        #expect(hoverBodyFrame.width == 360)
+        #expect(hoverBodyFrame.height == 152)
+        #expect(restBodyFrame.midX == profile.frame.midX)
+        #expect(hoverBodyFrame.midX == profile.frame.midX)
+        #expect(restBodyFrame.maxY == profile.frame.maxY)
+        #expect(hoverBodyFrame.maxY == profile.frame.maxY)
+        #expect(restFrame.width == 460)
+        #expect(restFrame.height == 194)
+        #expect(hoverFrame.width == 460)
+        #expect(hoverFrame.height == 222)
     }
 
     @Test func simulatedNotchBorrowsRealHardwareMetricsWhenProvided() {

@@ -51,60 +51,112 @@ struct OverlayPanelRootPresentationTests {
         #expect(OverlayPanelRootPresentation.visualState(for: .hoverHint(screenID: "built-in")) == .hoverHint)
     }
 
-    @Test func collapseFromExpandedKeepsCollapsedBodyHiddenUntilCarryoverEnds() {
-        #expect(
-            OverlayPanelRootPresentation.shouldHideCollapsedBodyDuringExpandedCarryover(
-                currentState: .idle(
-                    screenID: "built-in",
-                    presentation: .request(RestVariantRequest(moduleID: .music, kind: .wideNotchStrip))
-                ),
-                previousState: .expanded(screenID: "built-in", moduleID: .music)
-            )
+    @Test func restChromeIsHiddenWhileExpandedShellCarriesCollapseAnimation() {
+        let wideIdle = OverlayState.idle(
+            screenID: "built-in",
+            presentation: .request(RestVariantRequest(moduleID: .music, kind: .wideNotchStrip))
         )
+        let wideHover = OverlayState.hoverHint(
+            screenID: "built-in",
+            presentation: .request(RestVariantRequest(moduleID: .music, kind: .wideNotchStrip))
+        )
+        let expanded = OverlayState.expanded(screenID: "built-in", moduleID: .music)
 
         #expect(
-            OverlayPanelRootPresentation.shouldHideCollapsedBodyDuringExpandedCarryover(
-                currentState: .idle(
-                    screenID: "built-in",
-                    presentation: .request(RestVariantRequest(moduleID: .music, kind: .wideNotchStrip))
-                ),
-                previousState: .hoverHint(
-                    screenID: "built-in",
-                    presentation: .request(RestVariantRequest(moduleID: .music, kind: .wideNotchStrip))
-                )
+            OverlayPanelRootPresentation.shouldSuppressRestChromeDuringExpandedCarryover(
+                currentState: wideIdle,
+                previousState: expanded
+            )
+        )
+        #expect(
+            OverlayPanelRootPresentation.shouldSuppressRestChromeDuringExpandedCarryover(
+                currentState: wideHover,
+                previousState: expanded
+            )
+        )
+        #expect(
+            OverlayPanelRootPresentation.shouldSuppressRestChromeDuringExpandedCarryover(
+                currentState: wideIdle,
+                previousState: wideHover
             ) == false
         )
     }
 
-    @Test func expandedCarryoverKeepsCollapsedIdleLayerHidden() {
+    @Test func visibleRestVariantBodyHitFrameIsCenteredInsideOuterFrame() {
         #expect(
-            OverlayPanelRootPresentation.shouldShowCollapsedShellDuringExpandedCarryover(
-                currentState: .idle(
-                    screenID: "built-in",
-                    presentation: .request(RestVariantRequest(moduleID: .music, kind: .wideNotchStrip))
-                ),
-                previousState: .expanded(screenID: "built-in", moduleID: .music)
-            ) == false
+            OverlayPanelRootPresentation.restVariantBodyHitFrame(
+                containerSize: CGSize(width: 296, height: 64),
+                bodySize: CGSize(width: 248, height: 32)
+            ) == CGRect(x: 24, y: 0, width: 248, height: 32)
         )
-
         #expect(
-            OverlayPanelRootPresentation.shouldShowCollapsedShellDuringExpandedCarryover(
-                currentState: .idle(screenID: "built-in"),
-                previousState: .expanded(screenID: "built-in", moduleID: .music)
-            ) == false
+            OverlayPanelRootPresentation.restVariantBodyHitFrame(
+                containerSize: CGSize(width: 368, height: 160),
+                bodySize: CGSize(width: 320, height: 128)
+            ) == CGRect(x: 24, y: 0, width: 320, height: 128)
         )
     }
 
-    @Test func expandedCarryoverUsesLatchedWideTargetAppearanceDuringCollapse() {
-        let appearance = OverlayPanelRootPresentation.expandedTransitionAppearance(
-            currentState: .idle(screenID: "built-in"),
-            previousState: .expanded(screenID: "built-in", moduleID: .music),
-            latchedExpandedCollapsePresentation: .request(
-                RestVariantRequest(moduleID: .music, kind: .wideNotchStrip)
-            )
+    @Test func visibleRestVariantTransitionHitFrameStaysInsideLargestBody() {
+        #expect(
+            OverlayPanelRootPresentation.restVariantTransitionBodyHitFrame(
+                containerSize: CGSize(width: 296, height: 72),
+                sourceSize: CGSize(width: 248, height: 32),
+                targetSize: CGSize(width: 248, height: 40)
+            ) == CGRect(x: 24, y: 0, width: 248, height: 40)
         )
 
-        #expect(appearance == .wideNotchStrip)
+        #expect(
+            OverlayPanelRootPresentation.restVariantTransitionBodyHitFrame(
+                containerSize: CGSize(width: 368, height: 160),
+                sourceSize: CGSize(width: 248, height: 32),
+                targetSize: CGSize(width: 320, height: 128)
+            ) == CGRect(x: 24, y: 0, width: 320, height: 128)
+        )
+    }
+
+    @Test func rootHoverTrackingSkipsVisibleRestVariantChrome() {
+        let wideIdle = OverlayState.idle(
+            screenID: "built-in",
+            presentation: .request(RestVariantRequest(moduleID: .music, kind: .wideNotchStrip))
+        )
+        let headerlessHover = OverlayState.hoverHint(
+            screenID: "built-in",
+            presentation: .request(RestVariantRequest(moduleID: .pomodoro, kind: .headerlessMiniPanel))
+        )
+
+        #expect(OverlayPanelRootPresentation.shouldUseRootHoverTracking(for: wideIdle) == false)
+        #expect(OverlayPanelRootPresentation.shouldUseRootHoverTracking(for: headerlessHover) == false)
+        #expect(OverlayPanelRootPresentation.shouldUseRootHoverTracking(for: .idle(screenID: "built-in")) == true)
+        #expect(OverlayPanelRootPresentation.shouldUseRootHoverTracking(for: .expanded(screenID: "built-in", moduleID: .music)) == true)
+    }
+
+    @Test func visibleRestVariantHitTargetUsesNonZeroOpacityForMacHitTesting() {
+        #expect(OverlayPanelRootPresentation.restVariantHitTargetOpacity > 0)
+        #expect(OverlayPanelRootPresentation.restVariantHitTargetOpacity <= 0.01)
+    }
+
+    @Test func wideNotchStripHoverKeepsContentPinnedToRestHeight() {
+        let idleContentFrame = OverlayPanelRootPresentation.restVariantContentFrame(
+            for: .wideNotchStrip,
+            bodySize: CGSize(width: 248, height: 32)
+        )
+        let hoverContentFrame = OverlayPanelRootPresentation.restVariantContentFrame(
+            for: .wideNotchStrip,
+            bodySize: CGSize(width: 248, height: 40)
+        )
+
+        #expect(idleContentFrame == CGRect(x: 0, y: 0, width: 248, height: 32))
+        #expect(hoverContentFrame == CGRect(x: 0, y: 0, width: 248, height: 32))
+    }
+
+    @Test func headerlessMiniPanelContentStillTracksFullBodyHeight() {
+        #expect(
+            OverlayPanelRootPresentation.restVariantContentFrame(
+                for: .headerlessMiniPanel,
+                bodySize: CGSize(width: 320, height: 136)
+            ) == CGRect(x: 0, y: 0, width: 320, height: 136)
+        )
     }
 
     @Test func chromeMetricsMatchFigmaHoverAndExpandedShell() {
@@ -112,12 +164,11 @@ struct OverlayPanelRootPresentationTests {
         #expect(OverlayPanelChromeMetrics.hoverShadowYOffset == 8)
         #expect(OverlayPanelChromeMetrics.transitionDuration == 0.2)
         #expect(OverlayPanelChromeMetrics.expandedTransitionDuration == 0.2)
-        #expect(OverlayPanelChromeMetrics.expandedCollapseSettlingDuration == 0)
-        #expect(OverlayPanelChromeMetrics.expandedCollapseTotalDuration == 0.4)
         #expect(OverlayPanelChromeMetrics.hoverBodySize == CGSize(width: 193, height: 40))
         #expect(OverlayPanelChromeMetrics.hoverOuterSize == CGSize(width: 300, height: 120))
         #expect(OverlayPanelChromeMetrics.hoverHorizontalInset == 53.5)
         #expect(OverlayPanelChromeMetrics.hoverVerticalInset == 40)
+        #expect(OverlayPanelChromeMetrics.shellFillOpacity == 1)
         #expect(OverlayPanelChromeMetrics.expandedShadowColorOpacity == 0.3)
         #expect(OverlayPanelChromeMetrics.expandedShadowRadius == 20)
         #expect(OverlayPanelChromeMetrics.expandedOuterSize(for: CGSize(width: 580, height: 280)) == CGSize(width: 780, height: 380))
@@ -135,22 +186,6 @@ struct OverlayPanelRootPresentationTests {
         #expect(startScale.height == OverlayPanelChromeMetrics.hoverBodySize.height / bodySize.height)
     }
 
-    @Test func expandedCollapseBodyFrameStaysCenteredInLockedWideContainer() {
-        let bodySize = CGSize(width: 580, height: 280)
-        let collapsedSize = CGSize(width: 248, height: 32)
-        let bodyFrame = OverlayPanelChromeMetrics.expandedBodyFrame(
-            for: bodySize,
-            in: collapsedSize
-        )
-        let collapsedScaleX = collapsedSize.width / bodySize.width
-        let visualMinX = bodyFrame.midX - (bodyFrame.width * collapsedScaleX / 2)
-        let visualMaxX = bodyFrame.midX + (bodyFrame.width * collapsedScaleX / 2)
-
-        #expect(visualMinX == 0)
-        #expect(visualMaxX == collapsedSize.width)
-        #expect(bodyFrame.midX == collapsedSize.width / 2)
-    }
-
     @Test func headerlessMiniPanelExpandedAnimationStartsFromCurrentHoverSize() {
         let bodySize = CGSize(width: 580, height: 280)
         let headerlessHoverSize = CGSize(width: 320, height: 136)
@@ -163,12 +198,52 @@ struct OverlayPanelRootPresentationTests {
         #expect(startScale.height == headerlessHoverSize.height / bodySize.height)
     }
 
+    @Test func expandedCollapseTargetBodyFrameConvertsScreenFrameIntoExpandedOuterCoordinates() {
+        let screenFrame = CGRect(x: 0, y: 0, width: 1512, height: 982)
+        let expandedOuterFrame = OverlayPanelChromeMetrics.expandedOuterFrame(
+            for: CGSize(width: 580, height: 280),
+            on: screenFrame
+        )
+
+        let wideLocalFrame = OverlayPanelRootPresentation.expandedCollapseTargetBodyFrame(
+            targetBodyFrame: CGRect(x: 632, y: 950, width: 248, height: 32),
+            expandedOuterFrame: expandedOuterFrame
+        )
+        let headerlessLocalFrame = OverlayPanelRootPresentation.expandedCollapseTargetBodyFrame(
+            targetBodyFrame: CGRect(x: 596, y: 854, width: 320, height: 128),
+            expandedOuterFrame: expandedOuterFrame
+        )
+
+        #expect(wideLocalFrame == CGRect(x: 266, y: 0, width: 248, height: 32))
+        #expect(headerlessLocalFrame == CGRect(x: 230, y: 0, width: 320, height: 128))
+    }
+
+    @Test func expandedContentMaskFrameIsRelativeToExpandedBodyFrame() {
+        let expandedBodyFrame = CGRect(x: 100, y: 0, width: 580, height: 280)
+        let collapseBodyFrame = CGRect(x: 266, y: 0, width: 248, height: 32)
+
+        let maskFrame = OverlayPanelRootPresentation.expandedContentMaskFrame(
+            bodyFrame: collapseBodyFrame,
+            expandedBodyFrame: expandedBodyFrame
+        )
+
+        #expect(maskFrame == CGRect(x: 166, y: 0, width: 248, height: 32))
+    }
+
     @Test func expandedContentIncludingHeaderFadesInAfterSeventyPercentProgress() {
         #expect(OverlayPanelRootPresentation.expandedContentOpacity(progress: 0) == 0)
         #expect(OverlayPanelRootPresentation.expandedContentOpacity(progress: 0.35) == 0)
         #expect(OverlayPanelRootPresentation.expandedContentOpacity(progress: 0.7) == 0)
         #expect(abs(OverlayPanelRootPresentation.expandedContentOpacity(progress: 0.85) - 0.5) < 0.0001)
         #expect(OverlayPanelRootPresentation.expandedContentOpacity(progress: 1) == 1)
+    }
+
+    @Test func expandedCollapseTargetContentFadesInDuringFinalThirtyPercentOfCollapse() {
+        #expect(OverlayPanelRootPresentation.expandedCollapseTargetContentOpacity(expansionProgress: 1) == 0)
+        #expect(OverlayPanelRootPresentation.expandedCollapseTargetContentOpacity(expansionProgress: 0.31) == 0)
+        #expect(OverlayPanelRootPresentation.expandedCollapseTargetContentOpacity(expansionProgress: 0.3) == 0)
+        #expect(abs(OverlayPanelRootPresentation.expandedCollapseTargetContentOpacity(expansionProgress: 0.15) - 0.5) < 0.0001)
+        #expect(OverlayPanelRootPresentation.expandedCollapseTargetContentOpacity(expansionProgress: 0) == 1)
     }
 
     @Test func expandedShadowFadesInWithPanelExpansionProgress() {
@@ -270,16 +345,6 @@ struct OverlayPanelRootPresentationTests {
         )
     }
 
-    @Test func expandedCollapseUsesSingleMorphingShellWithoutSeparateTargetShell() {
-        #expect(OverlayPanelRootPresentation.collapseExpandedShellOpacity(progress: 1) == 1)
-        #expect(OverlayPanelRootPresentation.collapseExpandedShellOpacity(progress: 0.5) == 1)
-        #expect(OverlayPanelRootPresentation.collapseExpandedShellOpacity(progress: 0) == 1)
-        #expect(OverlayPanelRootPresentation.collapseTargetNotchOpacity(progress: 1) == 0)
-        #expect(OverlayPanelRootPresentation.collapseTargetNotchOpacity(progress: 0.5) == 0)
-        #expect(OverlayPanelRootPresentation.collapseTargetNotchOpacity(progress: 0.15) == 0)
-        #expect(OverlayPanelRootPresentation.collapseTargetNotchOpacity(progress: 0) == 0)
-    }
-
     @Test func restVariantShrinkHidesSourceContentBeforeShellSettles() {
         #expect(
             OverlayPanelRootPresentation.restVariantSourceContentOpacity(
@@ -335,6 +400,27 @@ struct OverlayPanelRootPresentationTests {
         )
     }
 
+    @Test func sameRestVariantHoverTransitionKeepsOnePersistentContentLayer() {
+        #expect(
+            OverlayPanelRootPresentation.shouldCrossfadeRestVariantContent(
+                sourceAppearance: .wideNotchStrip,
+                targetAppearance: .wideNotchStrip
+            ) == false
+        )
+        #expect(
+            OverlayPanelRootPresentation.shouldCrossfadeRestVariantContent(
+                sourceAppearance: .headerlessMiniPanel,
+                targetAppearance: .headerlessMiniPanel
+            ) == false
+        )
+        #expect(
+            OverlayPanelRootPresentation.shouldCrossfadeRestVariantContent(
+                sourceAppearance: .wideNotchStrip,
+                targetAppearance: .headerlessMiniPanel
+            )
+        )
+    }
+
     @Test func expandingFromHoverSkipsWindowFrameAnimation() {
         #expect(
             OverlayPanelRootPresentation.shouldAnimateWindowFrameTransition(
@@ -358,6 +444,54 @@ struct OverlayPanelRootPresentationTests {
         let toState = OverlayState.idle(
             screenID: "built-in",
             presentation: .request(RestVariantRequest(moduleID: .pomodoro, kind: .headerlessMiniPanel))
+        )
+
+        #expect(
+            OverlayPanelRootPresentation.shouldAnimateWindowFrameTransition(
+                from: fromState,
+                to: toState
+            ) == false
+        )
+        #expect(
+            OverlayPanelRootPresentation.shouldMorphVisibleRestVariants(
+                from: fromState,
+                to: toState
+            )
+        )
+    }
+
+    @Test func visibleRestVariantToTransparentRestUsesInternalMorphInsteadOfWindowFrameAnimation() {
+        let fromState = OverlayState.idle(
+            screenID: "built-in",
+            presentation: .request(RestVariantRequest(moduleID: .music, kind: .wideNotchStrip))
+        )
+        let toState = OverlayState.idle(screenID: "built-in")
+
+        #expect(
+            OverlayPanelRootPresentation.shouldAnimateWindowFrameTransition(
+                from: fromState,
+                to: toState
+            ) == false
+        )
+        #expect(
+            OverlayPanelRootPresentation.shouldMorphVisibleRestVariants(
+                from: fromState,
+                to: toState
+            )
+        )
+        #expect(
+            OverlayPanelRootPresentation.shouldAnimateRestVariantChromeTransition(
+                from: fromState,
+                to: toState
+            )
+        )
+    }
+
+    @Test func transparentRestToVisibleRestVariantUsesInternalMorphInsteadOfWindowFrameAnimation() {
+        let fromState = OverlayState.idle(screenID: "built-in")
+        let toState = OverlayState.idle(
+            screenID: "built-in",
+            presentation: .request(RestVariantRequest(moduleID: .music, kind: .wideNotchStrip))
         )
 
         #expect(

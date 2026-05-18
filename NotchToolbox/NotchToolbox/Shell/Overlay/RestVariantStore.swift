@@ -30,7 +30,9 @@ final class RestVariantStore {
     func setPersistentRequest(_ request: RestVariantRequest) {
         persistentRequests[request.moduleID] = RestVariantRequest(
             moduleID: request.moduleID,
-            kind: request.kind
+            kind: request.kind,
+            preferredWidth: request.preferredWidth,
+            preferredHeight: request.preferredHeight
         )
         publishResolvedPresentationIfNeeded()
     }

@@ -8,6 +8,10 @@ enum TopAnchorKind: String, Codable {
 }
 
 struct TopAnchorGeometry: Equatable {
+    private static let headerlessMiniPanelOuterHorizontalInset: CGFloat = 50
+    private static let headerlessMiniPanelOuterBottomInset: CGFloat = 50
+    private static let headerlessMiniPanelHoverOuterBottomInset: CGFloat = 70
+
     let screenID: String
     let screenFrame: CGRect
     let anchorKind: TopAnchorKind
@@ -85,9 +89,9 @@ struct TopAnchorGeometry: Equatable {
             case .request(let request):
                 switch request.kind {
                 case .wideNotchStrip:
-                    wideNotchStripFrame
+                    wideNotchStripFrame(for: request, isHovering: false)
                 case .headerlessMiniPanel:
-                    headerlessMiniPanelFrame
+                    headerlessMiniPanelFrame(for: request, isHovering: false)
                 }
             }
         case .hoverHint(_, let presentation):
@@ -97,9 +101,9 @@ struct TopAnchorGeometry: Equatable {
             case .request(let request):
                 switch request.kind {
                 case .wideNotchStrip:
-                    wideNotchStripHoverFrame
+                    wideNotchStripFrame(for: request, isHovering: true)
                 case .headerlessMiniPanel:
-                    headerlessMiniPanelHoverFrame
+                    headerlessMiniPanelFrame(for: request, isHovering: true)
                 }
             }
         case .expanded, .collapsing:
@@ -107,6 +111,125 @@ struct TopAnchorGeometry: Equatable {
         case .toast:
             toastFrame
         }
+    }
+
+    func visibleBodyFrame(for request: RestVariantRequest, isHovering: Bool) -> CGRect {
+        switch request.kind {
+        case .wideNotchStrip:
+            guard request.preferredWidth != nil else {
+                return isHovering ? wideNotchStripHoverVisibleFrame : wideNotchStripVisibleFrame
+            }
+
+            let size = wideNotchStripVisibleSize(for: request, isHovering: isHovering)
+            return centeredFrame(
+                size: size,
+                topY: screenFrame.maxY - size.height
+            )
+        case .headerlessMiniPanel:
+            guard request.hasPreferredSize else {
+                return isHovering ? headerlessMiniPanelHoverVisibleFrame : headerlessMiniPanelVisibleFrame
+            }
+
+            let size = headerlessMiniPanelVisibleSize(for: request, isHovering: isHovering)
+            return centeredFrame(
+                size: size,
+                topY: screenFrame.maxY - size.height
+            )
+        }
+    }
+
+    func visibleBodySize(for request: RestVariantRequest, isHovering: Bool) -> CGSize {
+        visibleBodyFrame(for: request, isHovering: isHovering).size
+    }
+
+    private func wideNotchStripFrame(for request: RestVariantRequest, isHovering: Bool) -> CGRect {
+        guard request.preferredWidth != nil else {
+            return isHovering ? wideNotchStripHoverFrame : wideNotchStripFrame
+        }
+
+        let visibleSize = wideNotchStripVisibleSize(for: request, isHovering: isHovering)
+        let defaultOuterFrame = isHovering ? wideNotchStripHoverFrame : wideNotchStripFrame
+        let defaultVisibleFrame = isHovering ? wideNotchStripHoverVisibleFrame : wideNotchStripVisibleFrame
+        let horizontalInset = max((defaultOuterFrame.width - defaultVisibleFrame.width) / 2, 0)
+        let bottomInset = max(defaultOuterFrame.height - defaultVisibleFrame.height, 0)
+        let outerSize = CGSize(
+            width: visibleSize.width + (horizontalInset * 2),
+            height: visibleSize.height + bottomInset
+        )
+
+        return CGRect(
+            x: screenFrame.midX - outerSize.width / 2,
+            y: screenFrame.maxY - visibleSize.height - bottomInset,
+            width: outerSize.width,
+            height: outerSize.height
+        )
+    }
+
+    private func headerlessMiniPanelFrame(for request: RestVariantRequest, isHovering: Bool) -> CGRect {
+        guard request.hasPreferredSize else {
+            return isHovering ? headerlessMiniPanelHoverFrame : headerlessMiniPanelFrame
+        }
+
+        let visibleSize = headerlessMiniPanelVisibleSize(for: request, isHovering: isHovering)
+        let bottomInset = isHovering
+            ? Self.headerlessMiniPanelHoverOuterBottomInset
+            : Self.headerlessMiniPanelOuterBottomInset
+        let outerSize = Self.headerlessMiniPanelOuterSize(
+            for: visibleSize,
+            bottomInset: bottomInset
+        )
+
+        return CGRect(
+            x: screenFrame.midX - outerSize.width / 2,
+            y: screenFrame.maxY - visibleSize.height - bottomInset,
+            width: outerSize.width,
+            height: outerSize.height
+        )
+    }
+
+    private func wideNotchStripVisibleSize(for request: RestVariantRequest, isHovering: Bool) -> CGSize {
+        let defaultSize = isHovering
+            ? wideNotchStripHoverVisibleFrame.size
+            : wideNotchStripVisibleFrame.size
+        let width = request.preferredWidth.map {
+            min(max($0, notchMetrics.visibleSize.width), screenFrame.width)
+        } ?? defaultSize.width
+
+        return CGSize(width: width, height: defaultSize.height)
+    }
+
+    private func headerlessMiniPanelVisibleSize(for request: RestVariantRequest, isHovering: Bool) -> CGSize {
+        let defaultSize = isHovering
+            ? headerlessMiniPanelHoverVisibleFrame.size
+            : headerlessMiniPanelVisibleFrame.size
+        let width = request.preferredWidth.map {
+            min(max($0, notchMetrics.visibleSize.width), screenFrame.width)
+        } ?? defaultSize.width
+        let baseHeight = request.preferredHeight.map {
+            min(max($0, notchMetrics.visibleSize.height), screenFrame.height)
+        } ?? headerlessMiniPanelVisibleFrame.height
+        let height = isHovering ? baseHeight + 8 : baseHeight
+
+        return CGSize(width: width, height: min(height, screenFrame.height))
+    }
+
+    private func centeredFrame(size: CGSize, topY: CGFloat) -> CGRect {
+        CGRect(
+            x: screenFrame.midX - size.width / 2,
+            y: topY,
+            width: size.width,
+            height: size.height
+        )
+    }
+
+    private static func headerlessMiniPanelOuterSize(
+        for bodySize: CGSize,
+        bottomInset: CGFloat = headerlessMiniPanelOuterBottomInset
+    ) -> CGSize {
+        CGSize(
+            width: bodySize.width + (headerlessMiniPanelOuterHorizontalInset * 2),
+            height: bodySize.height + bottomInset
+        )
     }
 }
 
@@ -122,6 +245,10 @@ struct AnchorGeometryCalculator {
     private let headerlessMiniPanelHoverSize = CGSize(width: 320, height: 136)
     private let restVariantOuterHorizontalInset: CGFloat = 24
     private let restVariantOuterBottomInset: CGFloat = 32
+    private let restVariantHoverOuterBottomInset: CGFloat = 52
+    private let headerlessMiniPanelOuterHorizontalInset: CGFloat = 50
+    private let headerlessMiniPanelOuterBottomInset: CGFloat = 50
+    private let headerlessMiniPanelHoverOuterBottomInset: CGFloat = 70
 
     func calculate(for profile: ScreenProfile) -> TopAnchorGeometry {
         let anchorKind = anchorKind(for: profile)
@@ -151,7 +278,7 @@ struct AnchorGeometryCalculator {
                 in: profile.frame
             ),
             wideNotchStripFrame: topAttachedOuterFrame(
-                outerSize: outerSize(for: wideNotchStripSize),
+                outerSize: outerSize(for: wideNotchStripSize, isHovering: false),
                 visibleHeight: wideNotchStripSize.height,
                 bottomInset: restVariantOuterBottomInset,
                 screenFrame: profile.frame
@@ -162,9 +289,9 @@ struct AnchorGeometryCalculator {
                 in: profile.frame
             ),
             wideNotchStripHoverFrame: topAttachedOuterFrame(
-                outerSize: outerSize(for: wideNotchStripHoverSize),
+                outerSize: outerSize(for: wideNotchStripHoverSize, isHovering: true),
                 visibleHeight: wideNotchStripHoverSize.height,
-                bottomInset: restVariantOuterBottomInset,
+                bottomInset: restVariantHoverOuterBottomInset,
                 screenFrame: profile.frame
             ),
             wideNotchStripHoverVisibleFrame: centeredFrame(
@@ -173,9 +300,9 @@ struct AnchorGeometryCalculator {
                 in: profile.frame
             ),
             headerlessMiniPanelFrame: topAttachedOuterFrame(
-                outerSize: outerSize(for: headerlessMiniPanelSize),
+                outerSize: headerlessMiniPanelOuterSize(for: headerlessMiniPanelSize),
                 visibleHeight: headerlessMiniPanelSize.height,
-                bottomInset: restVariantOuterBottomInset,
+                bottomInset: headerlessMiniPanelOuterBottomInset,
                 screenFrame: profile.frame
             ),
             headerlessMiniPanelVisibleFrame: centeredFrame(
@@ -184,9 +311,12 @@ struct AnchorGeometryCalculator {
                 in: profile.frame
             ),
             headerlessMiniPanelHoverFrame: topAttachedOuterFrame(
-                outerSize: outerSize(for: headerlessMiniPanelHoverSize),
+                outerSize: headerlessMiniPanelOuterSize(
+                    for: headerlessMiniPanelHoverSize,
+                    bottomInset: headerlessMiniPanelHoverOuterBottomInset
+                ),
                 visibleHeight: headerlessMiniPanelHoverSize.height,
-                bottomInset: restVariantOuterBottomInset,
+                bottomInset: headerlessMiniPanelHoverOuterBottomInset,
                 screenFrame: profile.frame
             ),
             headerlessMiniPanelHoverVisibleFrame: centeredFrame(
@@ -284,10 +414,31 @@ struct AnchorGeometryCalculator {
         )
     }
 
-    private func outerSize(for bodySize: CGSize) -> CGSize {
-        CGSize(
+    private func outerSize(for bodySize: CGSize, isHovering: Bool) -> CGSize {
+        let bottomInset = isHovering
+            ? restVariantHoverOuterBottomInset
+            : restVariantOuterBottomInset
+
+        return CGSize(
             width: bodySize.width + (restVariantOuterHorizontalInset * 2),
-            height: bodySize.height + restVariantOuterBottomInset
+            height: bodySize.height + bottomInset
         )
+    }
+
+    private func headerlessMiniPanelOuterSize(
+        for bodySize: CGSize,
+        bottomInset: CGFloat? = nil
+    ) -> CGSize {
+        CGSize(
+            width: bodySize.width + (headerlessMiniPanelOuterHorizontalInset * 2),
+            height: bodySize.height + (bottomInset ?? headerlessMiniPanelOuterBottomInset)
+        )
+    }
+
+}
+
+private extension RestVariantRequest {
+    var hasPreferredSize: Bool {
+        preferredWidth != nil || preferredHeight != nil
     }
 }
