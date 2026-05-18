@@ -26,6 +26,7 @@ struct NotchToolboxTests {
 
         #expect(descriptors.map(\.id) == NotchModuleID.allCases)
         #expect(try #require(descriptors.first { $0.id == .music }).containerKind == .standardNotchPage)
+        #expect(try #require(descriptors.first { $0.id == .music }).defaultRestVariant == .wideNotchStrip)
         #expect(try #require(descriptors.first { $0.id == .pomodoro }).containerKind == .lightweightPomodoro)
         #expect(try #require(descriptors.first { $0.id == .settings }).containerKind == .settingsWindow)
         #expect(try #require(descriptors.first { $0.id == .settings }).canShowInStandardTab == false)

@@ -11,6 +11,7 @@ struct NotchModuleDescriptor: Identifiable, Equatable {
     let title: String
     let defaultOrder: Int
     let containerKind: ModuleContainerKind
+    let defaultRestVariant: RestVariantKind?
     let canShowInStandardTab: Bool
     let supportsCollapsedSummary: Bool
 }
@@ -22,6 +23,7 @@ extension NotchModuleDescriptor {
             title: "Music",
             defaultOrder: 0,
             containerKind: .standardNotchPage,
+            defaultRestVariant: .wideNotchStrip,
             canShowInStandardTab: true,
             supportsCollapsedSummary: true
         ),
@@ -30,6 +32,7 @@ extension NotchModuleDescriptor {
             title: "Files",
             defaultOrder: 1,
             containerKind: .standardNotchPage,
+            defaultRestVariant: nil,
             canShowInStandardTab: true,
             supportsCollapsedSummary: false
         ),
@@ -38,6 +41,7 @@ extension NotchModuleDescriptor {
             title: "AI Chat",
             defaultOrder: 2,
             containerKind: .standardNotchPage,
+            defaultRestVariant: nil,
             canShowInStandardTab: true,
             supportsCollapsedSummary: false
         ),
@@ -46,6 +50,7 @@ extension NotchModuleDescriptor {
             title: "Clipboard",
             defaultOrder: 3,
             containerKind: .standardNotchPage,
+            defaultRestVariant: nil,
             canShowInStandardTab: true,
             supportsCollapsedSummary: false
         ),
@@ -54,6 +59,7 @@ extension NotchModuleDescriptor {
             title: "Pomodoro",
             defaultOrder: 4,
             containerKind: .lightweightPomodoro,
+            defaultRestVariant: nil,
             canShowInStandardTab: false,
             supportsCollapsedSummary: true
         ),
@@ -62,9 +68,9 @@ extension NotchModuleDescriptor {
             title: "Settings",
             defaultOrder: 5,
             containerKind: .settingsWindow,
+            defaultRestVariant: nil,
             canShowInStandardTab: false,
             supportsCollapsedSummary: false
         )
     ]
 }
-

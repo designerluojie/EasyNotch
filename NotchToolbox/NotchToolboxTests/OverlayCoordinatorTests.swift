@@ -1,9 +1,130 @@
 import CoreGraphics
+import Foundation
 import Testing
 @testable import NotchToolbox
 
 @MainActor
 struct OverlayCoordinatorTests {
+
+    @Test func startPublishesResolvedRestPresentationIntoIdleState() throws {
+        let compositionRoot = AppCompositionRoot(initialScreenID: "built-in")
+        compositionRoot.restVariantStore.setPersistentRequest(
+            RestVariantRequest(moduleID: .music, kind: .wideNotchStrip)
+        )
+        let presenter = SpyOverlayPanelPresenter()
+        let coordinator = OverlayCoordinator(
+            compositionRoot: compositionRoot,
+            topologyProvider: StubDisplayTopologyProvider(snapshots: [
+                Self.notchSnapshot(id: "built-in")
+            ]),
+            panelPresenter: presenter,
+            primaryScreenID: "built-in",
+            simulateNotchOnNonNotchScreen: true
+        )
+
+        coordinator.start()
+
+        #expect(
+            compositionRoot.overlayState
+                == .idle(
+                    screenID: "built-in",
+                    presentation: .request(
+                        RestVariantRequest(
+                            moduleID: .music,
+                            kind: .wideNotchStrip
+                        )
+                    )
+                )
+        )
+    }
+
+    @Test func storeChangesRefreshIdlePresentationWithoutManualScreenRefresh() throws {
+        let compositionRoot = AppCompositionRoot(initialScreenID: "built-in")
+        let presenter = SpyOverlayPanelPresenter()
+        let coordinator = OverlayCoordinator(
+            compositionRoot: compositionRoot,
+            topologyProvider: StubDisplayTopologyProvider(snapshots: [
+                Self.notchSnapshot(id: "built-in")
+            ]),
+            panelPresenter: presenter,
+            primaryScreenID: "built-in",
+            simulateNotchOnNonNotchScreen: true
+        )
+
+        coordinator.start()
+
+        compositionRoot.restVariantStore.setPersistentRequest(
+            RestVariantRequest(moduleID: .pomodoro, kind: .headerlessMiniPanel)
+        )
+
+        #expect(
+            compositionRoot.overlayState
+                == .idle(
+                    screenID: "built-in",
+                    presentation: .request(
+                        RestVariantRequest(
+                            moduleID: .pomodoro,
+                            kind: .headerlessMiniPanel
+                        )
+                    )
+                )
+        )
+        #expect(
+            try #require(presenter.presentations.last).state
+                == .idle(
+                    screenID: "built-in",
+                    presentation: .request(
+                        RestVariantRequest(
+                            moduleID: .pomodoro,
+                            kind: .headerlessMiniPanel
+                        )
+                    )
+                )
+        )
+    }
+
+    @Test func transientExpiryRefreshesIdleDirectlyBackToPersistentWideNotchStrip() async throws {
+        let store = RestVariantStore(transientBridgeDelay: .zero)
+        let compositionRoot = AppCompositionRoot(restVariantStore: store, initialScreenID: "built-in")
+        compositionRoot.restVariantStore.setPersistentRequest(
+            RestVariantRequest(moduleID: .music, kind: .wideNotchStrip)
+        )
+        let presenter = SpyOverlayPanelPresenter()
+        let coordinator = OverlayCoordinator(
+            compositionRoot: compositionRoot,
+            topologyProvider: StubDisplayTopologyProvider(snapshots: [
+                Self.notchSnapshot(id: "built-in")
+            ]),
+            panelPresenter: presenter,
+            primaryScreenID: "built-in",
+            simulateNotchOnNonNotchScreen: true
+        )
+
+        coordinator.start()
+        compositionRoot.restVariantStore.enqueueTransientRequest(
+            RestVariantRequest(
+                moduleID: .pomodoro,
+                kind: .headerlessMiniPanel,
+                lifetime: .transient(
+                    token: UUID(),
+                    duration: .milliseconds(20),
+                    declaredAt: Date()
+                )
+            )
+        )
+
+        try? await Task.sleep(for: .milliseconds(40))
+
+        let expectedState = OverlayState.idle(
+            screenID: "built-in",
+            presentation: .request(
+                RestVariantRequest(moduleID: .music, kind: .wideNotchStrip)
+            )
+        )
+
+        #expect(compositionRoot.overlayState == expectedState)
+        #expect(try #require(presenter.presentations.last).state == expectedState)
+    }
 
     @Test func startPresentsIdlePanelOnEveryScreen() throws {
         let compositionRoot = AppCompositionRoot(initialScreenID: "unstarted")
@@ -52,7 +173,8 @@ struct OverlayCoordinatorTests {
 
         let lastPresentation = try #require(presenter.presentations.last)
         #expect(lastPresentation.state == .expanded(screenID: "built-in", moduleID: .aiChat))
-        #expect(lastPresentation.geometry.expandedFrame.width == 580)
+        #expect(lastPresentation.geometry.expandedFrame.width == 780)
+        #expect(lastPresentation.geometry.expandedVisibleFrame.width == 580)
     }
 
     @Test func expandOnExternalScreenKeepsOtherScreensIdle() throws {
@@ -250,10 +372,10 @@ struct OverlayCoordinatorTests {
             id: id,
             displayName: "Built-in Display",
             frame: CGRect(x: 0, y: 0, width: 1512, height: 982),
-            visibleFrame: CGRect(x: 0, y: 0, width: 1512, height: 945),
-            safeAreaInsets: ScreenInsets(top: 74, left: 0, bottom: 0, right: 0),
-            auxiliaryTopLeftArea: CGRect(x: 0, y: 908, width: 663, height: 74),
-            auxiliaryTopRightArea: CGRect(x: 849, y: 908, width: 663, height: 74),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1512, height: 949),
+            safeAreaInsets: ScreenInsets(top: 32, left: 0, bottom: 0, right: 0),
+            auxiliaryTopLeftArea: CGRect(x: 0, y: 950, width: 663, height: 32),
+            auxiliaryTopRightArea: CGRect(x: 848, y: 950, width: 664, height: 32),
             scaleFactor: 2,
             isBuiltIn: true
         )
