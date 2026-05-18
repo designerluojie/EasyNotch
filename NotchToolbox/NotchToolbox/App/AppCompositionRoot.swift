@@ -7,6 +7,7 @@ final class AppCompositionRoot: ObservableObject {
     let sharedServices: SharedCoreServices
     let energyGovernor: EnergyGovernor
     let restVariantStore: RestVariantStore
+    let restVariantContentRegistry: RestVariantContentRegistry
 
     @Published private(set) var moduleDescriptors: [NotchModuleDescriptor]
     @Published var activeModule: NotchModuleID
@@ -17,6 +18,7 @@ final class AppCompositionRoot: ObservableObject {
         sharedServices: SharedCoreServices? = nil,
         energyGovernor: EnergyGovernor? = nil,
         restVariantStore: RestVariantStore? = nil,
+        restVariantContentRegistry: RestVariantContentRegistry? = nil,
         moduleDescriptors: [NotchModuleDescriptor]? = nil,
         activeModule: NotchModuleID = .music,
         initialScreenID: String = "main"
@@ -24,6 +26,7 @@ final class AppCompositionRoot: ObservableObject {
         self.sharedServices = sharedServices ?? SharedCoreServices.fallback()
         self.energyGovernor = energyGovernor ?? EnergyGovernor()
         self.restVariantStore = restVariantStore ?? RestVariantStore()
+        self.restVariantContentRegistry = restVariantContentRegistry ?? RestVariantContentRegistry()
         self.moduleDescriptors = moduleDescriptors ?? NotchModuleDescriptor.defaultDescriptors
         self.activeModule = activeModule
         self.overlayState = .idle(screenID: initialScreenID)

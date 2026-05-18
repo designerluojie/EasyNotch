@@ -268,6 +268,20 @@ struct OverlayPanelRootView: View {
 
     @ViewBuilder
     private func restVariantContent(for appearance: OverlayPanelCollapsedAppearance) -> some View {
+        if let request = currentRestVariantRequest,
+           let content = compositionRoot.restVariantContentRegistry.content(
+            for: request,
+            appearance: appearance,
+            context: compositionRoot.context(for: request.moduleID)
+           ) {
+            content
+        } else {
+            fallbackRestVariantContent(for: appearance)
+        }
+    }
+
+    @ViewBuilder
+    private func fallbackRestVariantContent(for appearance: OverlayPanelCollapsedAppearance) -> some View {
         switch appearance {
         case .wideNotchStrip:
             HStack(spacing: 10) {
@@ -1201,6 +1215,12 @@ private enum NotchShellPathBuilder {
 }
 
 private struct AnimatedExpandedChromeView<CollapseContent: View>: View {
+    private struct AnimationTarget: Equatable {
+        let isActive: Bool
+        let finalBodyFrame: CGRect
+        let collapsedBodyFrame: CGRect
+    }
+
     @ObservedObject var compositionRoot: AppCompositionRoot
     let bodySize: CGSize
     let animateFromHover: Bool
@@ -1223,6 +1243,11 @@ private struct AnimatedExpandedChromeView<CollapseContent: View>: View {
                 for: bodySize,
                 in: proxy.size
             )
+            let animationTarget = AnimationTarget(
+                isActive: isActive,
+                finalBodyFrame: finalBodyFrame,
+                collapsedBodyFrame: collapsedBodyFrame
+            )
             let bodyFrame = currentBodyFrame(
                 finalBodyFrame: finalBodyFrame
             )
@@ -1238,7 +1263,6 @@ private struct AnimatedExpandedChromeView<CollapseContent: View>: View {
             } ?? .zero
             let collapseContentOriginX = bodyFrame.midX - (collapsedBodyFrame.width / 2) + collapseContentFrame.minX
             let collapseContentOriginY = bodyFrame.minY + collapseContentFrame.minY
-
             ZStack(alignment: .topLeading) {
                 Color.clear
 
@@ -1320,15 +1344,10 @@ private struct AnimatedExpandedChromeView<CollapseContent: View>: View {
                     : (isActive ? finalBodyFrame : collapsedBodyFrame)
                 expansionProgress = animateFromHover ? 0 : (isActive ? 1 : 0)
                 setCurrentBodyFrame(initialFrame)
-                animateExpandedChrome(isActive: isActive, finalBodyFrame: finalBodyFrame)
+                animateExpandedChrome(target: animationTarget)
             }
-            .onChange(of: isActive) { newValue in
-                animateExpandedChrome(isActive: newValue, finalBodyFrame: finalBodyFrame)
-            }
-            .onChange(of: collapsedBodyFrame) { _ in
-                if isActive == false {
-                    animateExpandedChrome(isActive: false, finalBodyFrame: finalBodyFrame)
-                }
+            .onChange(of: animationTarget) { newTarget in
+                animateExpandedChrome(target: newTarget)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -1340,8 +1359,14 @@ private struct AnimatedExpandedChromeView<CollapseContent: View>: View {
         compositionRoot.selectActiveModule(moduleID)
     }
 
-    private func animateExpandedChrome(isActive: Bool, finalBodyFrame: CGRect) {
-        if isActive {
+    private func animateExpandedChrome(target: AnimationTarget) {
+        let targetBodyFrame = OverlayPanelRootPresentation.expandedChromeAnimationTargetBodyFrame(
+            isActive: target.isActive,
+            finalBodyFrame: target.finalBodyFrame,
+            collapsedBodyFrame: target.collapsedBodyFrame
+        )
+
+        if target.isActive {
             withAnimation(
                 .interpolatingSpring(
                     duration: OverlayPanelChromeMetrics.expandedTransitionDuration,
@@ -1349,7 +1374,7 @@ private struct AnimatedExpandedChromeView<CollapseContent: View>: View {
                 )
             ) {
                 expansionProgress = 1
-                setCurrentBodyFrame(finalBodyFrame)
+                setCurrentBodyFrame(targetBodyFrame)
             }
         } else {
             withAnimation(
@@ -1359,7 +1384,7 @@ private struct AnimatedExpandedChromeView<CollapseContent: View>: View {
                 )
             ) {
                 expansionProgress = 0
-                setCurrentBodyFrame(collapsedBodyFrame)
+                setCurrentBodyFrame(targetBodyFrame)
             }
         }
     }

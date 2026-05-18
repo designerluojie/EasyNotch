@@ -246,6 +246,26 @@ struct OverlayPanelRootPresentationTests {
         #expect(OverlayPanelRootPresentation.expandedCollapseTargetContentOpacity(expansionProgress: 0) == 1)
     }
 
+    @Test func expandedChromeCollapseAnimationTargetsPassedCollapsedFrame() {
+        let finalBodyFrame = CGRect(x: 100, y: 0, width: 580, height: 280)
+        let restBodyFrame = CGRect(x: 297.5, y: 0, width: 185, height: 32)
+
+        #expect(
+            OverlayPanelRootPresentation.expandedChromeAnimationTargetBodyFrame(
+                isActive: false,
+                finalBodyFrame: finalBodyFrame,
+                collapsedBodyFrame: restBodyFrame
+            ) == restBodyFrame
+        )
+        #expect(
+            OverlayPanelRootPresentation.expandedChromeAnimationTargetBodyFrame(
+                isActive: true,
+                finalBodyFrame: finalBodyFrame,
+                collapsedBodyFrame: restBodyFrame
+            ) == finalBodyFrame
+        )
+    }
+
     @Test func expandedShadowFadesInWithPanelExpansionProgress() {
         #expect(OverlayPanelRootPresentation.expandedShadowOpacity(progress: 0) == 0)
         #expect(abs(OverlayPanelRootPresentation.expandedShadowOpacity(progress: 0.5) - 0.15) < 0.0001)
