@@ -26,3 +26,9 @@ Package.resolved
 
 # Local worktrees
 .worktrees/
+
+# Superpowers local runtime artifacts
+.superpowers/
+
+# LLVM coverage artifacts
+*.profraw
