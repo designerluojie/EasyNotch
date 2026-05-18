@@ -454,6 +454,14 @@ nonisolated struct OverlayPanelRootPresentation {
         )
     }
 
+    static func expandedChromeAnimationTargetBodyFrame(
+        isActive: Bool,
+        finalBodyFrame: CGRect,
+        collapsedBodyFrame: CGRect
+    ) -> CGRect {
+        isActive ? finalBodyFrame : collapsedBodyFrame
+    }
+
     static func shouldSuppressRestChromeDuringExpandedCarryover(
         currentState: OverlayState,
         previousState: OverlayState?

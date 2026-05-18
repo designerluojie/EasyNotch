@@ -419,6 +419,33 @@ struct PanelWindowControllerTests {
         #expect(controller.panel.frame == geometry.idleFrame)
     }
 
+    @Test func expandedCollapseCapturesDefaultRestTargetInScreenCoordinates() {
+        let compositionRoot = AppCompositionRoot()
+        compositionRoot.setPanelBodySize(CGSize(width: 580, height: 280), for: .music)
+        let controller = PanelWindowController(compositionRoot: compositionRoot)
+        let geometry = TopAnchorGeometry(
+            screenID: "built-in",
+            screenFrame: NSRect(x: 0, y: 0, width: 1512, height: 982),
+            anchorKind: .hardwareNotch,
+            notchMetrics: NotchMetrics(visibleSize: CGSize(width: 185, height: 32), source: .hardware),
+            idleFrame: NSRect(x: 663.5, y: 950, width: 185, height: 32),
+            hoverHintFrame: NSRect(x: 606, y: 862, width: 300, height: 120),
+            hoverHintVisibleFrame: NSRect(x: 659.5, y: 942, width: 193, height: 40),
+            expandedFrame: NSRect(x: 40, y: 670, width: 628, height: 312),
+            expandedVisibleFrame: NSRect(x: 64, y: 702, width: 580, height: 280),
+            toastFrame: NSRect(x: 596, y: 930, width: 320, height: 52),
+            hotzoneFrame: NSRect(x: 626, y: 950, width: 260, height: 32),
+            safeTopInset: 32,
+            idleVisibleHeight: 0
+        )
+
+        controller.present(state: .hoverHint(screenID: "built-in"), geometry: geometry)
+        controller.present(state: .expanded(screenID: "built-in", moduleID: .music), geometry: geometry)
+
+        #expect(controller.panelModel.expandedCollapseTarget?.bodyFrame == geometry.idleFrame)
+        #expect(controller.panelModel.expandedCollapseTarget?.appearance == .transparent)
+    }
+
     @Test func expandedCollapseReturnsToWideNotchStripTargetCapturedOnExpand() async {
         let compositionRoot = AppCompositionRoot()
         compositionRoot.setPanelBodySize(CGSize(width: 580, height: 280), for: .music)
@@ -731,5 +758,83 @@ struct PanelWindowControllerTests {
         controller.present(state: .expanded(screenID: "built-in", moduleID: .clipboard), geometry: geometry)
 
         #expect(compositionRoot.overlayState == .idle(screenID: "built-in"))
+    }
+
+    @Test func expandedCollapseSettleKeepsCapturedRestPresentationAgainstImmediateHover() async {
+        let compositionRoot = AppCompositionRoot()
+        compositionRoot.setPanelBodySize(CGSize(width: 580, height: 280), for: .music)
+        let controller = PanelWindowController(compositionRoot: compositionRoot)
+        let geometry = TopAnchorGeometry(
+            screenID: "built-in",
+            screenFrame: NSRect(x: 0, y: 0, width: 1512, height: 982),
+            anchorKind: .hardwareNotch,
+            notchMetrics: NotchMetrics(visibleSize: CGSize(width: 185, height: 32), source: .hardware),
+            idleFrame: NSRect(x: 663.5, y: 950, width: 185, height: 32),
+            hoverHintFrame: NSRect(x: 606, y: 862, width: 300, height: 120),
+            hoverHintVisibleFrame: NSRect(x: 659.5, y: 942, width: 193, height: 40),
+            wideNotchStripFrame: NSRect(x: 632, y: 918, width: 296, height: 64),
+            wideNotchStripVisibleFrame: NSRect(x: 632, y: 950, width: 248, height: 32),
+            wideNotchStripHoverFrame: NSRect(x: 632, y: 890, width: 296, height: 92),
+            wideNotchStripHoverVisibleFrame: NSRect(x: 632, y: 942, width: 248, height: 40),
+            headerlessMiniPanelFrame: NSRect(x: 596, y: 804, width: 420, height: 178),
+            headerlessMiniPanelVisibleFrame: NSRect(x: 596, y: 854, width: 320, height: 128),
+            headerlessMiniPanelHoverFrame: NSRect(x: 596, y: 776, width: 420, height: 206),
+            headerlessMiniPanelHoverVisibleFrame: NSRect(x: 596, y: 846, width: 320, height: 136),
+            expandedFrame: NSRect(x: 40, y: 670, width: 628, height: 312),
+            expandedVisibleFrame: NSRect(x: 64, y: 702, width: 580, height: 280),
+            toastFrame: NSRect(x: 596, y: 930, width: 320, height: 52),
+            hotzoneFrame: NSRect(x: 626, y: 950, width: 260, height: 32),
+            safeTopInset: 32,
+            idleVisibleHeight: 0
+        )
+        let widePresentation = ResolvedRestPresentation.request(
+            RestVariantRequest(moduleID: .music, kind: .wideNotchStrip)
+        )
+        let headerlessPresentation = ResolvedRestPresentation.request(
+            RestVariantRequest(moduleID: .pomodoro, kind: .headerlessMiniPanel)
+        )
+
+        controller.present(state: .hoverHint(screenID: "built-in", presentation: widePresentation), geometry: geometry)
+        controller.present(state: .expanded(screenID: "built-in", moduleID: .music), geometry: geometry)
+        controller.present(state: .idle(screenID: "built-in", presentation: headerlessPresentation), geometry: geometry)
+        try? await Task.sleep(nanoseconds: 650_000_000)
+
+        controller.present(state: .hoverHint(screenID: "built-in", presentation: headerlessPresentation), geometry: geometry)
+
+        #expect(controller.panelModel.state == .hoverHint(screenID: "built-in", presentation: widePresentation))
+        #expect(controller.panel.frame == geometry.wideNotchStripHoverFrame)
+    }
+
+    @Test func expandedCollapseSettleKeepsDefaultRestIdleAgainstImmediateHover() async {
+        let compositionRoot = AppCompositionRoot()
+        compositionRoot.setPanelBodySize(CGSize(width: 580, height: 280), for: .music)
+        let controller = PanelWindowController(compositionRoot: compositionRoot)
+        let geometry = TopAnchorGeometry(
+            screenID: "built-in",
+            screenFrame: NSRect(x: 0, y: 0, width: 1512, height: 982),
+            anchorKind: .hardwareNotch,
+            notchMetrics: NotchMetrics(visibleSize: CGSize(width: 185, height: 32), source: .hardware),
+            idleFrame: NSRect(x: 663.5, y: 950, width: 185, height: 32),
+            hoverHintFrame: NSRect(x: 606, y: 902, width: 300, height: 120),
+            hoverHintVisibleFrame: NSRect(x: 659.5, y: 942, width: 193, height: 40),
+            expandedFrame: NSRect(x: 40, y: 670, width: 628, height: 312),
+            expandedVisibleFrame: NSRect(x: 64, y: 702, width: 580, height: 280),
+            toastFrame: NSRect(x: 596, y: 930, width: 320, height: 52),
+            hotzoneFrame: NSRect(x: 626, y: 950, width: 260, height: 32),
+            safeTopInset: 32,
+            idleVisibleHeight: 0
+        )
+
+        controller.present(state: .hoverHint(screenID: "built-in"), geometry: geometry)
+        controller.present(state: .expanded(screenID: "built-in", moduleID: .music), geometry: geometry)
+        controller.present(state: .idle(screenID: "built-in"), geometry: geometry)
+        try? await Task.sleep(nanoseconds: 650_000_000)
+
+        controller.present(state: .hoverHint(screenID: "built-in"), geometry: geometry)
+
+        #expect(controller.panelModel.state == .idle(screenID: "built-in"))
+        #expect(controller.panel.frame.size == geometry.idleFrame.size)
+        #expect(abs(controller.panel.frame.minX - geometry.idleFrame.minX) < 1)
+        #expect(abs(controller.panel.frame.minY - geometry.idleFrame.minY) < 1)
     }
 }

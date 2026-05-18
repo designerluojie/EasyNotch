@@ -13,6 +13,8 @@ final class PanelWindowController: OverlayPanelPresenting {
     private var localMouseMonitor: Any?
     private var globalMouseMonitor: Any?
     private var pendingIdleFrameResetTask: Task<Void, Never>?
+    private var postExpandedCollapseRestLatch: PostExpandedCollapseRestLatch?
+    private var postExpandedCollapseRestLatchReleaseTask: Task<Void, Never>?
     private var cancellables: Set<AnyCancellable> = []
 
     init(
@@ -55,7 +57,9 @@ final class PanelWindowController: OverlayPanelPresenting {
             geometry: geometry
         )
         let resolvedState = resolvedStateRespectingLatchedCollapsePresentations(
-            stateRespectingExpandedCollapseTarget(incomingState, previousState: previousState)
+            stateRespectingPostExpandedCollapsePresentation(
+                stateRespectingExpandedCollapseTarget(incomingState, previousState: previousState)
+            )
         )
         if shouldContinueLatchedRestFrameReset(from: previousState, to: resolvedState) {
             panelModel.geometry = geometry
@@ -73,6 +77,7 @@ final class PanelWindowController: OverlayPanelPresenting {
 
         if resolvedState.isRestLike == false {
             panelModel.latchedRestCollapsePresentation = nil
+            clearPostExpandedCollapseRestLatch()
         }
 
         if shouldDeferIdleFrameReset(from: previousState, to: resolvedState) {
@@ -274,6 +279,9 @@ final class PanelWindowController: OverlayPanelPresenting {
 
     private func scheduleFrameReset(to frame: NSRect) {
         let delay: Double
+        let postExpandedCollapseTarget = panelModel.previousState?.isExpandedLike == true
+            ? panelModel.expandedCollapseTarget
+            : nil
 
         // Expanded→rest carryover needs a longer reset delay than the default
         // transitionDuration so the morph shell's interpolating spring fully
@@ -307,6 +315,9 @@ final class PanelWindowController: OverlayPanelPresenting {
 
             self.panel.setFrame(frame, display: true)
             self.panel.orderFrontRegardless()
+            if let postExpandedCollapseTarget {
+                self.holdPostExpandedCollapseRestLatch(for: postExpandedCollapseTarget)
+            }
             self.panelModel.previousState = nil
             self.panelModel.latchedRestCollapsePresentation = nil
             self.panelModel.expandedCollapseTarget = nil
@@ -361,6 +372,24 @@ final class PanelWindowController: OverlayPanelPresenting {
         return state.replacingPresentation(with: latchedRestPresentation)
     }
 
+    private func stateRespectingPostExpandedCollapsePresentation(_ state: OverlayState) -> OverlayState {
+        guard state.isRestLike,
+              let postExpandedCollapseRestLatch else {
+            return state
+        }
+
+        let presentationState = state.replacingPresentation(
+            with: postExpandedCollapseRestLatch.presentation
+        )
+
+        if postExpandedCollapseRestLatch.suppressesTransparentHover,
+           case .hoverHint(let screenID, .none) = presentationState {
+            return .idle(screenID: screenID, presentation: .none)
+        }
+
+        return presentationState
+    }
+
     private func stateRespectingExpandedCollapseTarget(
         _ state: OverlayState,
         previousState: OverlayState
@@ -372,6 +401,34 @@ final class PanelWindowController: OverlayPanelPresenting {
         }
 
         return expandedCollapseTarget.restState
+    }
+
+    private func holdPostExpandedCollapseRestLatch(for target: ExpandedCollapseTarget) {
+        let latch = PostExpandedCollapseRestLatch(
+            presentation: target.presentation,
+            suppressesTransparentHover: target.presentation == .none
+        )
+        postExpandedCollapseRestLatch = latch
+        postExpandedCollapseRestLatchReleaseTask?.cancel()
+        postExpandedCollapseRestLatchReleaseTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            guard Task.isCancelled == false else {
+                return
+            }
+
+            self?.clearPostExpandedCollapseRestLatch(ifStill: latch)
+        }
+    }
+
+    private func clearPostExpandedCollapseRestLatch(ifStill latch: PostExpandedCollapseRestLatch? = nil) {
+        if let latch,
+           postExpandedCollapseRestLatch != latch {
+            return
+        }
+
+        postExpandedCollapseRestLatch = nil
+        postExpandedCollapseRestLatchReleaseTask?.cancel()
+        postExpandedCollapseRestLatchReleaseTask = nil
     }
 
     private func shouldContinueLatchedRestFrameReset(
@@ -442,7 +499,7 @@ final class PanelWindowController: OverlayPanelPresenting {
     ) -> CGRect {
         switch presentation {
         case .none:
-            return CGRect(origin: .zero, size: CGSize(
+            let size = CGSize(
                 width: OverlayPanelRootPresentation.collapseSettledWidth(
                     anchorKind: geometry.anchorKind,
                     idleWidth: geometry.idleFrame.width,
@@ -453,7 +510,13 @@ final class PanelWindowController: OverlayPanelPresenting {
                     idleVisibleHeight: geometry.idleVisibleHeight,
                     notchMetrics: geometry.notchMetrics
                 )
-            ))
+            )
+            return CGRect(
+                x: geometry.screenFrame.midX - size.width / 2,
+                y: geometry.screenFrame.maxY - size.height,
+                width: size.width,
+                height: size.height
+            )
         case .request(let request):
             switch request.kind {
             case .wideNotchStrip:
@@ -489,6 +552,7 @@ final class PanelWindowController: OverlayPanelPresenting {
 
     deinit {
         pendingIdleFrameResetTask?.cancel()
+        postExpandedCollapseRestLatchReleaseTask?.cancel()
         if let localMouseMonitor {
             NSEvent.removeMonitor(localMouseMonitor)
         }
@@ -496,6 +560,11 @@ final class PanelWindowController: OverlayPanelPresenting {
             NSEvent.removeMonitor(globalMouseMonitor)
         }
     }
+}
+
+private struct PostExpandedCollapseRestLatch: Equatable {
+    let presentation: ResolvedRestPresentation
+    let suppressesTransparentHover: Bool
 }
 
 private final class NotchPanel: NSPanel {
