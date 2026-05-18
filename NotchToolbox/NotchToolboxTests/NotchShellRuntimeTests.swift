@@ -17,9 +17,7 @@ struct NotchShellRuntimeTests {
             ]),
             panelPresenter: presenter,
             primaryScreenID: "built-in",
-            simulateNotchOnNonNotchScreen: true,
-            enableDebugRestVariantSeed: false,
-            debugRestVariantSeedDelay: .milliseconds(10)
+            simulateNotchOnNonNotchScreen: true
         )
 
         runtime.start()
@@ -32,48 +30,6 @@ struct NotchShellRuntimeTests {
         #expect(presenter.presentations[0].state == .idle(screenID: "built-in"))
         #expect(presenter.presentations[1].state == .expanded(screenID: "built-in", moduleID: .music))
         #expect(presenter.presentations[2].state == .idle(screenID: "built-in"))
-    }
-
-    @Test func startRunsDebugRestVariantDemoSequenceAfterDelay() async throws {
-        let compositionRoot = AppCompositionRoot(activeModule: .music, initialScreenID: "built-in")
-        let interactions = OverlayPanelInteractions()
-        let presenter = RuntimeSpyOverlayPanelPresenter()
-        let runtime = NotchShellRuntime(
-            compositionRoot: compositionRoot,
-            interactions: interactions,
-            topologyProvider: RuntimeStubDisplayTopologyProvider(snapshots: [
-                Self.notchSnapshot(id: "built-in")
-            ]),
-            panelPresenter: presenter,
-            primaryScreenID: "built-in",
-            simulateNotchOnNonNotchScreen: true,
-            enableDebugRestVariantSeed: true,
-            debugRestVariantSeedDelay: .milliseconds(10),
-            debugRestVariantSequenceStepDelay: .milliseconds(10)
-        )
-
-        runtime.start()
-
-        #expect(compositionRoot.restVariantStore.resolvedPresentation == .none)
-
-        try await Task.sleep(for: .milliseconds(100))
-
-        #expect(compositionRoot.restVariantStore.resolvedPresentation == .none)
-
-        let compactPresentations = presenter.presentations
-            .map(\.state.restPresentation)
-            .map(\.debugDemoStep)
-            .removingConsecutiveDuplicates()
-
-        #expect(compactPresentations == [
-            .rest,
-            .wide,
-            .headerless,
-            .wide,
-            .rest,
-            .headerless,
-            .rest
-        ])
     }
 
     private static func notchSnapshot(id: String) -> ScreenSnapshot {
@@ -104,57 +60,5 @@ private final class RuntimeSpyOverlayPanelPresenter: OverlayPanelPresenting {
 
     func present(state: OverlayState, geometry: TopAnchorGeometry) {
         presentations.append((state, geometry))
-    }
-}
-
-private extension ResolvedRestPresentation {
-    var activeRequest: RestVariantRequest? {
-        switch self {
-        case .none:
-            nil
-        case .request(let request):
-            request
-        }
-    }
-
-    var debugDemoStep: RuntimeDebugDemoStep {
-        switch self {
-        case .none:
-            .rest
-        case .request(let request):
-            switch request.kind {
-            case .wideNotchStrip:
-                .wide
-            case .headerlessMiniPanel:
-                .headerless
-            }
-        }
-    }
-}
-
-private enum RuntimeDebugDemoStep: Equatable {
-    case rest
-    case wide
-    case headerless
-}
-
-private extension OverlayState {
-    var restPresentation: ResolvedRestPresentation {
-        switch self {
-        case .idle(_, let presentation), .hoverHint(_, let presentation):
-            presentation
-        case .expanded, .collapsing, .toast:
-            .none
-        }
-    }
-}
-
-private extension Array where Element: Equatable {
-    func removingConsecutiveDuplicates() -> [Element] {
-        reduce(into: []) { result, element in
-            if result.last != element {
-                result.append(element)
-            }
-        }
     }
 }
