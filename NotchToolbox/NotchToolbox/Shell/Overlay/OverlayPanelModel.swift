@@ -8,7 +8,7 @@ final class OverlayPanelModel: ObservableObject {
     @Published var previousState: OverlayState?
     @Published var geometry: TopAnchorGeometry?
     @Published var latchedRestCollapsePresentation: ResolvedRestPresentation?
-    @Published var latchedExpandedCollapsePresentation: ResolvedRestPresentation?
+    @Published var expandedCollapseTarget: ExpandedCollapseTarget?
 
     init(screenID: String, state: OverlayState? = nil) {
         self.screenID = screenID
@@ -16,6 +16,6 @@ final class OverlayPanelModel: ObservableObject {
         self.previousState = nil
         self.geometry = nil
         self.latchedRestCollapsePresentation = nil
-        self.latchedExpandedCollapsePresentation = nil
+        self.expandedCollapseTarget = nil
     }
 }

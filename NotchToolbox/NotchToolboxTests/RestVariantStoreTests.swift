@@ -32,6 +32,36 @@ struct RestVariantStoreTests {
         )
     }
 
+    @Test func persistentRequestPreservesPreferredWidth() {
+        let store = RestVariantStore()
+
+        store.setPersistentRequest(
+            RestVariantRequest(
+                moduleID: .music,
+                kind: .wideNotchStrip,
+                preferredWidth: 300
+            )
+        )
+
+        #expect(store.resolvedPresentation.activeRequest?.preferredWidth == 300)
+    }
+
+    @Test func persistentHeaderlessRequestPreservesPreferredSize() {
+        let store = RestVariantStore()
+
+        store.setPersistentRequest(
+            RestVariantRequest(
+                moduleID: .pomodoro,
+                kind: .headerlessMiniPanel,
+                preferredWidth: 360,
+                preferredHeight: 144
+            )
+        )
+
+        #expect(store.resolvedPresentation.activeRequest?.preferredWidth == 360)
+        #expect(store.resolvedPresentation.activeRequest?.preferredHeight == 144)
+    }
+
     @Test func clearingPersistentRequestReturnsToTransparentPresentation() {
         let store = RestVariantStore()
         store.setPersistentRequest(

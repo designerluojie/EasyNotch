@@ -42,29 +42,30 @@ final class PanelWindowController: OverlayPanelPresenting {
     }
 
     func present(state: OverlayState, geometry: TopAnchorGeometry) {
-        let isContinuingExpandedCollapseCarryover = shouldContinueExpandedCollapseCarryover(with: state)
-        let incomingState = stateRespectingExpandedCollapseCarryover(
-            state,
-            continuingExpandedCollapseCarryover: isContinuingExpandedCollapseCarryover
-        )
-        if isContinuingExpandedCollapseCarryover == false {
-            pendingIdleFrameResetTask?.cancel()
-        }
-        let previousState = preservedPreviousState(
-            currentState: panelModel.state,
-            incomingState: incomingState,
-            continuingExpandedCollapseCarryover: isContinuingExpandedCollapseCarryover
-        )
-        updateLatchedExpandedCollapsePresentationIfNeeded(
+        let incomingState = state
+        let previousState = panelModel.state
+        updateExpandedCollapseTargetIfNeeded(
             from: previousState,
-            to: incomingState
+            to: incomingState,
+            geometry: geometry
         )
         updateLatchedRestCollapsePresentationIfNeeded(
             from: previousState,
             to: incomingState,
             geometry: geometry
         )
-        let resolvedState = resolvedStateRespectingLatchedCollapsePresentations(incomingState)
+        let resolvedState = resolvedStateRespectingLatchedCollapsePresentations(
+            stateRespectingExpandedCollapseTarget(incomingState, previousState: previousState)
+        )
+        if shouldContinueLatchedRestFrameReset(from: previousState, to: resolvedState) {
+            panelModel.geometry = geometry
+            panelModel.previousState = previousState
+            panelModel.state = resolvedState
+            panel.orderFrontRegardless()
+            return
+        }
+
+        pendingIdleFrameResetTask?.cancel()
         let targetFrame = frame(for: resolvedState, geometry: geometry)
         panelModel.geometry = geometry
         panelModel.previousState = previousState
@@ -72,15 +73,6 @@ final class PanelWindowController: OverlayPanelPresenting {
 
         if resolvedState.isRestLike == false {
             panelModel.latchedRestCollapsePresentation = nil
-        }
-
-        if resolvedState.isRestLike == false || resolvedState.isExpandedLike {
-            panelModel.latchedExpandedCollapsePresentation = nil
-        }
-
-        if isContinuingExpandedCollapseCarryover {
-            panel.orderFrontRegardless()
-            return
         }
 
         if shouldDeferIdleFrameReset(from: previousState, to: resolvedState) {
@@ -128,15 +120,21 @@ final class PanelWindowController: OverlayPanelPresenting {
     private func frame(for state: OverlayState, geometry: TopAnchorGeometry) -> NSRect {
         switch state {
         case .expanded:
-            expandedOuterFrame(for: activeModuleID(for: state), geometry: geometry)
+            return expandedOuterFrame(for: activeModuleID(for: state), geometry: geometry)
         case .hoverHint:
-            geometry.frame(for: state)
+            return geometry.frame(for: state)
         case .toast:
-            geometry.toastFrame
+            return geometry.toastFrame
         case .collapsing:
-            expandedOuterFrame(for: compositionRoot.activeModule, geometry: geometry)
+            return expandedOuterFrame(for: compositionRoot.activeModule, geometry: geometry)
         case .idle:
-            geometry.frame(for: state)
+            if panelModel.previousState?.isExpandedLike == true,
+               let expandedCollapseTarget = panelModel.expandedCollapseTarget,
+               state == expandedCollapseTarget.restState {
+                return expandedCollapseTarget.outerFrame
+            }
+
+            return geometry.frame(for: state)
         }
     }
 
@@ -277,14 +275,20 @@ final class PanelWindowController: OverlayPanelPresenting {
     private func scheduleFrameReset(to frame: NSRect) {
         let delay: Double
 
-        if panelModel.previousState?.isExpandedLike == true {
-            delay = OverlayPanelChromeMetrics.expandedCollapseTotalDuration
+        // Expanded→rest carryover needs a longer reset delay than the default
+        // transitionDuration so the morph shell's interpolating spring fully
+        // settles at the captured rest body frame before AppKit resets the
+        // outer panel frame. A premature reset swaps morph shell → idleBody
+        // mid-spring and produces a visible tail-frame snap.
+        if panelModel.previousState?.isExpandedLike == true,
+           panelModel.expandedCollapseTarget != nil {
+            delay = 0.6
         } else if let previousState = panelModel.previousState,
-                  OverlayPanelRootPresentation.shouldMorphVisibleRestVariants(
+           OverlayPanelRootPresentation.shouldMorphVisibleRestVariants(
                     from: previousState,
                     to: panelModel.state
-                  ),
-                  frame.width < panel.frame.width || frame.height < panel.frame.height {
+           ),
+           frame.width < panel.frame.width || frame.height < panel.frame.height {
             delay = OverlayPanelChromeMetrics.transitionDuration
                 + OverlayPanelChromeMetrics.restVariantSettledContentRevealDuration
         } else {
@@ -305,8 +309,22 @@ final class PanelWindowController: OverlayPanelPresenting {
             self.panel.orderFrontRegardless()
             self.panelModel.previousState = nil
             self.panelModel.latchedRestCollapsePresentation = nil
-            self.panelModel.latchedExpandedCollapsePresentation = nil
+            self.panelModel.expandedCollapseTarget = nil
         }
+    }
+
+    private func updateExpandedCollapseTargetIfNeeded(
+        from previousState: OverlayState,
+        to nextState: OverlayState,
+        geometry: TopAnchorGeometry
+    ) {
+        guard nextState.isExpandedLike,
+              previousState.isRestLike,
+              let target = expandedCollapseTarget(from: previousState, geometry: geometry) else {
+            return
+        }
+
+        panelModel.expandedCollapseTarget = target
     }
 
     private func updateLatchedRestCollapsePresentationIfNeeded(
@@ -331,26 +349,9 @@ final class PanelWindowController: OverlayPanelPresenting {
         panelModel.latchedRestCollapsePresentation = restPresentation(for: nextState)
     }
 
-    private func updateLatchedExpandedCollapsePresentationIfNeeded(
-        from previousState: OverlayState,
-        to nextState: OverlayState
-    ) {
-        guard panelModel.latchedExpandedCollapsePresentation == nil,
-              previousState.isExpandedLike,
-              nextState.isRestLike else {
-            return
-        }
-
-        panelModel.latchedExpandedCollapsePresentation = restPresentation(for: nextState)
-    }
-
     private func resolvedStateRespectingLatchedCollapsePresentations(_ state: OverlayState) -> OverlayState {
         guard state.isRestLike else {
             return state
-        }
-
-        if let latchedExpandedPresentation = panelModel.latchedExpandedCollapsePresentation {
-            return state.replacingPresentation(with: latchedExpandedPresentation)
         }
 
         guard let latchedRestPresentation = panelModel.latchedRestCollapsePresentation else {
@@ -360,12 +361,117 @@ final class PanelWindowController: OverlayPanelPresenting {
         return state.replacingPresentation(with: latchedRestPresentation)
     }
 
+    private func stateRespectingExpandedCollapseTarget(
+        _ state: OverlayState,
+        previousState: OverlayState
+    ) -> OverlayState {
+        guard state.isIdle,
+              previousState.isExpandedLike,
+              let expandedCollapseTarget = panelModel.expandedCollapseTarget else {
+            return state
+        }
+
+        return expandedCollapseTarget.restState
+    }
+
+    private func shouldContinueLatchedRestFrameReset(
+        from previousState: OverlayState,
+        to nextState: OverlayState
+    ) -> Bool {
+        pendingIdleFrameResetTask != nil
+            && panelModel.latchedRestCollapsePresentation != nil
+            && previousState == nextState
+    }
+
     private func restPresentation(for state: OverlayState) -> ResolvedRestPresentation {
         switch state {
         case .idle(_, let presentation), .hoverHint(_, let presentation):
             return presentation
         case .expanded, .collapsing, .toast:
             return .none
+        }
+    }
+
+    private func expandedCollapseTarget(
+        from state: OverlayState,
+        geometry: TopAnchorGeometry
+    ) -> ExpandedCollapseTarget? {
+        let screenID: String
+        let presentation: ResolvedRestPresentation
+
+        switch state {
+        case .idle(let stateScreenID, let statePresentation),
+             .hoverHint(let stateScreenID, let statePresentation):
+            screenID = stateScreenID
+            presentation = statePresentation
+        case .expanded, .collapsing, .toast:
+            return nil
+        }
+
+        let restState = OverlayState.idle(screenID: screenID, presentation: presentation)
+        let appearance = OverlayPanelRootPresentation.collapsedAppearance(for: presentation)
+        let bodyFrame = expandedCollapseBodyFrame(
+            for: presentation,
+            appearance: appearance,
+            geometry: geometry
+        )
+
+        return ExpandedCollapseTarget(
+            screenID: screenID,
+            presentation: presentation,
+            restState: restState,
+            outerFrame: geometry.frame(for: restState),
+            bodyFrame: bodyFrame,
+            appearance: appearance,
+            bottomCornerRadius: expandedCollapseBottomCornerRadius(for: appearance),
+            topShoulderMetrics: OverlayPanelRootPresentation.compensatedTopShoulderMetrics(
+                scaleX: 1,
+                scaleY: 1
+            ),
+            shadowMetrics: OverlayPanelRootPresentation.collapsedShadowMetrics(
+                for: appearance,
+                isHovering: false
+            )
+        )
+    }
+
+    private func expandedCollapseBodyFrame(
+        for presentation: ResolvedRestPresentation,
+        appearance: OverlayPanelCollapsedAppearance,
+        geometry: TopAnchorGeometry
+    ) -> CGRect {
+        switch presentation {
+        case .none:
+            return CGRect(origin: .zero, size: CGSize(
+                width: OverlayPanelRootPresentation.collapseSettledWidth(
+                    anchorKind: geometry.anchorKind,
+                    idleWidth: geometry.idleFrame.width,
+                    notchMetrics: geometry.notchMetrics
+                ),
+                height: OverlayPanelRootPresentation.collapseSettledHeight(
+                    anchorKind: geometry.anchorKind,
+                    idleVisibleHeight: geometry.idleVisibleHeight,
+                    notchMetrics: geometry.notchMetrics
+                )
+            ))
+        case .request(let request):
+            switch request.kind {
+            case .wideNotchStrip:
+                return geometry.visibleBodyFrame(for: request, isHovering: false)
+            case .headerlessMiniPanel:
+                return geometry.visibleBodyFrame(for: request, isHovering: false)
+            }
+        }
+    }
+
+    private func expandedCollapseBottomCornerRadius(for appearance: OverlayPanelCollapsedAppearance) -> CGFloat {
+        switch appearance {
+        case .transparent:
+            return OverlayPanelChromeMetrics.hoverRevealBottomCornerRadius
+        case .wideNotchStrip:
+            return OverlayPanelRootPresentation.collapsedBottomCornerRadius(for: .wideNotchStrip)
+        case .headerlessMiniPanel:
+            return OverlayPanelRootPresentation.collapsedBottomCornerRadius(for: .headerlessMiniPanel)
         }
     }
 
@@ -379,38 +485,6 @@ final class PanelWindowController: OverlayPanelPresenting {
 
     private func shouldAnimateFrameTransition(from previousState: OverlayState, to nextState: OverlayState) -> Bool {
         OverlayPanelRootPresentation.shouldAnimateWindowFrameTransition(from: previousState, to: nextState)
-    }
-
-    private func shouldContinueExpandedCollapseCarryover(with nextState: OverlayState) -> Bool {
-        panelModel.previousState?.isExpandedLike == true
-            && panelModel.state.isRestLike
-            && nextState.isRestLike
-            && panelModel.latchedExpandedCollapsePresentation != nil
-    }
-
-    private func stateRespectingExpandedCollapseCarryover(
-        _ state: OverlayState,
-        continuingExpandedCollapseCarryover: Bool
-    ) -> OverlayState {
-        guard continuingExpandedCollapseCarryover,
-              case .hoverHint(let screenID, _) = state,
-              let latchedExpandedPresentation = panelModel.latchedExpandedCollapsePresentation else {
-            return state
-        }
-
-        return .idle(screenID: screenID, presentation: latchedExpandedPresentation)
-    }
-
-    private func preservedPreviousState(
-        currentState: OverlayState,
-        incomingState: OverlayState,
-        continuingExpandedCollapseCarryover: Bool
-    ) -> OverlayState {
-        if continuingExpandedCollapseCarryover, let preservedPreviousState = panelModel.previousState {
-            return preservedPreviousState
-        }
-
-        return currentState
     }
 
     deinit {
