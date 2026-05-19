@@ -31,6 +31,45 @@ xcodebuild test -project NotchToolbox/NotchToolbox.xcodeproj -scheme NotchToolbo
 - API Key、token、敏感凭证只能走 Keychain 边界。
 - 未验证能力必须标记为 `target` 或未验证，不得声明稳定完成。
 
+## 2.1 Panel Shell 接入边界
+
+公共壳层由 `feature/panel-shell` 统一维护。
+
+当前公共壳层额外依赖真实 notch metrics：
+
+- `ScreenProfileResolver` 会解析真实设备 notch 宽高
+- `OverlayCoordinator` 会把真实硬件 notch metrics 借给 simulated notch 屏
+- `AnchorGeometryCalculator` / `PanelWindowController` 由 shell 线程统一维护
+
+模块线程不要修改上述链路；如果需要变更，必须回到底层线程并同步冻结记录。
+
+模块只负责 `ContentHostView` 里的内容区：
+
+- 不绘制外层黑色圆角背景。
+- 不绘制顶部 Tabs。
+- 不绘制右上角设置入口。
+- 不自行创建设置弹窗或完整面板。
+- 不直接修改 `OverlayPanelRootView`、`PanelShellView`、`PanelHeaderView`、`ModuleTabBarView`。
+- 不直接修改 `AnchorGeometryCalculator`、`PanelWindowController`、`ScreenProfileResolver`。
+
+如果模块分支已经修改了 `OverlayPanelRootView.swift` 或 `ContentHostView.swift`，合并 `main` 后应保留公共壳层实现，只重新接入该模块自己的内容 View、ViewModel 或 Runtime。
+
+如果模块分支曾为了临时视觉效果改过浅刘海、hover、外部点击关闭或窗口 frame 逻辑，合并 `main` 后必须丢弃这些临时实现，保留公共壳层版本。
+
+左上角主 Tabs 固定为：
+
+- `音乐` -> `.music`
+- `文件` -> `.fileStash`
+- `更多` -> 打开更多模块浮层
+
+`更多` 当前承载：
+
+- `.aiChat`
+- `.clipboard`
+- `.pomodoro`
+
+右上角 `设置` 是 shell 级浮层，不切换到 `.settings` 模块。
+
 ## 3. 通用交付要求
 
 每个模块线程交付时必须说明：

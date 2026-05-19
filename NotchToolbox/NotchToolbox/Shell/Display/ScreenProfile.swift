@@ -22,6 +22,26 @@ struct ScreenSnapshot: Equatable {
     let isBuiltIn: Bool
 }
 
+enum NotchMetricsSource: String, Codable, Equatable {
+    case hardware
+    case borrowedHardware
+    case fallback
+}
+
+struct NotchMetrics: Equatable, Codable {
+    let visibleSize: CGSize
+    let source: NotchMetricsSource
+
+    static let fallback = NotchMetrics(
+        visibleSize: CGSize(width: 185, height: 32),
+        source: .fallback
+    )
+
+    func borrowedHardware() -> NotchMetrics {
+        NotchMetrics(visibleSize: visibleSize, source: .borrowedHardware)
+    }
+}
+
 enum ScreenProfileKind: String, Codable {
     case builtInWithNotch
     case builtInWithoutNotch
@@ -37,6 +57,21 @@ struct ScreenProfile: Equatable {
     let scaleFactor: CGFloat
     let supportsHardwareNotch: Bool
     let shouldUseSimulatedNotch: Bool
+    let notchMetrics: NotchMetrics?
+
+    func withNotchMetrics(_ notchMetrics: NotchMetrics?) -> ScreenProfile {
+        ScreenProfile(
+            id: id,
+            kind: kind,
+            displayName: displayName,
+            frame: frame,
+            visibleFrame: visibleFrame,
+            scaleFactor: scaleFactor,
+            supportsHardwareNotch: supportsHardwareNotch,
+            shouldUseSimulatedNotch: shouldUseSimulatedNotch,
+            notchMetrics: notchMetrics
+        )
+    }
 }
 
 struct ScreenProfileResolver {
@@ -47,6 +82,7 @@ struct ScreenProfileResolver {
         let hasTopSafeArea = snapshot.safeAreaInsets.top > 0
         let hasAuxiliaryAreas = !snapshot.auxiliaryTopLeftArea.isEmpty && !snapshot.auxiliaryTopRightArea.isEmpty
         let supportsHardwareNotch = snapshot.isBuiltIn && hasTopSafeArea && hasAuxiliaryAreas
+        let notchMetrics = supportsHardwareNotch ? hardwareNotchMetrics(for: snapshot) : nil
 
         let kind: ScreenProfileKind
         if supportsHardwareNotch {
@@ -65,8 +101,25 @@ struct ScreenProfileResolver {
             visibleFrame: snapshot.visibleFrame,
             scaleFactor: snapshot.scaleFactor,
             supportsHardwareNotch: supportsHardwareNotch,
-            shouldUseSimulatedNotch: simulateNotchOnNonNotchScreen && !supportsHardwareNotch
+            shouldUseSimulatedNotch: simulateNotchOnNonNotchScreen && !supportsHardwareNotch,
+            notchMetrics: notchMetrics
+        )
+    }
+
+    private func hardwareNotchMetrics(for snapshot: ScreenSnapshot) -> NotchMetrics {
+        let visibleWidth = max(
+            0,
+            snapshot.frame.width - snapshot.auxiliaryTopLeftArea.width - snapshot.auxiliaryTopRightArea.width
+        )
+        let visibleHeight = max(
+            snapshot.safeAreaInsets.top,
+            snapshot.auxiliaryTopLeftArea.height,
+            snapshot.auxiliaryTopRightArea.height
+        )
+
+        return NotchMetrics(
+            visibleSize: CGSize(width: visibleWidth, height: visibleHeight),
+            source: .hardware
         )
     }
 }
-

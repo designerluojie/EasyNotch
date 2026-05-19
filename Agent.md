@@ -156,7 +156,7 @@
   - 菜单栏自动隐藏 / 不隐藏
 - 如果重要路径仍未验证，不要宣称任务完成。
 
-#### 沟通偏好
+## 沟通偏好
 
 - 保持简洁。
 - 先说结果，不要先讲背景理论。
@@ -166,3 +166,19 @@
 - 优先给出面向行动的进度更新。
 - 默认使用中文与我沟通。
 - 为保证准确性，必要时保留代码、API、库名、文件名和技术标识符原文。
+
+## 调试通用法则
+
+- 连续 2 个假设被现象否决，立即停止推演，加日志取真实数据。
+- 出现具体数值先 grep 源码，命名常量常能直接定位源头。
+- 跨层 bug 按层定位：每层 1 处探针，找第一个"输入对、输出错"的层，只在那层做最小修复，不在表层视觉打补丁。
+- 异步/响应式系统的状态读取存在时序竞争。修复策略是让正确值在所有可能被读到的帧/时刻都成立，不去博弈触发时机。
+- 临时诊断改动加统一前缀（如 `DBG-YYYYMMDD`），保证可一次性 `sed` 清理；动手前先 `git diff > /tmp/backup.patch` 留逃生口。
+
+## Overlay 状态流约束
+
+- 数据流层次（按顺序）：`InteractionStateMachine` → `PanelWindowController.present` → `panelModel.state` → `OverlayPanelRootView.body` → `AnimatedExpandedChromeView` `@State` → `MorphingExpandedNotchShape`。调试"收回错位/错尺寸"按层逐一确认 prop vs state，不要从视觉症状反推。
+- `InteractionStateMachine` 在 expanded → collapsing → idle 路径上的 `currentPresentation` 返回 `.none`，不携带 rest variant 信息。`ExpandedCollapseTarget` 机制补这个洞，不可随意移除。
+- `panelModel.state` 在 carryover 期间被 `stateRespectingExpandedCollapseTarget` 局部重写为捕获的 restState，但 `compositionRoot.overlayState` 不被重写。跨这两个 state 源做判断时要小心。
+- `expandedBody` 里 `isExpanding` 必须严格区分 `.expanded` 与 `.collapsing` —— collapsing 阶段属于"收回过程"，否则 `collapsedBodyFrame` 会算成 hoverBodySize 而不是 captured target。
+- 已被验证不可行：在 `OverlayCoordinator` 层"忽略一次 pointerEntered 直到 pointerExited" —— 会让后续 hover 一起坏掉。类似闸门应放在 `PanelWindowController.present` 入口而非状态机层。
