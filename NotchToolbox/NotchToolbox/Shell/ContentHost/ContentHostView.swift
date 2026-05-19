@@ -4,34 +4,16 @@ struct ContentHostView: View {
     @ObservedObject var compositionRoot: AppCompositionRoot
 
     var body: some View {
-        VStack(spacing: 16) {
-            Text("NotchToolbox")
-                .font(.headline)
-
-            Picker("Module", selection: activeModuleSelection) {
-                ForEach(compositionRoot.moduleDescriptors.filter(\.canShowInStandardTab)) { descriptor in
-                    Text(descriptor.title).tag(descriptor.id)
-                }
+        moduleContent
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay {
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .stroke(Color.white.opacity(0.1), lineWidth: 1)
             }
-            .pickerStyle(.segmented)
-            .frame(width: 420)
-
-            modulePlaceholder
-        }
-        .padding(24)
-        .frame(minWidth: 580, minHeight: 280)
-    }
-
-    private var activeModuleSelection: Binding<NotchModuleID> {
-        Binding {
-            compositionRoot.activeModule
-        } set: { moduleID in
-            compositionRoot.selectActiveModule(moduleID)
-        }
     }
 
     @ViewBuilder
-    private var modulePlaceholder: some View {
+    private var moduleContent: some View {
         switch compositionRoot.activeModule {
         case .music:
             MusicModuleView(runtime: compositionRoot.musicRuntime)
