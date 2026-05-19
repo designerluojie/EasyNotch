@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentHostView: View {
     @ObservedObject var compositionRoot: AppCompositionRoot
+    var onClipboardPasteSuccess: (() -> Void)? = nil
 
     var body: some View {
         VStack(spacing: 16) {
@@ -40,7 +41,11 @@ struct ContentHostView: View {
         case .aiChat:
             AIChatModuleView(context: compositionRoot.context(for: .aiChat))
         case .clipboard:
-            ClipboardModuleView(context: compositionRoot.context(for: .clipboard))
+            ClipboardModuleView(
+                context: compositionRoot.context(for: .clipboard),
+                viewModel: compositionRoot.clipboardViewModel,
+                onSuccessfulPaste: onClipboardPasteSuccess
+            )
         case .pomodoro:
             PomodoroModuleView(context: compositionRoot.context(for: .pomodoro))
         case .settings:

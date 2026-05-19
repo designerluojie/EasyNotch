@@ -46,7 +46,7 @@ final class ClipboardCleanupService {
         let history = try store.loadHistory().filter { item in
             item.copiedAt >= cutoff
         }
-        try store.replaceHistory(history)
+        _ = try store.replaceHistory(history)
         lastRunAt = now
 
         return ClipboardCleanupResult(didRun: true, remainingCount: history.count)
