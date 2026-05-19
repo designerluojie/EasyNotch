@@ -11,33 +11,35 @@ struct ClipboardPastebackTicket: Equatable {
 final class PasteExecutor {
     private let store: ClipboardStore
     private let pasteboardClient: ClipboardPasteboardClient
+    private let referenceValidator: ClipboardReferenceValidator
 
-    init(store: ClipboardStore, pasteboardClient: ClipboardPasteboardClient) {
+    init(
+        store: ClipboardStore,
+        pasteboardClient: ClipboardPasteboardClient,
+        referenceValidator: ClipboardReferenceValidator? = nil
+    ) {
         self.store = store
         self.pasteboardClient = pasteboardClient
+        self.referenceValidator = referenceValidator ?? ClipboardReferenceValidator()
     }
 
     func write(item: ClipboardHistoryItem) throws -> ClipboardPastebackTicket {
         let pasteboardItems: [NSPasteboardItem]
 
         switch item.payload {
-        case let .inline(_, pasteboardType, _):
-            let payload = try store.payloadData(for: item)
+        case .inline, .figma:
+            let representations = try store.payloadRepresentations(for: item)
             let pasteboardItem = NSPasteboardItem()
-            pasteboardItem.setData(
-                payload,
-                forType: NSPasteboard.PasteboardType(pasteboardType)
-            )
+            for representation in representations {
+                pasteboardItem.setData(
+                    representation.data,
+                    forType: NSPasteboard.PasteboardType(representation.pasteboardType)
+                )
+            }
             pasteboardItems = [pasteboardItem]
         case let .fileReferences(references):
-            pasteboardItems = try references.map { reference in
-                var isStale = false
-                let url = try URL(
-                    resolvingBookmarkData: reference.bookmarkData,
-                    options: [.withoutUI, .withoutMounting],
-                    relativeTo: nil,
-                    bookmarkDataIsStale: &isStale
-                )
+            let resolvedURLs = try referenceValidator.validate(references)
+            pasteboardItems = resolvedURLs.map { url in
                 let pasteboardItem = NSPasteboardItem()
                 pasteboardItem.setString(url.absoluteString, forType: .fileURL)
                 return pasteboardItem

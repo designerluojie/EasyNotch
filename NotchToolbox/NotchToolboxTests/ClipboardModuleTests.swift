@@ -121,6 +121,348 @@ struct ClipboardModuleTests {
         #expect(history[0].copiedAt == Date(timeIntervalSince1970: 2))
     }
 
+    @Test func storePersistsThumbnailDescriptorAndSnapshotFile() throws {
+        let root = try Self.makeTemporaryRoot()
+        let fileStore = LocalFileStore(baseURL: root)
+        let settingsStore = try SettingsStore(
+            storageURL: root.appending(path: "Settings/settings.json")
+        )
+        let store = try ClipboardStore(fileStore: fileStore, settingsStore: settingsStore)
+        let thumbnailData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+        let thumbnailDescriptor = ClipboardThumbnailDescriptor(
+            fileName: "image-preview.png",
+            pixelWidth: 160,
+            pixelHeight: 120,
+            kind: .imagePreview
+        )
+
+        let history = try store.save(
+            ClipboardCapture(
+                contentType: .image,
+                previewText: "Image",
+                contentHash: "image-hash",
+                capturedAt: Date(timeIntervalSince1970: 30),
+                sourceAppBundleID: nil,
+                sourceAppName: nil,
+                payload: .inline(
+                    data: Data([0x89, 0x50, 0x4E, 0x47]),
+                    pasteboardType: "public.png",
+                    suggestedFileExtension: "png"
+                ),
+                thumbnail: ClipboardThumbnailSnapshot(
+                    data: thumbnailData,
+                    descriptor: thumbnailDescriptor
+                )
+            ),
+            maxItems: 10
+        )
+        let reloaded = try store.loadHistory()
+        let storedDescriptor = try #require(history.first?.thumbnail)
+        let reloadedDescriptor = try #require(reloaded.first?.thumbnail)
+        let thumbnailURL = fileStore.url(for: .clipboardThumbnails).appending(
+            path: storedDescriptor.fileName
+        )
+
+        #expect(history.count == 1)
+        #expect(storedDescriptor.kind == thumbnailDescriptor.kind)
+        #expect(storedDescriptor.pixelWidth == thumbnailDescriptor.pixelWidth)
+        #expect(storedDescriptor.pixelHeight == thumbnailDescriptor.pixelHeight)
+        #expect(storedDescriptor.fileName.hasSuffix(".png"))
+        #expect(storedDescriptor.fileName != thumbnailDescriptor.fileName)
+        #expect(reloaded.count == 1)
+        #expect(reloadedDescriptor == storedDescriptor)
+        #expect(try Data(contentsOf: thumbnailURL) == thumbnailData)
+    }
+
+    @Test func storeTrimmingRemovesOrphanThumbnailFiles() throws {
+        let root = try Self.makeTemporaryRoot()
+        let fileStore = LocalFileStore(baseURL: root)
+        let settingsStore = try SettingsStore(
+            storageURL: root.appending(path: "Settings/settings.json")
+        )
+        let store = try ClipboardStore(fileStore: fileStore, settingsStore: settingsStore)
+
+        let firstHistory = try store.save(
+            ClipboardCapture(
+                contentType: .image,
+                previewText: "first",
+                contentHash: "first-image-hash",
+                capturedAt: Date(timeIntervalSince1970: 1),
+                sourceAppBundleID: nil,
+                sourceAppName: nil,
+                payload: .inline(
+                    data: Data([0x01]),
+                    pasteboardType: "public.png",
+                    suggestedFileExtension: "png"
+                ),
+                thumbnail: ClipboardThumbnailSnapshot(
+                    data: Data([0x11, 0x12]),
+                    descriptor: ClipboardThumbnailDescriptor(
+                        fileName: "first-thumbnail.png",
+                        pixelWidth: 80,
+                        pixelHeight: 80,
+                        kind: .imagePreview
+                    )
+                )
+            ),
+            maxItems: 2
+        )
+        let firstThumbnailURL: URL
+        if let thumbnail = firstHistory[0].thumbnail {
+            firstThumbnailURL = fileStore.url(for: .clipboardThumbnails).appending(
+                path: thumbnail.fileName
+            )
+        } else {
+            Issue.record("Expected first history item to have thumbnail metadata")
+            return
+        }
+
+        _ = try store.save(
+            ClipboardCapture(
+                contentType: .plainText,
+                previewText: "second",
+                contentHash: "second-hash",
+                capturedAt: Date(timeIntervalSince1970: 2),
+                sourceAppBundleID: nil,
+                sourceAppName: nil,
+                payload: .inline(
+                    data: Data("second".utf8),
+                    pasteboardType: "public.utf8-plain-text",
+                    suggestedFileExtension: "txt"
+                )
+            ),
+            maxItems: 2
+        )
+
+        let history = try store.save(
+            ClipboardCapture(
+                contentType: .plainText,
+                previewText: "third",
+                contentHash: "third-hash",
+                capturedAt: Date(timeIntervalSince1970: 3),
+                sourceAppBundleID: nil,
+                sourceAppName: nil,
+                payload: .inline(
+                    data: Data("third".utf8),
+                    pasteboardType: "public.utf8-plain-text",
+                    suggestedFileExtension: "txt"
+                )
+            ),
+            maxItems: 2
+        )
+
+        #expect(history.map(\.contentHash) == ["third-hash", "second-hash"])
+        #expect(FileManager.default.fileExists(atPath: firstThumbnailURL.path(percentEncoded: false)) == false)
+    }
+
+    @Test func storeDuplicateReplacementRemovesOrphanThumbnailFile() throws {
+        let root = try Self.makeTemporaryRoot()
+        let fileStore = LocalFileStore(baseURL: root)
+        let settingsStore = try SettingsStore(
+            storageURL: root.appending(path: "Settings/settings.json")
+        )
+        let store = try ClipboardStore(fileStore: fileStore, settingsStore: settingsStore)
+
+        let first = try store.save(
+            ClipboardCapture(
+                contentType: .image,
+                previewText: "same",
+                contentHash: "same-image-hash",
+                capturedAt: Date(timeIntervalSince1970: 1),
+                sourceAppBundleID: nil,
+                sourceAppName: nil,
+                payload: .inline(
+                    data: Data([0x01]),
+                    pasteboardType: "public.png",
+                    suggestedFileExtension: "png"
+                ),
+                thumbnail: ClipboardThumbnailSnapshot(
+                    data: Data([0x11, 0x12]),
+                    descriptor: ClipboardThumbnailDescriptor(
+                        fileName: "duplicate-thumbnail.png",
+                        pixelWidth: 80,
+                        pixelHeight: 80,
+                        kind: .imagePreview
+                    )
+                )
+            ),
+            maxItems: 10
+        )
+        let firstThumbnailURL = fileStore.url(for: .clipboardThumbnails).appending(
+            path: try #require(first.first?.thumbnail?.fileName)
+        )
+
+        let replacement = try store.save(
+            ClipboardCapture(
+                contentType: .image,
+                previewText: "same",
+                contentHash: "same-image-hash",
+                capturedAt: Date(timeIntervalSince1970: 2),
+                sourceAppBundleID: nil,
+                sourceAppName: nil,
+                payload: .inline(
+                    data: Data([0x02]),
+                    pasteboardType: "public.png",
+                    suggestedFileExtension: "png"
+                ),
+                thumbnail: ClipboardThumbnailSnapshot(
+                    data: Data([0x21, 0x22]),
+                    descriptor: ClipboardThumbnailDescriptor(
+                        fileName: "duplicate-thumbnail.png",
+                        pixelWidth: 96,
+                        pixelHeight: 96,
+                        kind: .imagePreview
+                    )
+                )
+            ),
+            maxItems: 10
+        )
+
+        let replacementThumbnail = try #require(replacement.first?.thumbnail)
+        #expect(replacement.count == 1)
+        #expect(FileManager.default.fileExists(atPath: firstThumbnailURL.path(percentEncoded: false)) == false)
+        #expect(replacementThumbnail.fileName.hasSuffix(".png"))
+        #expect(replacementThumbnail.fileName != "duplicate-thumbnail.png")
+    }
+
+    @Test func storeReplaceHistoryRemovesOrphanThumbnailFiles() throws {
+        let root = try Self.makeTemporaryRoot()
+        let fileStore = LocalFileStore(baseURL: root)
+        let settingsStore = try SettingsStore(
+            storageURL: root.appending(path: "Settings/settings.json")
+        )
+        let store = try ClipboardStore(fileStore: fileStore, settingsStore: settingsStore)
+
+        let first = try store.save(
+            ClipboardCapture(
+                contentType: .image,
+                previewText: "first",
+                contentHash: "first-image-hash",
+                capturedAt: Date(timeIntervalSince1970: 10),
+                sourceAppBundleID: nil,
+                sourceAppName: nil,
+                payload: .inline(
+                    data: Data([0x21]),
+                    pasteboardType: "public.png",
+                    suggestedFileExtension: "png"
+                ),
+                thumbnail: ClipboardThumbnailSnapshot(
+                    data: Data([0x31, 0x32]),
+                    descriptor: ClipboardThumbnailDescriptor(
+                        fileName: "replace-first-thumbnail.png",
+                        pixelWidth: 48,
+                        pixelHeight: 48,
+                        kind: .imagePreview
+                    )
+                )
+            ),
+            maxItems: 10
+        )
+        let history = try store.save(
+            ClipboardCapture(
+                contentType: .file,
+                previewText: "folder",
+                contentHash: "folder-hash",
+                capturedAt: Date(timeIntervalSince1970: 20),
+                sourceAppBundleID: nil,
+                sourceAppName: nil,
+                payload: .fileReferences([]),
+                thumbnail: ClipboardThumbnailSnapshot(
+                    data: Data([0x41, 0x42]),
+                    descriptor: ClipboardThumbnailDescriptor(
+                        fileName: "replace-second-thumbnail.png",
+                        pixelWidth: 64,
+                        pixelHeight: 64,
+                        kind: .folderPreview
+                    )
+                )
+            ),
+            maxItems: 10
+        )
+        let orphanThumbnailURL: URL
+        if let thumbnail = first[0].thumbnail {
+            orphanThumbnailURL = fileStore.url(for: .clipboardThumbnails).appending(
+                path: thumbnail.fileName
+            )
+        } else {
+            Issue.record("Expected first saved item to have thumbnail metadata")
+            return
+        }
+
+        let replaced = try store.replaceHistory([history[0]])
+
+        #expect(replaced.count == 1)
+        #expect(replaced[0].contentHash == "folder-hash")
+        #expect(FileManager.default.fileExists(atPath: orphanThumbnailURL.path(percentEncoded: false)) == false)
+    }
+
+    @Test func storeGeneratesUniqueThumbnailFileNamesForRepeatedDescriptorNames() throws {
+        let root = try Self.makeTemporaryRoot()
+        let fileStore = LocalFileStore(baseURL: root)
+        let settingsStore = try SettingsStore(
+            storageURL: root.appending(path: "Settings/settings.json")
+        )
+        let store = try ClipboardStore(fileStore: fileStore, settingsStore: settingsStore)
+
+        let first = try store.save(
+            ClipboardCapture(
+                contentType: .image,
+                previewText: "first",
+                contentHash: "first-unique-thumbnail",
+                capturedAt: Date(timeIntervalSince1970: 1),
+                sourceAppBundleID: nil,
+                sourceAppName: nil,
+                payload: .inline(
+                    data: Data([0x01]),
+                    pasteboardType: "public.png",
+                    suggestedFileExtension: "png"
+                ),
+                thumbnail: ClipboardThumbnailSnapshot(
+                    data: Data([0x31]),
+                    descriptor: ClipboardThumbnailDescriptor(
+                        fileName: "shared-name.png",
+                        pixelWidth: 80,
+                        pixelHeight: 80,
+                        kind: .imagePreview
+                    )
+                )
+            ),
+            maxItems: 10
+        )
+        let second = try store.save(
+            ClipboardCapture(
+                contentType: .image,
+                previewText: "second",
+                contentHash: "second-unique-thumbnail",
+                capturedAt: Date(timeIntervalSince1970: 2),
+                sourceAppBundleID: nil,
+                sourceAppName: nil,
+                payload: .inline(
+                    data: Data([0x02]),
+                    pasteboardType: "public.png",
+                    suggestedFileExtension: "png"
+                ),
+                thumbnail: ClipboardThumbnailSnapshot(
+                    data: Data([0x32]),
+                    descriptor: ClipboardThumbnailDescriptor(
+                        fileName: "shared-name.png",
+                        pixelWidth: 96,
+                        pixelHeight: 96,
+                        kind: .imagePreview
+                    )
+                )
+            ),
+            maxItems: 10
+        )
+
+        let firstFileName = try #require(first.last?.thumbnail?.fileName)
+        let secondFileName = try #require(second.first?.thumbnail?.fileName)
+
+        #expect(firstFileName != secondFileName)
+        #expect(FileManager.default.fileExists(atPath: fileStore.url(for: .clipboardThumbnails).appending(path: firstFileName).path(percentEncoded: false)))
+        #expect(FileManager.default.fileExists(atPath: fileStore.url(for: .clipboardThumbnails).appending(path: secondFileName).path(percentEncoded: false)))
+    }
+
     @Test func normalizerPrefersRichTextOverPlainTextFallback() throws {
         let normalizer = ClipboardNormalizer()
         let snapshot = ClipboardPasteboardSnapshot(
@@ -144,6 +486,144 @@ struct ClipboardModuleTests {
 
         #expect(capture.contentType == .richText)
         #expect(capture.previewText == "Hello")
+    }
+
+    @Test func normalizerConvertsHTMLOnlyClipboardIntoRTFPayload() throws {
+        let normalizer = ClipboardNormalizer()
+        let html = "<p><strong>Hello</strong> clipboard</p>"
+        let snapshot = ClipboardPasteboardSnapshot(
+            changeCount: 10,
+            availableTypes: ["public.html"],
+            dataByType: ["public.html": Data(html.utf8)],
+            fileURLs: []
+        )
+
+        let optionalCapture = try normalizer.normalize(snapshot: snapshot, sourceApp: nil)
+        let capture = try #require(optionalCapture)
+
+        #expect(capture.contentType == .richText)
+        #expect(capture.previewText == "Hello clipboard")
+
+        guard case let .inline(data, pasteboardType, suggestedFileExtension) = capture.payload else {
+            Issue.record("Expected inline rich text payload")
+            return
+        }
+
+        #expect(pasteboardType == "public.rtf")
+        #expect(suggestedFileExtension == "rtf")
+
+        let attributedString = try NSAttributedString(
+            data: data,
+            options: [.documentType: NSAttributedString.DocumentType.rtf],
+            documentAttributes: nil
+        )
+        #expect(attributedString.string.trimmingCharacters(in: .whitespacesAndNewlines) == "Hello clipboard")
+    }
+
+    @Test func normalizerDetectsFigmaGraphicFromHTMLRepresentations() throws {
+        let normalizer = ClipboardNormalizer()
+        let html = Data("<span data-meta=\"figma graphic\"></span>".utf8)
+        let token = Data("rfh-token".utf8)
+        let sourceURL = Data("https://www.figma.com/file/123".utf8)
+        let snapshot = ClipboardPasteboardSnapshot(
+            changeCount: 14,
+            availableTypes: [
+                "public.html",
+                "Apple HTML pasteboard type",
+                "org.chromium.internal.source-rfh-token",
+                "org.chromium.source-url",
+            ],
+            dataByType: [
+                "public.html": html,
+                "Apple HTML pasteboard type": html,
+                "org.chromium.internal.source-rfh-token": token,
+                "org.chromium.source-url": sourceURL,
+            ],
+            fileURLs: []
+        )
+
+        let optionalCapture = try normalizer.normalize(snapshot: snapshot, sourceApp: nil)
+        let capture = try #require(optionalCapture)
+
+        #expect(capture.contentType == .figmaGraphic)
+        #expect(capture.previewText == "Figma Graphic")
+
+        guard case let .figma(payload) = capture.payload else {
+            Issue.record("Expected figma payload")
+            return
+        }
+
+        #expect(payload.representations.map(\.pasteboardType) == snapshot.availableTypes)
+    }
+
+    @Test func normalizerDetectsFigmaTextWhenPlainTextRepresentationExists() throws {
+        let normalizer = ClipboardNormalizer()
+        let html = Data("<span data-meta=\"figma text\"></span>".utf8)
+        let plainText = Data("Button".utf8)
+        let token = Data("rfh-token".utf8)
+        let sourceURL = Data("https://www.figma.com/file/123".utf8)
+        let snapshot = ClipboardPasteboardSnapshot(
+            changeCount: 15,
+            availableTypes: [
+                "public.html",
+                "Apple HTML pasteboard type",
+                "public.utf8-plain-text",
+                "NSStringPboardType",
+                "org.chromium.internal.source-rfh-token",
+                "org.chromium.source-url",
+            ],
+            dataByType: [
+                "public.html": html,
+                "Apple HTML pasteboard type": html,
+                "public.utf8-plain-text": plainText,
+                "NSStringPboardType": plainText,
+                "org.chromium.internal.source-rfh-token": token,
+                "org.chromium.source-url": sourceURL,
+            ],
+            fileURLs: []
+        )
+
+        let optionalCapture = try normalizer.normalize(snapshot: snapshot, sourceApp: nil)
+        let capture = try #require(optionalCapture)
+
+        #expect(capture.contentType == .figmaText)
+        #expect(capture.previewText == "Button")
+
+        guard case let .figma(payload) = capture.payload else {
+            Issue.record("Expected figma payload")
+            return
+        }
+
+        #expect(payload.representations.map(\.pasteboardType) == snapshot.availableTypes)
+    }
+
+    @Test func normalizerDoesNotMisclassifyGenericChromiumHTMLAsFigma() throws {
+        let normalizer = ClipboardNormalizer()
+        let html = Data("<p>figma tips and tricks</p>".utf8)
+        let token = Data("rfh-token".utf8)
+        let sourceURL = Data("https://www.figma.com/blog".utf8)
+        let snapshot = ClipboardPasteboardSnapshot(
+            changeCount: 19,
+            availableTypes: [
+                "public.html",
+                "Apple HTML pasteboard type",
+                "org.chromium.internal.source-rfh-token",
+                "org.chromium.source-url",
+            ],
+            dataByType: [
+                "public.html": html,
+                "Apple HTML pasteboard type": html,
+                "org.chromium.internal.source-rfh-token": token,
+                "org.chromium.source-url": sourceURL,
+            ],
+            fileURLs: []
+        )
+
+        let optionalCapture = try normalizer.normalize(snapshot: snapshot, sourceApp: nil)
+        let capture = try #require(optionalCapture)
+
+        #expect(capture.contentType == .richText)
+        #expect(capture.previewText == "figma tips and tricks")
     }
 
     @Test func normalizerDetectsFilesAndDirectoriesFromFileURLs() throws {
@@ -171,6 +651,150 @@ struct ClipboardModuleTests {
 
         #expect(references.map(\.fileName) == ["a.txt", "folder"])
         #expect(references.map(\.isDirectory) == [false, true])
+    }
+
+    @Test func normalizerDetectsStandardSVGAndPreservesOriginalType() throws {
+        let normalizer = ClipboardNormalizer()
+        let svgData = Data(#"<svg xmlns="http://www.w3.org/2000/svg"><rect width="12" height="12"/></svg>"#.utf8)
+        let snapshot = ClipboardPasteboardSnapshot(
+            changeCount: 12,
+            availableTypes: ["public.svg-image"],
+            dataByType: ["public.svg-image": svgData],
+            fileURLs: []
+        )
+
+        let optionalCapture = try normalizer.normalize(snapshot: snapshot, sourceApp: nil)
+        let capture = try #require(optionalCapture)
+
+        #expect(capture.contentType == .svg)
+
+        guard case let .inline(data, pasteboardType, suggestedFileExtension) = capture.payload else {
+            Issue.record("Expected inline SVG payload")
+            return
+        }
+
+        #expect(data == svgData)
+        #expect(pasteboardType == "public.svg-image")
+        #expect(suggestedFileExtension == "svg")
+    }
+
+    @Test func normalizerPreservesOriginalImageRepresentation() throws {
+        let normalizer = ClipboardNormalizer()
+        let pngData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A])
+        let snapshot = ClipboardPasteboardSnapshot(
+            changeCount: 13,
+            availableTypes: ["public.png"],
+            dataByType: ["public.png": pngData],
+            fileURLs: []
+        )
+
+        let optionalCapture = try normalizer.normalize(snapshot: snapshot, sourceApp: nil)
+        let capture = try #require(optionalCapture)
+
+        #expect(capture.contentType == .image)
+
+        guard case let .inline(data, pasteboardType, suggestedFileExtension) = capture.payload else {
+            Issue.record("Expected inline image payload")
+            return
+        }
+
+        #expect(data == pngData)
+        #expect(pasteboardType == "public.png")
+        #expect(suggestedFileExtension == "png")
+    }
+
+    @Test func normalizerAttachesThumbnailSnapshotForInlineImage() throws {
+        let normalizer = ClipboardNormalizer()
+        let pngData = try #require(Self.makePNGData(size: NSSize(width: 8, height: 6)))
+        let snapshot = ClipboardPasteboardSnapshot(
+            changeCount: 16,
+            availableTypes: ["public.png"],
+            dataByType: ["public.png": pngData],
+            fileURLs: []
+        )
+
+        let optionalCapture = try normalizer.normalize(snapshot: snapshot, sourceApp: nil)
+        let capture = try #require(optionalCapture)
+        let thumbnail = try #require(capture.thumbnail)
+
+        #expect(capture.contentType == .image)
+        #expect(thumbnail.descriptor.kind == .imagePreview)
+        #expect(thumbnail.descriptor.fileName.hasSuffix(".png"))
+        #expect(thumbnail.descriptor.pixelWidth > 0)
+        #expect(thumbnail.descriptor.pixelHeight > 0)
+        #expect(thumbnail.data.isEmpty == false)
+    }
+
+    @Test func normalizerAttachesFileThumbnailSnapshotForFileReferences() throws {
+        let root = try Self.makeTemporaryRoot()
+        let fileURL = root.appending(path: "document.txt")
+        try Data("document".utf8).write(to: fileURL)
+        let normalizer = ClipboardNormalizer()
+        let snapshot = ClipboardPasteboardSnapshot(
+            changeCount: 17,
+            availableTypes: ["public.file-url"],
+            dataByType: [:],
+            fileURLs: [fileURL]
+        )
+
+        let optionalCapture = try normalizer.normalize(snapshot: snapshot, sourceApp: nil)
+        let capture = try #require(optionalCapture)
+        let thumbnail = try #require(capture.thumbnail)
+
+        #expect(capture.contentType == .file)
+        #expect(thumbnail.descriptor.kind == .filePreview)
+        #expect(thumbnail.descriptor.fileName.hasSuffix(".png"))
+        #expect(thumbnail.descriptor.pixelWidth > 0)
+        #expect(thumbnail.descriptor.pixelHeight > 0)
+        #expect(thumbnail.data.isEmpty == false)
+    }
+
+    @Test func normalizerAttachesImagePreviewThumbnailForImageFileReferences() throws {
+        let root = try Self.makeTemporaryRoot()
+        let fileURL = root.appending(path: "wide-image.png")
+        let imageData = try #require(Self.makePNGData(size: NSSize(width: 640, height: 320)))
+        try imageData.write(to: fileURL)
+        let normalizer = ClipboardNormalizer()
+        let snapshot = ClipboardPasteboardSnapshot(
+            changeCount: 20,
+            availableTypes: ["public.file-url"],
+            dataByType: [:],
+            fileURLs: [fileURL]
+        )
+
+        let optionalCapture = try normalizer.normalize(snapshot: snapshot, sourceApp: nil)
+        let capture = try #require(optionalCapture)
+        let thumbnail = try #require(capture.thumbnail)
+
+        #expect(capture.contentType == .file)
+        #expect(thumbnail.descriptor.kind == .imagePreview)
+        #expect(thumbnail.descriptor.pixelWidth >= 300)
+        #expect(thumbnail.descriptor.pixelHeight >= 150)
+        #expect(thumbnail.data.isEmpty == false)
+    }
+
+    @Test func normalizerAttachesFolderThumbnailSnapshotForFolderReferences() throws {
+        let root = try Self.makeTemporaryRoot()
+        let folderURL = root.appending(path: "folder", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
+        let normalizer = ClipboardNormalizer()
+        let snapshot = ClipboardPasteboardSnapshot(
+            changeCount: 18,
+            availableTypes: ["public.file-url"],
+            dataByType: [:],
+            fileURLs: [folderURL]
+        )
+
+        let optionalCapture = try normalizer.normalize(snapshot: snapshot, sourceApp: nil)
+        let capture = try #require(optionalCapture)
+        let thumbnail = try #require(capture.thumbnail)
+
+        #expect(capture.contentType == .file)
+        #expect(thumbnail.descriptor.kind == .folderPreview)
+        #expect(thumbnail.descriptor.fileName.hasSuffix(".png"))
+        #expect(thumbnail.descriptor.pixelWidth > 0)
+        #expect(thumbnail.descriptor.pixelHeight > 0)
+        #expect(thumbnail.data.isEmpty == false)
     }
 
     @Test func pasteExecutorWritesOriginalPlainTextTypeBackToPasteboard() throws {
@@ -203,6 +827,101 @@ struct ClipboardModuleTests {
 
         #expect(ticket.contentHash == "plain-hash")
         #expect(pasteboard.lastWrittenTypes == ["public.utf8-plain-text"])
+    }
+
+    @Test func pasteExecutorWritesAllStoredFigmaRepresentationsBackToPasteboard() throws {
+        let root = try Self.makeTemporaryRoot()
+        let fileStore = LocalFileStore(baseURL: root)
+        let settingsStore = try SettingsStore(
+            storageURL: root.appending(path: "Settings/settings.json")
+        )
+        let store = try ClipboardStore(fileStore: fileStore, settingsStore: settingsStore)
+        let history = try store.save(
+            ClipboardCapture(
+                contentType: .figmaText,
+                previewText: "Button",
+                contentHash: "figma-text-hash",
+                capturedAt: Date(),
+                sourceAppBundleID: "com.figma.Desktop",
+                sourceAppName: "Figma",
+                payload: .figma(
+                    ClipboardFigmaPayload(
+                        representations: [
+                            ClipboardInlineRepresentation(
+                                data: Data("<span data-meta=\"figma text\"></span>".utf8),
+                                pasteboardType: "public.html",
+                                suggestedFileExtension: "html"
+                            ),
+                            ClipboardInlineRepresentation(
+                                data: Data("Button".utf8),
+                                pasteboardType: "public.utf8-plain-text",
+                                suggestedFileExtension: "txt"
+                            ),
+                            ClipboardInlineRepresentation(
+                                data: Data("rfh-token".utf8),
+                                pasteboardType: "org.chromium.internal.source-rfh-token",
+                                suggestedFileExtension: nil
+                            ),
+                        ]
+                    )
+                )
+            ),
+            maxItems: 10
+        )
+        let reloaded = try store.loadHistory()
+        let pasteboard = RecordingClipboardPasteboardClient()
+        let executor = PasteExecutor(store: store, pasteboardClient: pasteboard)
+
+        let ticket = try executor.write(item: reloaded[0])
+
+        #expect(ticket.contentHash == "figma-text-hash")
+        #expect(pasteboard.lastWrittenTypes == [
+            "public.html",
+            "public.utf8-plain-text",
+            "org.chromium.internal.source-rfh-token",
+        ])
+        #expect(history.count == 1)
+    }
+
+    @Test func pasteExecutorFailsWhenFileReferenceTargetIsMissing() throws {
+        let root = try Self.makeTemporaryRoot()
+        let fileURL = root.appending(path: "missing.txt")
+        try Data("gone".utf8).write(to: fileURL)
+        let bookmark = try fileURL.bookmarkData(
+            options: .minimalBookmark,
+            includingResourceValuesForKeys: nil,
+            relativeTo: nil
+        )
+        try FileManager.default.removeItem(at: fileURL)
+
+        let item = ClipboardHistoryItem(
+            id: UUID(),
+            contentType: .file,
+            previewText: "missing.txt",
+            contentHash: "missing-file-hash",
+            copiedAt: Date(),
+            sourceAppBundleID: nil,
+            sourceAppName: nil,
+            payload: .fileReferences([
+                ClipboardFileReference(
+                    fileName: "missing.txt",
+                    isDirectory: false,
+                    bookmarkData: bookmark
+                )
+            ])
+        )
+        let store = try Self.makeClipboardStoreForTests(root: root)
+        _ = try store.replaceHistory([item])
+        let pasteboard = RecordingClipboardPasteboardClient()
+        let executor = PasteExecutor(store: store, pasteboardClient: pasteboard)
+
+        do {
+            _ = try executor.write(item: item)
+            Issue.record("Expected paste executor to fail for a missing file reference")
+        } catch let error as NSError {
+            #expect(error.domain == NSCocoaErrorDomain)
+            #expect(error.code == NSFileNoSuchFileError)
+        }
     }
 
     @Test func cleanupServiceRemovesExpiredItemsAndPayloadFiles() throws {
@@ -240,6 +959,9 @@ struct ClipboardModuleTests {
         switch history[0].payload {
         case let .inline(fileName, _, _):
             payloadURL = fileStore.url(for: .clipboardPayloads).appending(path: fileName)
+        case .figma:
+            Issue.record("Expected inline payload")
+            return
         case .fileReferences:
             Issue.record("Expected inline payload")
             return
@@ -253,12 +975,540 @@ struct ClipboardModuleTests {
         #expect(FileManager.default.fileExists(atPath: payloadURL.path(percentEncoded: false)) == false)
     }
 
+    @Test func clipboardCoreStartsAndStopsPollingWithEnergyModes() throws {
+        let core = try Self.makeClipboardCoreForRuntimeTests()
+
+        core.energyModeDidChange(.backgroundCore)
+        #expect(core.isPolling == true)
+
+        core.energyModeDidChange(.suspended)
+        #expect(core.isPolling == false)
+    }
+
+    @Test func viewModelProjectsEmptyStateWhenHistoryIsMissing() throws {
+        let core = try Self.makeClipboardCoreForRuntimeTests(initialHistory: [])
+        let viewModel = ClipboardViewModel(core: core)
+
+        viewModel.refresh()
+
+        #expect(viewModel.isEmpty == true)
+        #expect(viewModel.cards.isEmpty)
+    }
+
+    @Test func viewModelProjectsLatestItemsIntoCardsWithoutCollapsingPanel() throws {
+        let core = try Self.makeClipboardCoreForRuntimeTests(
+            initialHistory: [
+                ClipboardHistoryItem(
+                    id: UUID(),
+                    contentType: .plainText,
+                    previewText: "alpha",
+                    contentHash: "alpha-hash",
+                    copiedAt: Date(timeIntervalSince1970: 20),
+                    sourceAppBundleID: "com.apple.TextEdit",
+                    sourceAppName: "TextEdit",
+                    payload: .inline(
+                        fileName: "alpha.payload",
+                        pasteboardType: "public.utf8-plain-text",
+                        suggestedFileExtension: "txt"
+                    )
+                )
+            ]
+        )
+        let viewModel = ClipboardViewModel(core: core)
+
+        viewModel.refresh()
+
+        #expect(viewModel.cards.count == 1)
+        #expect(viewModel.cards[0].previewText == "alpha")
+        #expect(viewModel.cards[0].previewState == .textOnly)
+        #expect(viewModel.lastPasteError == nil)
+    }
+
+    @Test func viewModelProjectsMissingReferenceBadgeState() throws {
+        let root = try Self.makeTemporaryRoot()
+        let fileStore = LocalFileStore(baseURL: root)
+        let missingReference = try Self.makeMissingReference(named: "missing-file.txt", in: root)
+        let thumbnailURL = try Self.writeThumbnailFile(
+            named: "missing-file-thumbnail.png",
+            fileStore: fileStore
+        )
+        let item = ClipboardHistoryItem(
+            id: UUID(),
+            contentType: .file,
+            previewText: "missing-file.txt",
+            contentHash: "missing-reference-hash",
+            copiedAt: Date(timeIntervalSince1970: 30),
+            sourceAppBundleID: nil,
+            sourceAppName: "Finder",
+            payload: .fileReferences([missingReference]),
+            thumbnail: ClipboardThumbnailDescriptor(
+                fileName: thumbnailURL.lastPathComponent,
+                pixelWidth: 96,
+                pixelHeight: 96,
+                kind: .filePreview
+            )
+        )
+        let core = try Self.makeClipboardCoreForRuntimeTests(
+            initialHistory: [item],
+            root: root
+        )
+        let viewModel = ClipboardViewModel(core: core, localFileStore: fileStore)
+
+        viewModel.refresh()
+
+        let card = try #require(viewModel.cards.first)
+        let thumbnail: ClipboardCardThumbnail
+        switch card.previewState {
+        case let .thumbnailWithMissingReference(projectedThumbnail):
+            thumbnail = projectedThumbnail
+        default:
+            Issue.record("Expected thumbnailWithMissingReference preview state")
+            return
+        }
+
+        #expect(viewModel.cards.count == 1)
+        #expect(thumbnail.url == thumbnailURL)
+        #expect(thumbnail.kind == ClipboardThumbnailKind.filePreview)
+        #expect(card.isPastebackSupported)
+    }
+
+    @Test func viewModelProjectsMissingReferencePlaceholderWhenThumbnailFileIsMissing() throws {
+        let root = try Self.makeTemporaryRoot()
+        let fileStore = LocalFileStore(baseURL: root)
+        let missingReference = try Self.makeMissingReference(named: "missing-folder", in: root)
+        let item = ClipboardHistoryItem(
+            id: UUID(),
+            contentType: .file,
+            previewText: "missing-folder",
+            contentHash: "missing-placeholder-hash",
+            copiedAt: Date(timeIntervalSince1970: 40),
+            sourceAppBundleID: nil,
+            sourceAppName: "Finder",
+            payload: .fileReferences([missingReference]),
+            thumbnail: ClipboardThumbnailDescriptor(
+                fileName: "missing-folder-thumbnail.png",
+                pixelWidth: 96,
+                pixelHeight: 96,
+                kind: .folderPreview
+            )
+        )
+        let core = try Self.makeClipboardCoreForRuntimeTests(
+            initialHistory: [item],
+            root: root
+        )
+        let viewModel = ClipboardViewModel(core: core, localFileStore: fileStore)
+
+        viewModel.refresh()
+
+        #expect(viewModel.cards.count == 1)
+        #expect(viewModel.cards[0].previewState == ClipboardCardPreviewState.missingReferencePlaceholder)
+        #expect(viewModel.cards[0].isPastebackSupported)
+    }
+
+    @Test func viewModelProjectsThumbnailStateForInlineImageHistory() throws {
+        let root = try Self.makeTemporaryRoot()
+        let fileStore = LocalFileStore(baseURL: root)
+        let thumbnailURL = try Self.writeThumbnailFile(
+            named: "inline-image-thumbnail.png",
+            fileStore: fileStore
+        )
+        let item = ClipboardHistoryItem(
+            id: UUID(),
+            contentType: .image,
+            previewText: "Screenshot",
+            contentHash: "inline-image-hash",
+            copiedAt: Date(timeIntervalSince1970: 50),
+            sourceAppBundleID: nil,
+            sourceAppName: "Preview",
+            payload: .inline(
+                fileName: "inline-image.payload",
+                pasteboardType: "public.png",
+                suggestedFileExtension: "png"
+            ),
+            thumbnail: ClipboardThumbnailDescriptor(
+                fileName: thumbnailURL.lastPathComponent,
+                pixelWidth: 128,
+                pixelHeight: 72,
+                kind: .imagePreview
+            )
+        )
+        let core = try Self.makeClipboardCoreForRuntimeTests(
+            initialHistory: [item],
+            root: root
+        )
+        let viewModel = ClipboardViewModel(core: core, localFileStore: fileStore)
+
+        viewModel.refresh()
+
+        let card = try #require(viewModel.cards.first)
+        let thumbnail: ClipboardCardThumbnail
+        switch card.previewState {
+        case let .thumbnail(projectedThumbnail):
+            thumbnail = projectedThumbnail
+        default:
+            Issue.record("Expected thumbnail preview state")
+            return
+        }
+
+        #expect(viewModel.cards.count == 1)
+        #expect(thumbnail.url == thumbnailURL)
+        #expect(thumbnail.kind == ClipboardThumbnailKind.imagePreview)
+        #expect(card.isPastebackSupported)
+    }
+
+    @Test func viewModelPasteSurfacesMissingReferenceErrorForQuestionMarkCards() throws {
+        let root = try Self.makeTemporaryRoot()
+        let fileStore = LocalFileStore(baseURL: root)
+        let missingReference = try Self.makeMissingReference(named: "missing-paste.txt", in: root)
+        let thumbnailURL = try Self.writeThumbnailFile(
+            named: "missing-paste-thumbnail.png",
+            fileStore: fileStore
+        )
+        let item = ClipboardHistoryItem(
+            id: UUID(),
+            contentType: .file,
+            previewText: "missing-paste.txt",
+            contentHash: "missing-paste-hash",
+            copiedAt: Date(timeIntervalSince1970: 60),
+            sourceAppBundleID: nil,
+            sourceAppName: "Finder",
+            payload: .fileReferences([missingReference]),
+            thumbnail: ClipboardThumbnailDescriptor(
+                fileName: thumbnailURL.lastPathComponent,
+                pixelWidth: 96,
+                pixelHeight: 96,
+                kind: .filePreview
+            )
+        )
+        let core = try Self.makeClipboardCoreForRuntimeTests(
+            initialHistory: [item],
+            root: root
+        )
+        let viewModel = ClipboardViewModel(core: core, localFileStore: fileStore)
+        var callbackCount = 0
+
+        viewModel.refresh()
+        viewModel.paste(itemID: item.id) {
+            callbackCount += 1
+        }
+
+        #expect(callbackCount == 0)
+        #expect(viewModel.lastPasteError == "原文件已不存在，无法重新放回剪贴板。")
+        #expect(viewModel.cards.first?.isPastebackSupported == true)
+    }
+
+    @Test func clipboardCorePastePromotesSelectedHistoryItemToFront() throws {
+        let root = try Self.makeTemporaryRoot()
+        let fileStore = LocalFileStore(baseURL: root)
+        let settingsStore = try SettingsStore(
+            storageURL: root.appending(path: "Settings/settings.json")
+        )
+        let store = try ClipboardStore(fileStore: fileStore, settingsStore: settingsStore)
+        let firstHistory = try store.save(
+            ClipboardCapture(
+                contentType: .plainText,
+                previewText: "first",
+                contentHash: "first-hash",
+                capturedAt: Date(timeIntervalSince1970: 10),
+                sourceAppBundleID: nil,
+                sourceAppName: nil,
+                payload: .inline(
+                    data: Data("first".utf8),
+                    pasteboardType: "public.utf8-plain-text",
+                    suggestedFileExtension: "txt"
+                )
+            ),
+            maxItems: 10
+        )
+        let secondHistory = try store.save(
+            ClipboardCapture(
+                contentType: .plainText,
+                previewText: "second",
+                contentHash: "second-hash",
+                capturedAt: Date(timeIntervalSince1970: 20),
+                sourceAppBundleID: nil,
+                sourceAppName: nil,
+                payload: .inline(
+                    data: Data("second".utf8),
+                    pasteboardType: "public.utf8-plain-text",
+                    suggestedFileExtension: "txt"
+                )
+            ),
+            maxItems: 10
+        )
+        let originalFirstItem = try #require(firstHistory.first)
+        let targetItem = try #require(
+            secondHistory.first(where: { $0.contentHash == "first-hash" })
+        )
+        let pasteboard = RecordingClipboardPasteboardClient()
+        let cleanup = ClipboardCleanupService(
+            store: store,
+            settingsStore: settingsStore,
+            scheduler: CleanupScheduler()
+        )
+        let executor = PasteExecutor(store: store, pasteboardClient: pasteboard)
+        let core = try ClipboardCore(
+            pasteboardClient: pasteboard,
+            sourceApplicationProvider: StubClipboardSourceApplicationProvider(),
+            normalizer: ClipboardNormalizer(),
+            store: store,
+            settingsStore: settingsStore,
+            cleanupService: cleanup,
+            pasteExecutor: executor
+        )
+        let promotedBefore = Date()
+
+        try core.paste(item: targetItem)
+
+        #expect(core.history.first?.id == originalFirstItem.id)
+        #expect(core.history.first?.contentHash == "first-hash")
+        #expect(core.history.dropFirst().first?.contentHash == "second-hash")
+        #expect(core.history.first?.copiedAt ?? .distantPast >= promotedBefore)
+    }
+
+    @Test func viewModelPasteInvokesSuccessCallbackAndPromotesSelectedItem() throws {
+        let root = try Self.makeTemporaryRoot()
+        let fileStore = LocalFileStore(baseURL: root)
+        let settingsStore = try SettingsStore(
+            storageURL: root.appending(path: "Settings/settings.json")
+        )
+        let store = try ClipboardStore(fileStore: fileStore, settingsStore: settingsStore)
+        _ = try store.save(
+            ClipboardCapture(
+                contentType: .plainText,
+                previewText: "first",
+                contentHash: "first-hash",
+                capturedAt: Date(timeIntervalSince1970: 10),
+                sourceAppBundleID: nil,
+                sourceAppName: nil,
+                payload: .inline(
+                    data: Data("first".utf8),
+                    pasteboardType: "public.utf8-plain-text",
+                    suggestedFileExtension: "txt"
+                )
+            ),
+            maxItems: 10
+        )
+        let history = try store.save(
+            ClipboardCapture(
+                contentType: .plainText,
+                previewText: "second",
+                contentHash: "second-hash",
+                capturedAt: Date(timeIntervalSince1970: 20),
+                sourceAppBundleID: nil,
+                sourceAppName: nil,
+                payload: .inline(
+                    data: Data("second".utf8),
+                    pasteboardType: "public.utf8-plain-text",
+                    suggestedFileExtension: "txt"
+                )
+            ),
+            maxItems: 10
+        )
+        let targetItem = try #require(history.first(where: { $0.contentHash == "first-hash" }))
+        let pasteboard = RecordingClipboardPasteboardClient()
+        let cleanup = ClipboardCleanupService(
+            store: store,
+            settingsStore: settingsStore,
+            scheduler: CleanupScheduler()
+        )
+        let executor = PasteExecutor(store: store, pasteboardClient: pasteboard)
+        let core = try ClipboardCore(
+            pasteboardClient: pasteboard,
+            sourceApplicationProvider: StubClipboardSourceApplicationProvider(),
+            normalizer: ClipboardNormalizer(),
+            store: store,
+            settingsStore: settingsStore,
+            cleanupService: cleanup,
+            pasteExecutor: executor
+        )
+        let viewModel = ClipboardViewModel(core: core)
+        var callbackCount = 0
+
+        viewModel.refresh()
+        viewModel.paste(itemID: targetItem.id) {
+            callbackCount += 1
+        }
+
+        #expect(callbackCount == 1)
+        #expect(viewModel.lastPasteError == nil)
+        #expect(viewModel.cards.map(\.previewText) == ["first", "second"])
+        #expect(viewModel.cards.first?.id == targetItem.id)
+    }
+
+    @Test func viewModelPasteSetsExplicitErrorWhenItemIsMissing() throws {
+        let core = try Self.makeClipboardCoreForRuntimeTests()
+        let viewModel = ClipboardViewModel(core: core)
+        var callbackCount = 0
+
+        viewModel.refresh()
+        viewModel.paste(itemID: UUID()) {
+            callbackCount += 1
+        }
+
+        #expect(callbackCount == 0)
+        #expect(viewModel.lastPasteError == "该候选内容已不可用，请重新复制后再试。")
+        #expect(viewModel.isEmpty)
+    }
+
+    @Test func viewModelPasteSetsFriendlyErrorWhenPastebackFails() throws {
+        let root = try Self.makeTemporaryRoot()
+        let fileStore = LocalFileStore(baseURL: root)
+        let settingsStore = try SettingsStore(
+            storageURL: root.appending(path: "Settings/settings.json")
+        )
+        let store = try ClipboardStore(fileStore: fileStore, settingsStore: settingsStore)
+        let history = try store.save(
+            ClipboardCapture(
+                contentType: .plainText,
+                previewText: "alpha",
+                contentHash: "alpha-hash",
+                capturedAt: Date(timeIntervalSince1970: 10),
+                sourceAppBundleID: nil,
+                sourceAppName: nil,
+                payload: .inline(
+                    data: Data("alpha".utf8),
+                    pasteboardType: "public.utf8-plain-text",
+                    suggestedFileExtension: "txt"
+                )
+            ),
+            maxItems: 10
+        )
+        let targetItem = try #require(history.first)
+        let pasteboard = FailingClipboardPasteboardClient(
+            writeError: NSError(domain: "ClipboardModuleTests", code: 7)
+        )
+        let cleanup = ClipboardCleanupService(
+            store: store,
+            settingsStore: settingsStore,
+            scheduler: CleanupScheduler()
+        )
+        let executor = PasteExecutor(store: store, pasteboardClient: pasteboard)
+        let core = try ClipboardCore(
+            pasteboardClient: pasteboard,
+            sourceApplicationProvider: StubClipboardSourceApplicationProvider(),
+            normalizer: ClipboardNormalizer(),
+            store: store,
+            settingsStore: settingsStore,
+            cleanupService: cleanup,
+            pasteExecutor: executor
+        )
+        let viewModel = ClipboardViewModel(core: core)
+        var callbackCount = 0
+
+        viewModel.refresh()
+        viewModel.paste(itemID: targetItem.id) {
+            callbackCount += 1
+        }
+
+        #expect(callbackCount == 0)
+        #expect(viewModel.lastPasteError == "放回剪贴板失败，请重试。")
+        #expect(viewModel.cards.map(\.previewText) == ["alpha"])
+    }
+
+    @Test func clipboardSettingsViewModelPersistsMaxItemsAndCleanupPolicy() throws {
+        let root = try Self.makeTemporaryRoot()
+        let settingsStore = try SettingsStore(
+            storageURL: root.appending(path: "Settings/settings.json")
+        )
+        let viewModel = ClipboardSettingsViewModel(settingsStore: settingsStore)
+
+        try viewModel.updateMaxItems(50)
+        try viewModel.updateCleanupPolicy(.weekly)
+
+        #expect(settingsStore.settings.clipboardMaxItems == 50)
+        #expect(settingsStore.settings.clipboardAutoCleanupPolicy == .weekly)
+    }
+
     private static func makeTemporaryRoot() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appending(path: "ClipboardModuleTests")
             .appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    private static func makeClipboardStoreForTests(root: URL) throws -> ClipboardStore {
+        let fileStore = LocalFileStore(baseURL: root)
+        let settingsStore = try SettingsStore(
+            storageURL: root.appending(path: "Settings/settings.json")
+        )
+        return try ClipboardStore(fileStore: fileStore, settingsStore: settingsStore)
+    }
+
+    private static func makePNGData(size: NSSize) -> Data? {
+        let image = NSImage(size: size)
+        image.lockFocus()
+        NSColor.systemBlue.setFill()
+        NSBezierPath(rect: NSRect(origin: .zero, size: size)).fill()
+        image.unlockFocus()
+
+        guard
+            let tiffData = image.tiffRepresentation,
+            let representation = NSBitmapImageRep(data: tiffData)
+        else {
+            return nil
+        }
+
+        return representation.representation(using: .png, properties: [:])
+    }
+
+    private static func makeClipboardCoreForRuntimeTests(
+        initialHistory: [ClipboardHistoryItem] = [],
+        root: URL? = nil
+    ) throws -> ClipboardCore {
+        let root = try root ?? makeTemporaryRoot()
+        let store = try makeClipboardStoreForTests(root: root)
+        let settingsStore = try SettingsStore(
+            storageURL: root.appending(path: "Settings/settings.json")
+        )
+        _ = try store.replaceHistory(initialHistory)
+        let pasteboard = RecordingClipboardPasteboardClient()
+        let cleanup = ClipboardCleanupService(
+            store: store,
+            settingsStore: settingsStore,
+            scheduler: CleanupScheduler()
+        )
+        let executor = PasteExecutor(store: store, pasteboardClient: pasteboard)
+
+        return try ClipboardCore(
+            pasteboardClient: pasteboard,
+            sourceApplicationProvider: StubClipboardSourceApplicationProvider(),
+            normalizer: ClipboardNormalizer(),
+            store: store,
+            settingsStore: settingsStore,
+            cleanupService: cleanup,
+            pasteExecutor: executor
+        )
+    }
+
+    private static func makeMissingReference(named name: String, in root: URL) throws -> ClipboardFileReference {
+        let fileURL = root.appending(path: name)
+        try Data(name.utf8).write(to: fileURL)
+        let bookmarkData = try fileURL.bookmarkData(
+            options: .minimalBookmark,
+            includingResourceValuesForKeys: nil,
+            relativeTo: nil
+        )
+        try FileManager.default.removeItem(at: fileURL)
+
+        return ClipboardFileReference(
+            fileName: name,
+            isDirectory: false,
+            bookmarkData: bookmarkData
+        )
+    }
+
+    @discardableResult
+    private static func writeThumbnailFile(
+        named fileName: String,
+        fileStore: LocalFileStore
+    ) throws -> URL {
+        let directoryURL = try fileStore.prepareDirectory(.clipboardThumbnails)
+        let thumbnailURL = directoryURL.appending(path: fileName)
+        let data = try #require(makePNGData(size: NSSize(width: 32, height: 24)))
+        try data.write(to: thumbnailURL, options: [.atomic])
+        return thumbnailURL
     }
 }
 
@@ -281,5 +1531,34 @@ private final class RecordingClipboardPasteboardClient: ClipboardPasteboardClien
             item.types.map(\.rawValue)
         }
         changeCount += 1
+    }
+}
+
+@MainActor
+private final class FailingClipboardPasteboardClient: ClipboardPasteboardClient {
+    let writeError: Error
+    var changeCount: Int = 0
+
+    init(writeError: Error) {
+        self.writeError = writeError
+    }
+
+    func snapshot() -> ClipboardPasteboardSnapshot {
+        ClipboardPasteboardSnapshot(
+            changeCount: changeCount,
+            availableTypes: [],
+            dataByType: [:],
+            fileURLs: []
+        )
+    }
+
+    func write(items: [NSPasteboardItem]) throws {
+        throw writeError
+    }
+}
+
+private struct StubClipboardSourceApplicationProvider: ClipboardSourceApplicationProviding {
+    func currentSourceApplication() -> ClipboardSourceApplication? {
+        nil
     }
 }

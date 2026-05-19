@@ -68,7 +68,12 @@ struct OverlayPanelRootView: View {
             .padding(.horizontal, 18)
             .padding(.top, 14)
 
-            ContentHostView(compositionRoot: compositionRoot)
+            ContentHostView(
+                compositionRoot: compositionRoot,
+                onClipboardPasteSuccess: {
+                    interactions.collapse(screenID: panelModel.screenID)
+                }
+            )
                 .foregroundStyle(.white.opacity(0.9))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

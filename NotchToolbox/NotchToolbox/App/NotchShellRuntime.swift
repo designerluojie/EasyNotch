@@ -32,7 +32,8 @@ final class NotchShellRuntime: NSObject {
             topologyProvider: topologyProvider,
             panelPresenter: panelPresenter,
             primaryScreenID: primaryScreenID,
-            simulateNotchOnNonNotchScreen: simulateNotchOnNonNotchScreen
+            simulateNotchOnNonNotchScreen: simulateNotchOnNonNotchScreen,
+            lifecycleDispatcher: compositionRoot.moduleLifecycleDispatcher
         )
         super.init()
     }
@@ -93,11 +94,14 @@ final class NotchShellRuntime: NSObject {
 
             coordinator.expand(moduleID: compositionRoot.activeModule, onScreenID: nil)
         }
+        compositionRoot.moduleLifecycleDispatcher.broadcast(.appDidLaunch)
         appLifecycleObserver.willSleep = { [weak self] in
+            self?.compositionRoot.moduleLifecycleDispatcher.broadcast(.appWillSleep)
             self?.compositionRoot.energyGovernor.suspendForSleep()
         }
         appLifecycleObserver.didWake = { [weak self] in
             self?.compositionRoot.energyGovernor.resumeAfterWake()
+            self?.compositionRoot.moduleLifecycleDispatcher.broadcast(.appDidWake)
         }
         appLifecycleObserver.start()
         NotificationCenter.default.addObserver(

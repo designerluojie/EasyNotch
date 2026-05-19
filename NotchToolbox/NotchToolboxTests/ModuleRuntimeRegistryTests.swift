@@ -24,6 +24,13 @@ struct ModuleRuntimeRegistryTests {
         #expect(musicRuntime.events.isEmpty)
         #expect(clipboardRuntime.events == [.moduleDidAppear])
     }
+
+    @Test func defaultRegistryAcceptsClipboardOverride() throws {
+        let clipboardRuntime = RegistrySpyModuleRuntime(id: .clipboard, energyPolicy: .clipboard)
+        let registry = ModuleRuntimeRegistry.defaultRegistry(overrides: [clipboardRuntime])
+
+        #expect(try #require(registry.runtime(for: .clipboard) as? RegistrySpyModuleRuntime) === clipboardRuntime)
+    }
 }
 
 @MainActor

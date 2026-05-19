@@ -1,4 +1,5 @@
 import CoreGraphics
+import AppKit
 import Testing
 @testable import NotchToolbox
 
@@ -30,6 +31,33 @@ struct NotchShellRuntimeTests {
         #expect(presenter.presentations[0].state == .idle(screenID: "built-in"))
         #expect(presenter.presentations[1].state == .expanded(screenID: "built-in", moduleID: .music))
         #expect(presenter.presentations[2].state == .idle(screenID: "built-in"))
+    }
+
+    @Test func appLifecycleNotificationsDriveClipboardPolling() async throws {
+        let compositionRoot = AppCompositionRoot(activeModule: .music, initialScreenID: "built-in")
+        let interactions = OverlayPanelInteractions()
+        let presenter = RuntimeSpyOverlayPanelPresenter()
+        let runtime = NotchShellRuntime(
+            compositionRoot: compositionRoot,
+            interactions: interactions,
+            topologyProvider: RuntimeStubDisplayTopologyProvider(snapshots: [
+                Self.notchSnapshot(id: "built-in")
+            ]),
+            panelPresenter: presenter,
+            primaryScreenID: "built-in",
+            simulateNotchOnNonNotchScreen: true
+        )
+
+        runtime.start()
+        #expect(compositionRoot.clipboardCore.isPolling == true)
+
+        NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.willSleepNotification, object: nil)
+        await Task.yield()
+        #expect(compositionRoot.clipboardCore.isPolling == false)
+
+        NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.didWakeNotification, object: nil)
+        await Task.yield()
+        #expect(compositionRoot.clipboardCore.isPolling == true)
     }
 
     private static func notchSnapshot(id: String) -> ScreenSnapshot {

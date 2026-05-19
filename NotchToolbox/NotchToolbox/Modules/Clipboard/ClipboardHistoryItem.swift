@@ -2,6 +2,7 @@ import Foundation
 
 enum ClipboardPayloadDescriptor: Codable, Equatable {
     case inline(fileName: String, pasteboardType: String, suggestedFileExtension: String?)
+    case figma([ClipboardStoredRepresentationDescriptor])
     case fileReferences([ClipboardFileReference])
 
     private enum CodingKeys: String, CodingKey {
@@ -9,11 +10,13 @@ enum ClipboardPayloadDescriptor: Codable, Equatable {
         case fileName
         case pasteboardType
         case suggestedFileExtension
+        case representations
         case fileReferences
     }
 
     private enum Kind: String, Codable {
         case inline
+        case figma
         case fileReferences
     }
 
@@ -27,6 +30,13 @@ enum ClipboardPayloadDescriptor: Codable, Equatable {
                 suggestedFileExtension: try container.decodeIfPresent(
                     String.self,
                     forKey: .suggestedFileExtension
+                )
+            )
+        case .figma:
+            self = .figma(
+                try container.decode(
+                    [ClipboardStoredRepresentationDescriptor].self,
+                    forKey: .representations
                 )
             )
         case .fileReferences:
@@ -47,6 +57,9 @@ enum ClipboardPayloadDescriptor: Codable, Equatable {
                 suggestedFileExtension,
                 forKey: .suggestedFileExtension
             )
+        case let .figma(representations):
+            try container.encode(Kind.figma, forKey: .kind)
+            try container.encode(representations, forKey: .representations)
         case let .fileReferences(fileReferences):
             try container.encode(Kind.fileReferences, forKey: .kind)
             try container.encode(fileReferences, forKey: .fileReferences)
@@ -63,4 +76,5 @@ struct ClipboardHistoryItem: Codable, Equatable, Identifiable {
     var sourceAppBundleID: String?
     var sourceAppName: String?
     var payload: ClipboardPayloadDescriptor
+    var thumbnail: ClipboardThumbnailDescriptor?
 }

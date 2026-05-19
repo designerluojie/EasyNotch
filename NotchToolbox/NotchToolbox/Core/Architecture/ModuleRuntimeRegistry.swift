@@ -12,10 +12,15 @@ final class ModuleRuntimeRegistry {
         self.runtimesByID = runtimesByID
     }
 
-    static func defaultRegistry() -> ModuleRuntimeRegistry {
-        ModuleRuntimeRegistry(
+    static func defaultRegistry(overrides: [any NotchModuleRuntime] = []) -> ModuleRuntimeRegistry {
+        let overridesByID = Dictionary(uniqueKeysWithValues: overrides.map { ($0.id, $0) })
+        return ModuleRuntimeRegistry(
             runtimes: NotchModuleID.allCases.map { moduleID in
-                DefaultNotchModuleRuntime(id: moduleID, energyPolicy: .defaultPolicy(for: moduleID))
+                overridesByID[moduleID]
+                    ?? DefaultNotchModuleRuntime(
+                        id: moduleID,
+                        energyPolicy: .defaultPolicy(for: moduleID)
+                    )
             }
         )
     }
