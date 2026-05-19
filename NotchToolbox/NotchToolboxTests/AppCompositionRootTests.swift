@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Testing
 @testable import NotchToolbox
@@ -80,5 +81,40 @@ struct AppCompositionRootTests {
         governor.applyOverlayState(.expanded(screenID: "main", moduleID: .music))
 
         #expect(compositionRoot.musicRuntime.pollSchedule == .expandedVisible)
+    }
+
+    @Test func compositionRootForwardsMusicRuntimeChanges() {
+        let runtime = MusicModuleRuntime(initialState: .empty(players: MusicPlayerCapability.v1Targets))
+        let compositionRoot = AppCompositionRoot(musicRuntime: runtime)
+        var forwardedChangeCount = 0
+        let cancellable = compositionRoot.objectWillChange.sink {
+            forwardedChangeCount += 1
+        }
+
+        runtime.updateModuleState(
+            .playing(
+                MusicPlaybackSession(
+                    snapshot: MusicPlayerSnapshot(
+                        bundleID: MusicPlayerCapability.neteaseMusic.bundleID,
+                        displayName: MusicPlayerCapability.neteaseMusic.displayName,
+                        isRunning: true,
+                        playbackState: .playing,
+                        trackKey: "netease-track",
+                        title: "遗忘",
+                        artist: "庆庆",
+                        artworkData: nil,
+                        duration: 266,
+                        elapsedTime: 0,
+                        capability: .neteaseMusic,
+                        permissionRequirement: nil,
+                        source: .nowPlayingCLI,
+                        capturedAt: Date(timeIntervalSince1970: 1_700_000_000)
+                    )
+                )
+            )
+        )
+
+        #expect(forwardedChangeCount > 0)
+        withExtendedLifetime(cancellable) {}
     }
 }

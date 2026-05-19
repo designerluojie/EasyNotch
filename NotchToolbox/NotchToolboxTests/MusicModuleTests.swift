@@ -217,6 +217,44 @@ struct MusicModuleTests {
     }
 
     @MainActor
+    @Test func runtimeBeginsBackgroundRefreshBeforeFirstExpansion() async {
+        let runtime = MusicModuleRuntime(
+            snapshotProvider: SequencedSnapshotProviderStub(
+                snapshots: [
+                    makeVerifiedSnapshot(
+                        bundleID: MusicPlayerCapability.neteaseMusic.bundleID,
+                        displayName: MusicPlayerCapability.neteaseMusic.displayName,
+                        capability: .neteaseMusic,
+                        title: "一本书",
+                        artist: "庆庆",
+                        duration: 281
+                    )
+                ]
+            ),
+            pollSleep: { _ in throw CancellationError() }
+        )
+
+        let deadline = Date().addingTimeInterval(1.0)
+        while Date() < deadline {
+            if case .playing = runtime.moduleState {
+                break
+            }
+
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        guard case .playing(let session) = runtime.moduleState else {
+            Issue.record("Expected background polling to publish playback before expansion, got \(runtime.moduleState)")
+            return
+        }
+
+        #expect(session.bundleID == MusicPlayerCapability.neteaseMusic.bundleID)
+        #expect(session.title == "一本书")
+        #expect(runtime.collapsedSummary?.displayName == "网易云音乐")
+        #expect(runtime.collapsedSummary?.detailText == "一本书 · 庆庆")
+    }
+
+    @MainActor
     @Test func moduleDidAppearRefreshesSnapshotIntoPlaybackState() async {
         let runtime = MusicModuleRuntime(
             snapshotProvider: SequencedSnapshotProviderStub(
@@ -304,6 +342,42 @@ struct MusicModuleTests {
 
         #expect(emptyState.message == "美好的一天，从音乐开始")
         #expect(emptyState.launchTargets.map(\.bundleID) == MusicPlayerCapability.v1Targets.map(\.bundleID))
+    }
+
+    @MainActor
+    @Test func viewModelPresentationSnapshotsCurrentRuntimeState() {
+        let runtime = MusicModuleRuntime(initialState: .empty(players: MusicPlayerCapability.v1Targets))
+        let initialViewModel = MusicModuleViewModel(runtime: runtime)
+
+        runtime.updateModuleState(
+            .playing(
+                MusicPlaybackSession(
+                    snapshot: makeVerifiedSnapshot(
+                        bundleID: MusicPlayerCapability.neteaseMusic.bundleID,
+                        capability: .neteaseMusic,
+                        title: "一本书",
+                        artist: "庆庆",
+                        duration: 281
+                    )
+                )
+            )
+        )
+
+        let updatedViewModel = MusicModuleViewModel(runtime: runtime)
+
+        guard case .empty = initialViewModel.presentation else {
+            Issue.record("Expected initial presentation to remain empty")
+            return
+        }
+
+        guard case .playback(let playback) = updatedViewModel.presentation else {
+            Issue.record("Expected updated presentation to reflect playback")
+            return
+        }
+
+        #expect(playback.title == "一本书")
+        #expect(playback.artist == "庆庆")
+        #expect(playback.playerMark.symbol == "netease")
     }
 
     @MainActor
@@ -685,7 +759,7 @@ struct MusicModuleTests {
     @Test func nowPlayingProviderParsesRawJSONIntoSnapshot() async throws {
         let runner = MusicProcessRunnerStub(
             stdout: """
-            {"bundleIdentifier":"com.tencent.QQMusicMac","title":"淘金小镇","artist":"周杰伦","duration":252,"elapsedTime":35,"playbackRate":1}
+            {"kMRMediaRemoteNowPlayingInfoClientBundleIdentifier":"com.tencent.QQMusicMac","kMRMediaRemoteNowPlayingInfoTitle":"淘金小镇","kMRMediaRemoteNowPlayingInfoArtist":"周杰伦","kMRMediaRemoteNowPlayingInfoDuration":252,"kMRMediaRemoteNowPlayingInfoElapsedTime":35,"kMRMediaRemoteNowPlayingInfoPlaybackRate":1}
             """
         )
         let provider = NowPlayingSnapshotProvider(processRunner: runner)
@@ -704,7 +778,7 @@ struct MusicModuleTests {
     @Test func nowPlayingProviderMapsPlaybackRateGreaterThanZeroToPlaying() async throws {
         let runner = MusicProcessRunnerStub(
             stdout: """
-            {"bundleIdentifier":"com.tencent.QQMusicMac","title":"淘金小镇","artist":"周杰伦","duration":252,"elapsedTime":35,"playbackRate":0.5}
+            {"kMRMediaRemoteNowPlayingInfoClientBundleIdentifier":"com.tencent.QQMusicMac","kMRMediaRemoteNowPlayingInfoTitle":"淘金小镇","kMRMediaRemoteNowPlayingInfoArtist":"周杰伦","kMRMediaRemoteNowPlayingInfoDuration":252,"kMRMediaRemoteNowPlayingInfoElapsedTime":35,"kMRMediaRemoteNowPlayingInfoPlaybackRate":0.5}
             """
         )
         let provider = NowPlayingSnapshotProvider(processRunner: runner)

@@ -99,10 +99,12 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
     private let sessionResolver: ActiveMusicSessionResolver
     private let launchEstablishmentRetryLimit: Int
     private let launchEstablishmentDelayNanoseconds: UInt64
+    private let pollSleep: @Sendable (UInt64) async throws -> Void
 
     private(set) var pollSchedule: MusicPollSchedule
     private(set) var isPollingSuspended: Bool
     private var currentEnergyMode: EnergyMode
+    private var pollingTask: Task<Void, Never>?
 
     init(
         initialState: MusicModuleState? = nil,
@@ -113,7 +115,8 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
         accessibilityTrustChecker: (any AccessibilityTrustChecking)? = nil,
         sessionResolver: ActiveMusicSessionResolver? = nil,
         launchEstablishmentRetryLimit: Int = 4,
-        launchEstablishmentDelayNanoseconds: UInt64 = 250_000_000
+        launchEstablishmentDelayNanoseconds: UInt64 = 250_000_000,
+        pollSleep: @escaping @Sendable (UInt64) async throws -> Void = { try await Task.sleep(nanoseconds: $0) }
     ) {
         let resolvedState = initialState ?? .empty(players: MusicPlayerCapability.v1Targets)
 
@@ -128,6 +131,7 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
         self.isPollingSuspended = false
         self.launchEstablishmentRetryLimit = max(1, launchEstablishmentRetryLimit)
         self.launchEstablishmentDelayNanoseconds = launchEstablishmentDelayNanoseconds
+        self.pollSleep = pollSleep
         let resolvedProcessRunner = processRunner ?? FoundationMusicProcessRunner()
         self.snapshotProvider = snapshotProvider ?? NowPlayingSnapshotProvider(
             processRunner: resolvedProcessRunner
@@ -141,6 +145,14 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
                 accessibilityTrustChecker: accessibilityTrustChecker ?? AccessibilityTrustChecker()
             )
         }
+
+        if initialState == nil {
+            scheduleNextRefresh(immediate: true)
+        }
+    }
+
+    deinit {
+        pollingTask?.cancel()
     }
 
     func handleLifecycle(_ event: ModuleLifecycleEvent) {
@@ -166,8 +178,9 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
     func refreshSnapshot() async {
         do {
             let snapshot = try await snapshotProvider.snapshot()
+            let resolvedSnapshot = sessionResolver.resolve(snapshot)
             lastProviderError = nil
-            updateModuleState(.fromResolvedSnapshot(sessionResolver.resolve(snapshot)))
+            updateModuleState(.fromResolvedSnapshot(resolvedSnapshot))
         } catch is CancellationError {
             return
         } catch let error as MusicProviderError where error.permissionRequirement(displayName: currentPlayerDisplayName) != nil {
@@ -234,6 +247,8 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
             isPollingSuspended = false
             pollSchedule = .confirmationBurst
         }
+
+        scheduleNextRefresh(immediate: false)
     }
 
     private var activeControlBundleID: String? {
@@ -271,6 +286,48 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
 
     private func suspendPolling() {
         isPollingSuspended = true
+    }
+
+    private func scheduleNextRefresh(immediate: Bool) {
+        pollingTask?.cancel()
+        guard isPollingSuspended == false else {
+            pollingTask = nil
+            return
+        }
+
+        let delayNanoseconds: UInt64
+        if immediate {
+            delayNanoseconds = 0
+        } else {
+            delayNanoseconds = UInt64(
+                MusicPollSchedule.interval(for: pollSchedule) * 1_000_000_000
+            )
+        }
+
+        let pollSleep = self.pollSleep
+        pollingTask = Task { [weak self] in
+            if delayNanoseconds > 0 {
+                do {
+                    try await pollSleep(delayNanoseconds)
+                } catch {
+                    return
+                }
+            }
+
+            guard Task.isCancelled == false, let self else {
+                return
+            }
+
+            await self.refreshSnapshot()
+
+            guard Task.isCancelled == false else {
+                return
+            }
+
+            await MainActor.run {
+                self.scheduleNextRefresh(immediate: false)
+            }
+        }
     }
 
     private func pollSchedule(for mode: EnergyMode) -> MusicPollSchedule {
