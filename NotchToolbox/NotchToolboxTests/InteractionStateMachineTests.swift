@@ -3,6 +3,26 @@ import Testing
 
 struct InteractionStateMachineTests {
 
+    @Test func pointerEnterPreservesResolvedRestPresentation() {
+        let machine = InteractionStateMachine()
+        let presentation = ResolvedRestPresentation.request(
+            RestVariantRequest(moduleID: .music, kind: .wideNotchStrip)
+        )
+
+        let hover = machine.reduce(
+            .idle(screenID: "main", presentation: presentation),
+            event: .pointerEntered(screenID: "main")
+        )
+
+        #expect(
+            hover
+                == .hoverHint(
+                    screenID: "main",
+                    presentation: presentation
+                )
+        )
+    }
+
     @Test func pointerFlowUsesHoverExpandedCollapsingIdleStates() {
         let machine = InteractionStateMachine()
 

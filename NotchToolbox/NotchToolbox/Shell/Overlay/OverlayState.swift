@@ -13,8 +13,8 @@ nonisolated struct NotchToast: Equatable, Codable {
 }
 
 nonisolated enum OverlayState: Equatable {
-    case idle(screenID: String)
-    case hoverHint(screenID: String)
+    case idle(screenID: String, presentation: ResolvedRestPresentation = .none)
+    case hoverHint(screenID: String, presentation: ResolvedRestPresentation = .none)
     case expanded(screenID: String, moduleID: NotchModuleID)
     case collapsing(screenID: String, reason: CollapseReason)
     case toast(screenID: String, toast: NotchToast)

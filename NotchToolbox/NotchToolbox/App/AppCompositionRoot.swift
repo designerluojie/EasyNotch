@@ -1,4 +1,5 @@
 import Combine
+import CoreGraphics
 import Foundation
 
 @MainActor
@@ -12,20 +13,27 @@ final class AppCompositionRoot: ObservableObject {
         core: clipboardCore,
         localFileStore: sharedServices.localFileStore
     )
+    let restVariantStore: RestVariantStore
+    let restVariantContentRegistry: RestVariantContentRegistry
 
     @Published private(set) var moduleDescriptors: [NotchModuleDescriptor]
     @Published var activeModule: NotchModuleID
     @Published var overlayState: OverlayState
+    @Published private(set) var panelBodySizeOverrides: [NotchModuleID: CGSize]
 
     init(
         sharedServices: SharedCoreServices? = nil,
         energyGovernor: EnergyGovernor? = nil,
+        restVariantStore: RestVariantStore? = nil,
+        restVariantContentRegistry: RestVariantContentRegistry? = nil,
         moduleDescriptors: [NotchModuleDescriptor]? = nil,
         activeModule: NotchModuleID = .music,
         initialScreenID: String = "main"
     ) {
         let resolvedSharedServices = sharedServices ?? SharedCoreServices.fallback()
         let resolvedEnergyGovernor = energyGovernor ?? EnergyGovernor()
+        let resolvedRestVariantStore = restVariantStore ?? RestVariantStore()
+        let resolvedRestVariantContentRegistry = restVariantContentRegistry ?? RestVariantContentRegistry()
         let resolvedModuleDescriptors = moduleDescriptors ?? NotchModuleDescriptor.defaultDescriptors
 
         do {
@@ -58,21 +66,26 @@ final class AppCompositionRoot: ObservableObject {
 
             self.sharedServices = resolvedSharedServices
             self.energyGovernor = resolvedEnergyGovernor
+            self.restVariantStore = resolvedRestVariantStore
+            self.restVariantContentRegistry = resolvedRestVariantContentRegistry
             self.clipboardCore = clipboardCore
             self.moduleRuntimeRegistry = runtimeRegistry
             self.moduleLifecycleDispatcher = ModuleLifecycleDispatcher(registry: runtimeRegistry)
             self.moduleDescriptors = resolvedModuleDescriptors
             self.activeModule = activeModule
             self.overlayState = .idle(screenID: initialScreenID)
+            self.panelBodySizeOverrides = [:]
         } catch {
             fatalError("Unable to initialize AppCompositionRoot clipboard dependencies: \(error)")
         }
     }
 
     func selectActiveModule(_ moduleID: NotchModuleID) {
-        Task { @MainActor in
-            activeModule = moduleID
+        guard activeModule != moduleID else {
+            return
         }
+
+        activeModule = moduleID
     }
 
     func context(for moduleID: NotchModuleID) -> NotchModuleContext {
@@ -81,5 +94,17 @@ final class AppCompositionRoot: ObservableObject {
             sharedServices: sharedServices,
             energyGovernor: energyGovernor
         )
+    }
+
+    func panelBodySize(for moduleID: NotchModuleID) -> CGSize {
+        panelBodySizeOverrides[moduleID] ?? PanelShellPresentation.bodySize(for: moduleID)
+    }
+
+    func setPanelBodySize(_ size: CGSize?, for moduleID: NotchModuleID) {
+        if let size {
+            panelBodySizeOverrides[moduleID] = size
+        } else {
+            panelBodySizeOverrides.removeValue(forKey: moduleID)
+        }
     }
 }

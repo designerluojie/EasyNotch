@@ -148,4 +148,43 @@ xcodebuild test -project NotchToolbox/NotchToolbox.xcodeproj -scheme NotchToolbo
 
 ## 9. 解冻变更记录
 
-暂无。
+### 2026-05-09 Panel Shell 公共壳层
+
+原因：模块进入 UI 验收前，需要将展开面板拆分为公共宿主壳层与模块内容区，避免音乐、剪贴板、AI Chat 等模块重复绘制顶部 Tabs、设置入口和外层背景。
+
+允许变更范围：
+
+- `OverlayPanelRootView` 只保留展开/收起呈现入口、hover/collapse 行为和最外层黑色容器。
+- `PanelShellView`、`PanelHeaderView`、`ModuleTabBarView`、`PanelMoreModulesPopoverView`、`PanelSettingsPopoverView` 承接公共壳层 UI。
+- `ContentHostView` 收敛为模块内容插槽。
+
+仍不可变更：
+
+- `OverlayState`
+- `ModuleLifecycleEvent`
+- `NotchModuleContext`
+- `ModuleEnergyPolicy`
+- `EnergyGovernor`
+- 多屏窗口呈现和锚点几何语义
+
+### 2026-05-09 Panel Shell 刘海几何与交互修正
+
+原因：第一轮 panel shell 接入后，UI 验收需要让 simulated notch 与真实设备 notch 对齐，并补齐 hover 态和展开态收口行为；仅靠视觉层魔法数字已无法满足验收要求。
+
+允许变更范围：
+
+- `ScreenProfileResolver` 可将 `NSScreen.safeAreaInsets` 与 `auxiliaryTopLeftArea / auxiliaryTopRightArea` 推导为真实 `NotchMetrics`。
+- `OverlayCoordinator` 可在多屏场景下将真实硬件 `NotchMetrics` 借给 simulated notch 屏使用。
+- `AnchorGeometryCalculator` 可基于 `NotchMetrics` 调整 idle / hover / expanded 几何输出。
+- `OverlayPanelRootPresentation`、`OverlayPanelRootView` 可从“两态内容映射”升级为 `idle / hoverHint / expanded` 三态视觉映射。
+- `PanelWindowController` 可为 `hoverHint` 使用独立 frame，并增加 expanded 态 outside-click dismissal。
+- `HotzoneController` 可调整 pointer-exit collapse delay 的默认值。
+
+仍不可变更：
+
+- `OverlayState` 的状态集合与语义。
+- `ModuleLifecycleEvent`
+- `NotchModuleContext`
+- `ModuleEnergyPolicy`
+- `EnergyGovernor`
+- 模块只能渲染 content slot、不得接管公共壳层。
