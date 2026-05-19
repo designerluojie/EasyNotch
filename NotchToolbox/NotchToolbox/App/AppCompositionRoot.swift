@@ -12,6 +12,8 @@ final class AppCompositionRoot: ObservableObject {
     @Published var activeModule: NotchModuleID
     @Published var overlayState: OverlayState
 
+    private var cancellables: Set<AnyCancellable> = []
+
     init(
         sharedServices: SharedCoreServices? = nil,
         energyGovernor: EnergyGovernor? = nil,
@@ -34,6 +36,12 @@ final class AppCompositionRoot: ObservableObject {
         self.moduleDescriptors = moduleDescriptors ?? NotchModuleDescriptor.defaultDescriptors
         self.activeModule = activeModule
         self.overlayState = .idle(screenID: initialScreenID)
+
+        resolvedMusicRuntime.objectWillChange
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
     }
 
     func selectActiveModule(_ moduleID: NotchModuleID) {

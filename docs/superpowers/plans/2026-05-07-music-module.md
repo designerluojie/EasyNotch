@@ -68,7 +68,7 @@
         "com.tencent.QQMusicMac",
         "com.netease.163music",
         "com.kugou.client",
-        "com.bytedance.qishui"
+        "com.soda.music"
     ])
 }
 
@@ -154,7 +154,7 @@ extension MusicPlayerCapability {
         phase: .verified
     )
     static let qishuiMusic = MusicPlayerCapability(
-        bundleID: "com.bytedance.qishui",
+        bundleID: "com.soda.music",
         displayName: "汽水音乐",
         launch: .verified,
         metadata: .verified,
@@ -935,6 +935,18 @@ Before calling the task complete, note any still-unverified items explicitly, es
 - whether `nowplaying-cli` is available in the runtime environment
 - whether QQ menu labels match the shipped app version
 - whether system media-key control reliably reaches 网易云 / 酷狗 / 汽水 across foreground/background states
+
+Current verification notes from `2026-05-09`:
+
+- Focused automated suite passed for `MusicModuleTests`, `AppCompositionRootTests`, `ModuleRuntimeRegistryTests`, `NotchShellRuntimeTests`, and `CollapsedOverlayPresentationTests`.
+- The full suite passed with `xcodebuild test -skip-testing:NotchToolboxUITests`.
+- Real manual verification succeeded for QQ 音乐, 网易云音乐, and 酷狗音乐 across launch, metadata read, play / pause, previous / next, expanded playback UI, and collapsed-state player indication.
+- Cold-start collapsed-state observation was manually verified after wiring `AppCompositionRoot` to forward `musicRuntime.objectWillChange`.
+- 汽水音乐 remains the only unresolved manual item. The target machine now verifies the real bundle identifier as `com.soda.music`, the app window is visible, and its packaged code uses `navigator.mediaSession` plus `MediaMetadata`, but repeated isolated manual attempts still failed to establish a MediaRemote / Now Playing session:
+  - after terminating QQ / 网易云 / 酷狗, `nowplaying-cli get-raw` returned `{}` instead of a player payload
+  - after repeated 汽水 UI play-button and `Space` attempts, `nowplaying-cli get-raw` still returned `{}`
+  - `/usr/bin/log show` showed normal 汽水 CFNetwork polling but no 汽水-owned MediaRemote registration, while `nowplaying-cli` logged `Could not find the specified now playing client`
+- Treat 汽水 as an environment or app-behavior blocker until a real local playback session can be demonstrated on the target machine.
 
 ## Expected Outcome
 

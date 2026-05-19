@@ -51,9 +51,15 @@ struct MusicModuleViewModel {
     }
 
     let runtime: MusicModuleRuntime
+    let presentation: Presentation
 
-    var presentation: Presentation {
-        switch runtime.moduleState {
+    init(runtime: MusicModuleRuntime) {
+        self.runtime = runtime
+        self.presentation = Self.presentation(for: runtime.moduleState)
+    }
+
+    private static func presentation(for moduleState: MusicModuleState) -> Presentation {
+        switch moduleState {
         case .playing(let session), .paused(let session):
             let duration = session.duration
             let elapsed = min(max(session.elapsedTime, 0), duration)
@@ -67,9 +73,9 @@ struct MusicModuleViewModel {
                     title: session.title,
                     artist: session.artist,
                     artworkData: session.artworkData,
-                    sourceText: sourceText(for: session.source),
-                    elapsedText: format(duration: elapsed),
-                    durationText: format(duration: duration),
+                    sourceText: Self.sourceText(for: session.source),
+                    elapsedText: Self.format(duration: elapsed),
+                    durationText: Self.format(duration: duration),
                     progressFraction: progressFraction,
                     playPauseSymbol: session.isPlaying ? "pause.fill" : "play.fill",
                     isPlaying: session.isPlaying
@@ -160,7 +166,7 @@ struct MusicModuleViewModel {
         await runtime.refreshSnapshot()
     }
 
-    private func sourceText(for source: MusicSnapshotSource) -> String {
+    private static func sourceText(for source: MusicSnapshotSource) -> String {
         switch source {
         case .nowPlayingCLI:
             return "Now Playing CLI"
@@ -171,7 +177,7 @@ struct MusicModuleViewModel {
         }
     }
 
-    private func format(duration: TimeInterval) -> String {
+    private static func format(duration: TimeInterval) -> String {
         let totalSeconds = max(0, Int(duration.rounded(.towardZero)))
         let minutes = totalSeconds / 60
         let seconds = totalSeconds % 60

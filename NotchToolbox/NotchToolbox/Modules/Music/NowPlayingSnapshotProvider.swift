@@ -51,6 +51,49 @@ private struct NowPlayingPayload: Decodable {
     let elapsedTime: TimeInterval?
     let playbackRate: Double?
 
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        bundleIdentifier = container.decodeFirstPresentString(
+            forKeys: [CodingKeys.bundleIdentifier, CodingKeys.mediaRemoteBundleIdentifier]
+        )
+        title = container.decodeFirstPresentString(
+            forKeys: [CodingKeys.title, CodingKeys.mediaRemoteTitle]
+        )
+        artist = container.decodeFirstPresentString(
+            forKeys: [CodingKeys.artist, CodingKeys.mediaRemoteArtist]
+        )
+        album = container.decodeFirstPresentString(
+            forKeys: [CodingKeys.album, CodingKeys.mediaRemoteAlbum]
+        )
+        duration = container.decodeFirstPresentTimeInterval(
+            forKeys: [CodingKeys.duration, CodingKeys.mediaRemoteDuration]
+        )
+        elapsedTime = container.decodeFirstPresentTimeInterval(
+            forKeys: [CodingKeys.elapsedTime, CodingKeys.mediaRemoteElapsedTime]
+        )
+        playbackRate = container.decodeFirstPresentDouble(
+            forKeys: [CodingKeys.playbackRate, CodingKeys.mediaRemotePlaybackRate]
+        )
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case bundleIdentifier
+        case title
+        case artist
+        case album
+        case duration
+        case elapsedTime
+        case playbackRate
+        case mediaRemoteBundleIdentifier = "kMRMediaRemoteNowPlayingInfoClientBundleIdentifier"
+        case mediaRemoteTitle = "kMRMediaRemoteNowPlayingInfoTitle"
+        case mediaRemoteArtist = "kMRMediaRemoteNowPlayingInfoArtist"
+        case mediaRemoteAlbum = "kMRMediaRemoteNowPlayingInfoAlbum"
+        case mediaRemoteDuration = "kMRMediaRemoteNowPlayingInfoDuration"
+        case mediaRemoteElapsedTime = "kMRMediaRemoteNowPlayingInfoElapsedTime"
+        case mediaRemotePlaybackRate = "kMRMediaRemoteNowPlayingInfoPlaybackRate"
+    }
+
     func snapshot(capturedAt: Date) -> MusicPlayerSnapshot? {
         guard let bundleIdentifier = bundleIdentifier?.trimmedNonEmpty else {
             return nil
@@ -106,6 +149,35 @@ private struct NowPlayingPayload: Decodable {
         }
 
         return components.joined(separator: "|")
+    }
+}
+
+private extension KeyedDecodingContainer where Key == NowPlayingPayload.CodingKeys {
+    func decodeFirstPresentString(forKeys keys: [Key]) -> String? {
+        for key in keys {
+            if let value = try? decodeIfPresent(String.self, forKey: key) {
+                return value
+            }
+        }
+        return nil
+    }
+
+    func decodeFirstPresentTimeInterval(forKeys keys: [Key]) -> TimeInterval? {
+        for key in keys {
+            if let value = try? decodeIfPresent(TimeInterval.self, forKey: key) {
+                return value
+            }
+        }
+        return nil
+    }
+
+    func decodeFirstPresentDouble(forKeys keys: [Key]) -> Double? {
+        for key in keys {
+            if let value = try? decodeIfPresent(Double.self, forKey: key) {
+                return value
+            }
+        }
+        return nil
     }
 }
 
