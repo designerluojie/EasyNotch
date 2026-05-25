@@ -2,9 +2,17 @@ import Foundation
 
 struct NowPlayingSnapshotProvider: MusicSnapshotProviding {
     private let processRunner: any MusicProcessRunning
+    private let executableCandidates: [String]
+    private let fileExists: @Sendable (String) -> Bool
 
-    init(processRunner: any MusicProcessRunning = FoundationMusicProcessRunner()) {
+    init(
+        processRunner: any MusicProcessRunning = FoundationMusicProcessRunner(),
+        executableCandidates: [String] = Self.defaultExecutableCandidates,
+        fileExists: @escaping @Sendable (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
+    ) {
         self.processRunner = processRunner
+        self.executableCandidates = executableCandidates
+        self.fileExists = fileExists
     }
 
     func snapshot() async throws -> MusicPlayerSnapshot? {
@@ -13,16 +21,18 @@ struct NowPlayingSnapshotProvider: MusicSnapshotProviding {
 
     func fetchActiveSnapshot() async throws -> MusicPlayerSnapshot? {
         let output: MusicProcessOutput
+        let command = resolveCommand(arguments: ["get-raw"])
         do {
             output = try await processRunner.run(
-                "/usr/bin/env",
-                arguments: ["nowplaying-cli", "get-raw"]
+                command.launchPath,
+                arguments: command.arguments
             )
         } catch is CancellationError {
             throw CancellationError()
         } catch {
             throw MusicProviderError.metadataCommandFailed(stderr: error.localizedDescription)
         }
+        let rawSampledAt = Date()
 
         guard output.status == 0 else {
             throw MusicProviderError.metadataCommandFailed(stderr: output.stderr)
@@ -38,8 +48,103 @@ struct NowPlayingSnapshotProvider: MusicSnapshotProviding {
             throw MusicProviderError.metadataCommandFailed(stderr: error.localizedDescription)
         }
 
-        return payload.snapshot(capturedAt: Date())
+        let playbackStateOverride = await fetchPlaybackStateOverride(for: payload)
+        let calculatedPlaybackPosition = await fetchCalculatedPlaybackPosition(
+            for: payload,
+            playbackStateOverride: playbackStateOverride
+        )
+        return payload.snapshot(
+            capturedAt: calculatedPlaybackPosition?.capturedAt ?? rawSampledAt,
+            calculatedPlaybackPosition: calculatedPlaybackPosition?.elapsedTime,
+            playbackStateOverride: playbackStateOverride
+        )
     }
+
+    private func resolveCommand(arguments: [String]) -> (launchPath: String, arguments: [String]) {
+        if let executablePath = executableCandidates.first(where: fileExists) {
+            return (executablePath, arguments)
+        }
+
+        return ("/usr/bin/env", ["nowplaying-cli"] + arguments)
+    }
+
+    private func fetchCalculatedPlaybackPosition(
+        for payload: NowPlayingPayload,
+        playbackStateOverride: MusicPlaybackState?
+    ) async -> SampledPlaybackPosition? {
+        guard payload.shouldFetchCalculatedPlaybackPosition(playbackStateOverride: playbackStateOverride) else {
+            return nil
+        }
+
+        let command = resolveCommand(arguments: ["get", "elapsedTime"])
+        do {
+            let output = try await processRunner.run(command.launchPath, arguments: command.arguments)
+            guard output.status == 0 else {
+                return nil
+            }
+
+            guard let elapsedTime = TimeInterval(output.stdout.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+                return nil
+            }
+
+            return SampledPlaybackPosition(elapsedTime: elapsedTime, capturedAt: Date())
+        } catch {
+            return nil
+        }
+    }
+
+    private func fetchPlaybackStateOverride(for payload: NowPlayingPayload) async -> MusicPlaybackState? {
+        guard payload.isQQMusicPayload else {
+            return nil
+        }
+
+        do {
+            let output = try await processRunner.run(
+                "/usr/bin/osascript",
+                arguments: ["-e", Self.qqMusicPlaybackMenuStateScript]
+            )
+            guard output.status == 0 else {
+                return nil
+            }
+
+            return Self.qqPlaybackState(forMenuItemName: output.stdout)
+        } catch {
+            return nil
+        }
+    }
+
+    private static func qqPlaybackState(forMenuItemName menuItemName: String) -> MusicPlaybackState? {
+        switch menuItemName.trimmingCharacters(in: .whitespacesAndNewlines) {
+        case "暂停":
+            return .playing
+        case "播放":
+            return .paused
+        default:
+            return nil
+        }
+    }
+
+    private static let defaultExecutableCandidates: [String] = [
+        "/opt/homebrew/bin/nowplaying-cli",
+        "/usr/local/bin/nowplaying-cli"
+    ]
+
+    private static let qqMusicPlaybackMenuStateScript = """
+    tell application "System Events"
+        tell process "QQ音乐"
+            try
+                name of menu item 1 of menu "播放控制" of menu bar item "播放控制" of menu bar 1
+            on error
+                name of menu item 1 of menu 1 of menu bar item "播放控制" of menu bar 1
+            end try
+        end tell
+    end tell
+    """
+}
+
+private struct SampledPlaybackPosition {
+    let elapsedTime: TimeInterval
+    let capturedAt: Date
 }
 
 private struct NowPlayingPayload: Decodable {
@@ -49,7 +154,9 @@ private struct NowPlayingPayload: Decodable {
     let album: String?
     let duration: TimeInterval?
     let elapsedTime: TimeInterval?
+    let calculatedPlaybackPosition: TimeInterval?
     let playbackRate: Double?
+    let artworkData: Data?
 
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -72,8 +179,14 @@ private struct NowPlayingPayload: Decodable {
         elapsedTime = container.decodeFirstPresentTimeInterval(
             forKeys: [CodingKeys.elapsedTime, CodingKeys.mediaRemoteElapsedTime]
         )
+        calculatedPlaybackPosition = container.decodeFirstPresentTimeInterval(
+            forKeys: [CodingKeys.calculatedPlaybackPosition]
+        )
         playbackRate = container.decodeFirstPresentDouble(
             forKeys: [CodingKeys.playbackRate, CodingKeys.mediaRemotePlaybackRate]
+        )
+        artworkData = container.decodeFirstPresentBase64Data(
+            forKeys: [CodingKeys.artworkData, CodingKeys.mediaRemoteArtworkData]
         )
     }
 
@@ -84,7 +197,9 @@ private struct NowPlayingPayload: Decodable {
         case album
         case duration
         case elapsedTime
+        case calculatedPlaybackPosition
         case playbackRate
+        case artworkData
         case mediaRemoteBundleIdentifier = "kMRMediaRemoteNowPlayingInfoClientBundleIdentifier"
         case mediaRemoteTitle = "kMRMediaRemoteNowPlayingInfoTitle"
         case mediaRemoteArtist = "kMRMediaRemoteNowPlayingInfoArtist"
@@ -92,9 +207,24 @@ private struct NowPlayingPayload: Decodable {
         case mediaRemoteDuration = "kMRMediaRemoteNowPlayingInfoDuration"
         case mediaRemoteElapsedTime = "kMRMediaRemoteNowPlayingInfoElapsedTime"
         case mediaRemotePlaybackRate = "kMRMediaRemoteNowPlayingInfoPlaybackRate"
+        case mediaRemoteArtworkData = "kMRMediaRemoteNowPlayingInfoArtworkData"
     }
 
-    func snapshot(capturedAt: Date) -> MusicPlayerSnapshot? {
+    var isQQMusicPayload: Bool {
+        bundleIdentifier?.trimmedNonEmpty == MusicPlayerCapability.qqMusic.bundleID
+    }
+
+    func shouldFetchCalculatedPlaybackPosition(playbackStateOverride: MusicPlaybackState?) -> Bool {
+        bundleIdentifier?.trimmedNonEmpty != nil
+            && calculatedPlaybackPosition == nil
+            && playbackState(overriddenBy: playbackStateOverride) == .playing
+    }
+
+    func snapshot(
+        capturedAt: Date,
+        calculatedPlaybackPosition externalCalculatedPlaybackPosition: TimeInterval? = nil,
+        playbackStateOverride: MusicPlaybackState? = nil
+    ) -> MusicPlayerSnapshot? {
         guard let bundleIdentifier = bundleIdentifier?.trimmedNonEmpty else {
             return nil
         }
@@ -102,6 +232,7 @@ private struct NowPlayingPayload: Decodable {
         let capability = MusicPlayerCapability.forBundleID(bundleIdentifier)
             ?? .unsupported(bundleID: bundleIdentifier)
         let displayName = capability.displayName
+        let playbackState = playbackState(overriddenBy: playbackStateOverride)
 
         return MusicPlayerSnapshot(
             bundleID: bundleIdentifier,
@@ -111,9 +242,12 @@ private struct NowPlayingPayload: Decodable {
             trackKey: trackKey(bundleID: bundleIdentifier),
             title: title?.trimmedNonEmpty,
             artist: artist?.trimmedNonEmpty,
-            artworkData: nil,
+            artworkData: artworkData,
             duration: duration,
-            elapsedTime: elapsedTime,
+            elapsedTime: effectiveElapsedTime(
+                playbackState: playbackState,
+                externalCalculatedPlaybackPosition: externalCalculatedPlaybackPosition
+            ),
             capability: capability,
             permissionRequirement: nil,
             source: .nowPlayingCLI,
@@ -122,11 +256,40 @@ private struct NowPlayingPayload: Decodable {
     }
 
     private var playbackState: MusicPlaybackState {
+        playbackState(overriddenBy: nil)
+    }
+
+    private func playbackState(overriddenBy playbackStateOverride: MusicPlaybackState?) -> MusicPlaybackState {
+        if let playbackStateOverride {
+            return playbackStateOverride
+        }
+
         guard let playbackRate else {
             return .unknown
         }
 
         return playbackRate > 0 ? .playing : .paused
+    }
+
+    private func effectiveElapsedTime(
+        playbackState: MusicPlaybackState,
+        externalCalculatedPlaybackPosition: TimeInterval?
+    ) -> TimeInterval? {
+        guard playbackState == .playing else {
+            return elapsedTime
+        }
+
+        if let calculatedPlaybackPosition, calculatedPlaybackPosition.isFinite, calculatedPlaybackPosition > 0 {
+            return calculatedPlaybackPosition
+        }
+
+        if let externalCalculatedPlaybackPosition,
+           externalCalculatedPlaybackPosition.isFinite,
+           externalCalculatedPlaybackPosition > 0 {
+            return externalCalculatedPlaybackPosition
+        }
+
+        return elapsedTime
     }
 
     private func trackKey(bundleID: String) -> String? {
@@ -176,6 +339,19 @@ private extension KeyedDecodingContainer where Key == NowPlayingPayload.CodingKe
             if let value = try? decodeIfPresent(Double.self, forKey: key) {
                 return value
             }
+        }
+        return nil
+    }
+
+    func decodeFirstPresentBase64Data(forKeys keys: [Key]) -> Data? {
+        for key in keys {
+            guard let encodedValue = try? decodeIfPresent(String.self, forKey: key),
+                  let trimmedValue = encodedValue.trimmedNonEmpty,
+                  let data = Data(base64Encoded: trimmedValue) else {
+                continue
+            }
+
+            return data
         }
         return nil
     }

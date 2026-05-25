@@ -407,6 +407,14 @@ struct OverlayPanelRootView: View {
             height: OverlayPanelChromeMetrics.expandedOuterSize(for: bodySize).height,
             alignment: .topLeading
         )
+        .contentShape(Rectangle())
+        .onHover { isInside in
+            if isInside {
+                interactions.pointerEntered(screenID: panelModel.screenID)
+            } else {
+                interactions.pointerExited(screenID: panelModel.screenID)
+            }
+        }
     }
 
     private var simulatedIdlePreviewWidth: CGFloat {

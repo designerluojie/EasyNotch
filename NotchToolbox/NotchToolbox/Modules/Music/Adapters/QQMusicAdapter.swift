@@ -24,18 +24,9 @@ struct QQMusicAdapter: MusicPlayerAdapter {
     }
 
     func perform(_ action: MusicControlAction) async throws {
-        let menuItem = switch action {
-        case .playPause:
-            "播放/暂停"
-        case .nextTrack:
-            "下一首"
-        case .previousTrack:
-            "上一首"
-        }
-
         let output = try await processRunner.run(
             "/usr/bin/osascript",
-            arguments: ["-e", Self.qqMenuScript(menuItem: menuItem)]
+            arguments: ["-e", Self.qqMenuScript(action: action)]
         )
 
         try Self.throwIfCommandFailed(output)
@@ -43,11 +34,32 @@ struct QQMusicAdapter: MusicPlayerAdapter {
 }
 
 private extension QQMusicAdapter {
-    static func qqMenuScript(menuItem: String) -> String {
+    static func qqMenuScript(action: MusicControlAction) -> String {
+        switch action {
+        case .playPause:
+            """
+            tell application "System Events"
+                tell process "QQ音乐"
+                    try
+                        click menu item "暂停" of menu 1 of menu bar item "播放控制" of menu bar 1
+                    on error
+                        click menu item "播放" of menu 1 of menu bar item "播放控制" of menu bar 1
+                    end try
+                end tell
+            end tell
+            """
+        case .nextTrack:
+            qqPlaybackMenuScript(menuItem: "下一首")
+        case .previousTrack:
+            qqPlaybackMenuScript(menuItem: "上一首")
+        }
+    }
+
+    static func qqPlaybackMenuScript(menuItem: String) -> String {
         """
         tell application "System Events"
             tell process "QQ音乐"
-                click menu item "\(menuItem)" of menu 1 of menu bar item "控制" of menu bar 1
+                click menu item "\(menuItem)" of menu 1 of menu bar item "播放控制" of menu bar 1
             end tell
         end tell
         """
