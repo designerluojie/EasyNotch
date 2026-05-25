@@ -1,6 +1,7 @@
 import Combine
 import CoreGraphics
 import Foundation
+import SwiftUI
 
 @MainActor
 final class AppCompositionRoot: ObservableObject {
@@ -46,11 +47,32 @@ final class AppCompositionRoot: ObservableObject {
         self.overlayState = .idle(screenID: initialScreenID)
         self.panelBodySizeOverrides = [:]
 
-        resolvedMusicRuntime.objectWillChange
-            .sink { [weak self] _ in
-                self?.objectWillChange.send()
+        self.restVariantContentRegistry.register(
+            AnyRestVariantContentProvider(moduleID: .music) { [weak resolvedMusicRuntime] request, appearance, _ in
+                if request.kind == .wideNotchStrip,
+                   appearance == .wideNotchStrip,
+                   let runtime = resolvedMusicRuntime,
+                   let presentation = MusicWideNotchStripPresentation(moduleState: runtime.moduleState) {
+                    MusicWideNotchStripView(presentation: presentation)
+                } else {
+                    EmptyView()
+                }
+            }
+        )
+
+        resolvedMusicRuntime.moduleStatePublisher
+            .dropFirst()
+            .sink { [weak self] state in
+                guard let self else {
+                    return
+                }
+
+                self.syncMusicPresentationState(for: state)
+                self.objectWillChange.send()
             }
             .store(in: &cancellables)
+
+        syncMusicPresentationState(for: resolvedMusicRuntime.moduleState)
     }
 
     func selectActiveModule(_ moduleID: NotchModuleID) {
@@ -91,5 +113,22 @@ final class AppCompositionRoot: ObservableObject {
 
         let runtimes = providedRegistry.runtimes.filter { $0.id != .music } + [musicRuntime]
         return ModuleRuntimeRegistry(runtimes: runtimes)
+    }
+
+    private func syncMusicPresentationState(for state: MusicModuleState) {
+        setPanelBodySize(CGSize(width: 580, height: 120), for: .music)
+
+        guard MusicWideNotchStripPresentation(moduleState: state) != nil else {
+            restVariantStore.clearPersistentRequest(for: .music)
+            return
+        }
+
+        restVariantStore.setPersistentRequest(
+            RestVariantRequest(
+                moduleID: .music,
+                kind: .wideNotchStrip,
+                preferredWidth: 248
+            )
+        )
     }
 }

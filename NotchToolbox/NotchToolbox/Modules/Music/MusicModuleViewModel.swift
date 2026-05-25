@@ -3,16 +3,22 @@ import Foundation
 @MainActor
 struct MusicModuleViewModel {
     struct PlayerMark: Equatable {
+        let iconAsset: MusicPlayerIconAsset
         let symbol: String
         let displayName: String
+
+        var iconAssetName: String { iconAsset.rawValue }
     }
 
     struct LaunchTarget: Equatable, Identifiable {
         let bundleID: String
         let displayName: String
+        let iconAsset: MusicPlayerIconAsset
         let symbol: String
+        let isInteractive: Bool
 
         var id: String { bundleID }
+        var iconAssetName: String { iconAsset.rawValue }
     }
 
     struct PlaybackPresentation: Equatable {
@@ -21,11 +27,44 @@ struct MusicModuleViewModel {
         let artist: String
         let artworkData: Data?
         let sourceText: String
-        let elapsedText: String
-        let durationText: String
-        let progressFraction: Double
+        let elapsedTime: TimeInterval
+        let duration: TimeInterval
+        let capturedAt: Date
+        let previousAssetName: String
+        let playPauseAssetName: String
+        let nextAssetName: String
         let playPauseSymbol: String
         let isPlaying: Bool
+
+        func effectiveElapsedTime(at date: Date) -> TimeInterval {
+            let baseElapsed = min(max(elapsedTime, 0), duration)
+            guard isPlaying else {
+                return baseElapsed
+            }
+
+            let advancedElapsed = baseElapsed + max(0, date.timeIntervalSince(capturedAt))
+            return min(max(advancedElapsed, 0), duration)
+        }
+
+        func elapsedText(at date: Date) -> String {
+            Self.format(duration: effectiveElapsedTime(at: date))
+        }
+
+        func progressFraction(at date: Date) -> Double {
+            guard duration > 0 else { return 0 }
+            return effectiveElapsedTime(at: date) / duration
+        }
+
+        var durationText: String {
+            Self.format(duration: duration)
+        }
+
+        private static func format(duration: TimeInterval) -> String {
+            let totalSeconds = max(0, Int(duration.rounded(.towardZero)))
+            let minutes = totalSeconds / 60
+            let seconds = totalSeconds % 60
+            return "\(minutes):" + String(format: "%02d", seconds)
+        }
     }
 
     struct EmptyPresentation: Equatable {
@@ -61,12 +100,10 @@ struct MusicModuleViewModel {
     private static func presentation(for moduleState: MusicModuleState) -> Presentation {
         switch moduleState {
         case .playing(let session), .paused(let session):
-            let duration = session.duration
-            let elapsed = min(max(session.elapsedTime, 0), duration)
-            let progressFraction = duration > 0 ? elapsed / duration : 0
             return .playback(
                 PlaybackPresentation(
                     playerMark: PlayerMark(
+                        iconAsset: Self.iconAsset(for: session.capability),
                         symbol: session.capability.symbolIdentifier,
                         displayName: session.displayName
                     ),
@@ -74,9 +111,12 @@ struct MusicModuleViewModel {
                     artist: session.artist,
                     artworkData: session.artworkData,
                     sourceText: Self.sourceText(for: session.source),
-                    elapsedText: Self.format(duration: elapsed),
-                    durationText: Self.format(duration: duration),
-                    progressFraction: progressFraction,
+                    elapsedTime: session.elapsedTime,
+                    duration: session.duration,
+                    capturedAt: session.capturedAt,
+                    previousAssetName: "MusicControlPrevious",
+                    playPauseAssetName: session.isPlaying ? "MusicControlPause" : "MusicControlPlay",
+                    nextAssetName: "MusicControlNext",
                     playPauseSymbol: session.isPlaying ? "pause.fill" : "play.fill",
                     isPlaying: session.isPlaying
                 )
@@ -85,13 +125,14 @@ struct MusicModuleViewModel {
             return .empty(
                 EmptyPresentation(
                     message: "美好的一天，从音乐开始",
-                    launchTargets: players.map {
-                        LaunchTarget(
-                            bundleID: $0.bundleID,
-                            displayName: $0.displayName,
-                            symbol: $0.symbolIdentifier
-                        )
-                    }
+                    launchTargets: Self.launchTargets(for: players)
+                )
+            )
+        case .launchingPlayer:
+            return .empty(
+                EmptyPresentation(
+                    message: "美好的一天，从音乐开始",
+                    launchTargets: Self.launchTargets(for: MusicPlayerCapability.v1Targets)
                 )
             )
         case .permissionRequired(let requirement):
@@ -142,15 +183,6 @@ struct MusicModuleViewModel {
                     emphasis: .warning
                 )
             )
-        case .launchingPlayer(let bundleID):
-            let displayName = MusicPlayerCapability.forBundleID(bundleID)?.displayName ?? bundleID
-            return .message(
-                MessagePresentation(
-                    title: "正在启动",
-                    body: "正在打开 \(displayName)…",
-                    emphasis: .neutral
-                )
-            )
         }
     }
 
@@ -176,12 +208,32 @@ struct MusicModuleViewModel {
             return "Adapter Fallback"
         }
     }
+    private static func launchTargets(for _: [MusicPlayerCapability]) -> [LaunchTarget] {
+        [
+            launchTarget(for: .appleMusic, isInteractive: false),
+            launchTarget(for: .neteaseMusic, isInteractive: true),
+            launchTarget(for: .qqMusic, isInteractive: true),
+            launchTarget(for: .kugouMusic, isInteractive: true),
+            launchTarget(for: .qishuiMusic, isInteractive: true),
+            launchTarget(for: .spotify, isInteractive: false)
+        ]
+    }
 
-    private static func format(duration: TimeInterval) -> String {
-        let totalSeconds = max(0, Int(duration.rounded(.towardZero)))
-        let minutes = totalSeconds / 60
-        let seconds = totalSeconds % 60
-        return "\(minutes):" + String(format: "%02d", seconds)
+    private static func launchTarget(
+        for capability: MusicPlayerCapability,
+        isInteractive: Bool
+    ) -> LaunchTarget {
+        LaunchTarget(
+            bundleID: capability.bundleID,
+            displayName: capability.displayName,
+            iconAsset: iconAsset(for: capability),
+            symbol: capability.symbolIdentifier,
+            isInteractive: isInteractive
+        )
+    }
+
+    private static func iconAsset(for capability: MusicPlayerCapability) -> MusicPlayerIconAsset {
+        MusicPlayerIconAsset(bundleID: capability.bundleID) ?? .qq
     }
 }
 

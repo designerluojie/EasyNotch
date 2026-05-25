@@ -313,6 +313,31 @@ struct OverlayCoordinatorTests {
         #expect(try #require(presenter.presentations.last).state == .idle(screenID: "built-in"))
     }
 
+    @Test func pointerReentryWhileExpandedCollapseIsPendingRestoresExpandedState() throws {
+        let compositionRoot = AppCompositionRoot(initialScreenID: "built-in")
+        let presenter = SpyOverlayPanelPresenter()
+        let coordinator = OverlayCoordinator(
+            compositionRoot: compositionRoot,
+            topologyProvider: StubDisplayTopologyProvider(snapshots: [
+                Self.notchSnapshot(id: "built-in")
+            ]),
+            panelPresenter: presenter,
+            primaryScreenID: "built-in",
+            simulateNotchOnNonNotchScreen: true
+        )
+
+        coordinator.start()
+        coordinator.expand(moduleID: .music)
+
+        coordinator.pointerExited(onScreenID: "built-in")
+        #expect(compositionRoot.overlayState == .collapsing(screenID: "built-in", reason: .pointerExit))
+
+        coordinator.pointerEntered(onScreenID: "built-in")
+
+        #expect(compositionRoot.overlayState == .expanded(screenID: "built-in", moduleID: .music))
+        #expect(try #require(presenter.presentations.last).state == .expanded(screenID: "built-in", moduleID: .music))
+    }
+
     @Test func pointerExitFromHoverHintDoesNotEnterDelayedCollapse() throws {
         let compositionRoot = AppCompositionRoot(initialScreenID: "built-in")
         let presenter = SpyOverlayPanelPresenter()

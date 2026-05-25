@@ -165,7 +165,145 @@ struct AppCompositionRootTests {
 
     @Test func restVariantContentRegistryReturnsNilForUnregisteredModule() {
         let compositionRoot = AppCompositionRoot()
-        let request = RestVariantRequest(moduleID: .music, kind: .wideNotchStrip)
+        let request = RestVariantRequest(moduleID: .fileStash, kind: .wideNotchStrip)
+
+        let content = compositionRoot.restVariantContentRegistry.content(
+            for: request,
+            appearance: .wideNotchStrip,
+            context: compositionRoot.context(for: .fileStash)
+        )
+
+        #expect(content == nil)
+    }
+
+    @Test func musicPlaybackRegistersWideNotchStripRequest() {
+        let runtime = MusicModuleRuntime(initialState: .empty(players: MusicPlayerCapability.v1Targets))
+        let compositionRoot = AppCompositionRoot(musicRuntime: runtime)
+
+        runtime.updateModuleState(
+            .playing(
+                MusicPlaybackSession(
+                    snapshot: MusicPlayerSnapshot(
+                        bundleID: MusicPlayerCapability.qqMusic.bundleID,
+                        displayName: MusicPlayerCapability.qqMusic.displayName,
+                        isRunning: true,
+                        playbackState: .playing,
+                        trackKey: "qq-active",
+                        title: "Talk 1 (Live)",
+                        artist: "张敬轩",
+                        artworkData: nil,
+                        duration: 307,
+                        elapsedTime: 119,
+                        capability: .qqMusic,
+                        permissionRequirement: nil,
+                        source: .nowPlayingCLI,
+                        capturedAt: Date(timeIntervalSince1970: 1_700_000_100)
+                    )
+                )
+            )
+        )
+
+        guard case .request(let request) = compositionRoot.restVariantStore.resolvedPresentation else {
+            Issue.record("Expected a music wide-notch-strip request")
+            return
+        }
+
+        #expect(request.moduleID == .music)
+        #expect(request.kind == .wideNotchStrip)
+        #expect(request.preferredWidth == 248)
+    }
+
+    @Test func musicWideNotchStripClearsWhenPlaybackEnds() {
+        let runtime = MusicModuleRuntime(
+            initialState: .playing(
+                MusicPlaybackSession(
+                    snapshot: MusicPlayerSnapshot(
+                        bundleID: MusicPlayerCapability.qqMusic.bundleID,
+                        displayName: MusicPlayerCapability.qqMusic.displayName,
+                        isRunning: true,
+                        playbackState: .playing,
+                        trackKey: "qq-active",
+                        title: "Talk 1 (Live)",
+                        artist: "张敬轩",
+                        artworkData: nil,
+                        duration: 307,
+                        elapsedTime: 119,
+                        capability: .qqMusic,
+                        permissionRequirement: nil,
+                        source: .nowPlayingCLI,
+                        capturedAt: Date(timeIntervalSince1970: 1_700_000_100)
+                    )
+                )
+            )
+        )
+        let compositionRoot = AppCompositionRoot(musicRuntime: runtime)
+
+        runtime.updateModuleState(.empty(players: MusicPlayerCapability.v1Targets))
+
+        #expect(compositionRoot.restVariantStore.resolvedPresentation == .none)
+    }
+
+    @Test func musicModuleUsesFigmaExpandedBodySizeOverride() {
+        let compositionRoot = AppCompositionRoot()
+
+        #expect(compositionRoot.panelBodySize(for: .music) == CGSize(width: 580, height: 120))
+    }
+
+    @Test func musicEmptyStateClearsWideNotchStripRequest() {
+        let runtime = MusicModuleRuntime(
+            initialState: .playing(
+                MusicPlaybackSession(
+                    snapshot: MusicPlayerSnapshot(
+                        bundleID: MusicPlayerCapability.qqMusic.bundleID,
+                        displayName: MusicPlayerCapability.qqMusic.displayName,
+                        isRunning: true,
+                        playbackState: .playing,
+                        trackKey: "qq-active",
+                        title: "Talk 1 (Live)",
+                        artist: "张敬轩",
+                        artworkData: nil,
+                        duration: 307,
+                        elapsedTime: 119,
+                        capability: .qqMusic,
+                        permissionRequirement: nil,
+                        source: .nowPlayingCLI,
+                        capturedAt: Date(timeIntervalSince1970: 1_700_000_101)
+                    )
+                )
+            )
+        )
+        let compositionRoot = AppCompositionRoot(musicRuntime: runtime)
+
+        runtime.updateModuleState(.empty(players: MusicPlayerCapability.v1Targets))
+
+        #expect(compositionRoot.restVariantStore.resolvedPresentation == .none)
+    }
+
+    @Test func musicWideNotchStripProviderIsRegistered() {
+        let runtime = MusicModuleRuntime(
+            initialState: .paused(
+                MusicPlaybackSession(
+                    snapshot: MusicPlayerSnapshot(
+                        bundleID: MusicPlayerCapability.kugouMusic.bundleID,
+                        displayName: MusicPlayerCapability.kugouMusic.displayName,
+                        isRunning: true,
+                        playbackState: .paused,
+                        trackKey: "kugou-paused",
+                        title: "泡沫",
+                        artist: "G.E.M.",
+                        artworkData: nil,
+                        duration: 241,
+                        elapsedTime: 30,
+                        capability: .kugouMusic,
+                        permissionRequirement: nil,
+                        source: .nowPlayingCLI,
+                        capturedAt: Date(timeIntervalSince1970: 1_700_000_102)
+                    )
+                )
+            )
+        )
+        let compositionRoot = AppCompositionRoot(musicRuntime: runtime)
+        let request = RestVariantRequest(moduleID: .music, kind: .wideNotchStrip, preferredWidth: 248)
 
         let content = compositionRoot.restVariantContentRegistry.content(
             for: request,
@@ -173,6 +311,6 @@ struct AppCompositionRootTests {
             context: compositionRoot.context(for: .music)
         )
 
-        #expect(content == nil)
+        #expect(content != nil)
     }
 }

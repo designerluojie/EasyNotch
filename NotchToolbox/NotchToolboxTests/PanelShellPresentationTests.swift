@@ -41,6 +41,6 @@ struct PanelShellPresentationTests {
         compositionRoot.setPanelBodySize(CGSize(width: 640, height: 320), for: .fileStash)
 
         #expect(compositionRoot.panelBodySize(for: .fileStash) == CGSize(width: 640, height: 320))
-        #expect(compositionRoot.panelBodySize(for: .music) == CGSize(width: 580, height: 280))
+        #expect(compositionRoot.panelBodySize(for: .music) == CGSize(width: 580, height: 120))
     }
 }

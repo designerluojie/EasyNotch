@@ -94,17 +94,27 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
     @Published private(set) var collapsedSummary: CollapsedMusicSummary?
     @Published private(set) var lastProviderError: MusicProviderError?
 
+    var moduleStatePublisher: AnyPublisher<MusicModuleState, Never> {
+        $moduleState.eraseToAnyPublisher()
+    }
+
     private let snapshotProvider: any MusicSnapshotProviding
     private let playerController: any MusicPlayerControlling
     private let sessionResolver: ActiveMusicSessionResolver
     private let launchEstablishmentRetryLimit: Int
     private let launchEstablishmentDelayNanoseconds: UInt64
+    private let postLaunchObservationRetryLimit: Int
+    private let postLaunchObservationDelayNanoseconds: UInt64
+    private let controlConfirmationRefreshCount: Int
     private let pollSleep: @Sendable (UInt64) async throws -> Void
 
     private(set) var pollSchedule: MusicPollSchedule
     private(set) var isPollingSuspended: Bool
     private var currentEnergyMode: EnergyMode
     private var pollingTask: Task<Void, Never>?
+    private var launchObservationTask: Task<Void, Never>?
+    private var remainingConfirmationRefreshes = 0
+    private var canonicalTimeline: MusicCanonicalTimeline?
 
     init(
         initialState: MusicModuleState? = nil,
@@ -116,6 +126,9 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
         sessionResolver: ActiveMusicSessionResolver? = nil,
         launchEstablishmentRetryLimit: Int = 4,
         launchEstablishmentDelayNanoseconds: UInt64 = 250_000_000,
+        postLaunchObservationRetryLimit: Int = 12,
+        postLaunchObservationDelayNanoseconds: UInt64 = 1_000_000_000,
+        controlConfirmationRefreshCount: Int = 3,
         pollSleep: @escaping @Sendable (UInt64) async throws -> Void = { try await Task.sleep(nanoseconds: $0) }
     ) {
         let resolvedState = initialState ?? .empty(players: MusicPlayerCapability.v1Targets)
@@ -127,10 +140,13 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
             v1BundleIDs: Set(MusicPlayerCapability.v1Targets.map(\.bundleID))
         )
         self.currentEnergyMode = energyPolicy.closedMode
-        self.pollSchedule = .collapsedSummary(hasActivePlayback: resolvedState.collapsedSummary?.isPlaying == true)
+        self.pollSchedule = Self.collapsedPollSchedule(for: resolvedState)
         self.isPollingSuspended = false
         self.launchEstablishmentRetryLimit = max(1, launchEstablishmentRetryLimit)
         self.launchEstablishmentDelayNanoseconds = launchEstablishmentDelayNanoseconds
+        self.postLaunchObservationRetryLimit = max(1, postLaunchObservationRetryLimit)
+        self.postLaunchObservationDelayNanoseconds = postLaunchObservationDelayNanoseconds
+        self.controlConfirmationRefreshCount = max(0, controlConfirmationRefreshCount)
         self.pollSleep = pollSleep
         let resolvedProcessRunner = processRunner ?? FoundationMusicProcessRunner()
         self.snapshotProvider = snapshotProvider ?? NowPlayingSnapshotProvider(
@@ -145,6 +161,7 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
                 accessibilityTrustChecker: accessibilityTrustChecker ?? AccessibilityTrustChecker()
             )
         }
+        self.canonicalTimeline = MusicCanonicalTimeline(state: resolvedState)
 
         if initialState == nil {
             scheduleNextRefresh(immediate: true)
@@ -153,6 +170,7 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
 
     deinit {
         pollingTask?.cancel()
+        launchObservationTask?.cancel()
     }
 
     func handleLifecycle(_ event: ModuleLifecycleEvent) {
@@ -179,29 +197,36 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
         do {
             let snapshot = try await snapshotProvider.snapshot()
             let resolvedSnapshot = sessionResolver.resolve(snapshot)
+            let reconciledSnapshot = reconcileResolvedSnapshot(resolvedSnapshot)
             lastProviderError = nil
-            updateModuleState(.fromResolvedSnapshot(resolvedSnapshot))
+            updateModuleState(.fromResolvedSnapshot(reconciledSnapshot), syncsCanonicalTimeline: false)
+            applyPostRefreshPollingStrategy()
         } catch is CancellationError {
             return
         } catch let error as MusicProviderError where error.permissionRequirement(displayName: currentPlayerDisplayName) != nil {
             lastProviderError = error
             updateModuleState(.permissionRequired(error.permissionRequirement(displayName: currentPlayerDisplayName)!))
+            applyPostRefreshPollingStrategy()
         } catch let error as MusicProviderError {
             lastProviderError = error
             updateModuleState(.empty(players: MusicPlayerCapability.v1Targets))
+            applyPostRefreshPollingStrategy()
         } catch {
             lastProviderError = .metadataCommandFailed(stderr: error.localizedDescription)
             updateModuleState(.empty(players: MusicPlayerCapability.v1Targets))
+            applyPostRefreshPollingStrategy()
         }
     }
 
     func launchPlayer(bundleID: String) async {
+        launchObservationTask?.cancel()
         updateModuleState(.launchingPlayer(bundleID: bundleID))
 
         do {
             try await playerController.launch(bundleID: bundleID)
             guard await establishLaunchedSession(for: bundleID) else {
-                updateModuleState(.launchFailed(displayName: displayName(for: bundleID)))
+                updateModuleState(.empty(players: MusicPlayerCapability.v1Targets))
+                startPostLaunchObservation(for: bundleID)
                 return
             }
         } catch is CancellationError {
@@ -213,9 +238,20 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
         }
     }
 
+    private func startPostLaunchObservation(for bundleID: String) {
+        launchObservationTask?.cancel()
+        launchObservationTask = Task { [weak self] in
+            await self?.observePostLaunchSession(for: bundleID)
+        }
+    }
+
     func performControl(_ action: MusicControlAction) async {
         do {
             try await playerController.perform(action, for: activeControlBundleID)
+            applyLocalControlIntent(for: action)
+            remainingConfirmationRefreshes = controlConfirmationRefreshCount
+            await refreshSnapshot()
+            triggerConfirmationBurst()
         } catch is CancellationError {
             return
         } catch let error as MusicProviderError {
@@ -226,7 +262,17 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
     }
 
     func updateModuleState(_ state: MusicModuleState) {
+        updateModuleState(state, syncsCanonicalTimeline: true)
+    }
+
+    private func updateModuleState(
+        _ state: MusicModuleState,
+        syncsCanonicalTimeline: Bool
+    ) {
         moduleState = state
+        if syncsCanonicalTimeline {
+            canonicalTimeline = MusicCanonicalTimeline(state: state)
+        }
         if !isPollingSuspended {
             pollSchedule = pollSchedule(for: currentEnergyMode)
         }
@@ -277,15 +323,86 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
     }
 
     private var collapsedPollSchedule: MusicPollSchedule {
-        .collapsedSummary(hasActivePlayback: collapsedSummary?.isPlaying == true)
+        Self.collapsedPollSchedule(for: moduleState)
     }
 
     private func displayName(for bundleID: String) -> String {
         MusicPlayerCapability.forBundleID(bundleID)?.displayName ?? bundleID
     }
 
+    private static func collapsedPollSchedule(for state: MusicModuleState) -> MusicPollSchedule {
+        switch state {
+        case .playing, .paused:
+            return .collapsedSummary(hasActivePlayback: true)
+        default:
+            return .collapsedSummary(hasActivePlayback: false)
+        }
+    }
+
     private func suspendPolling() {
         isPollingSuspended = true
+    }
+
+    private func triggerConfirmationBurst() {
+        guard isPollingSuspended == false else {
+            return
+        }
+
+        pollSchedule = .confirmationBurst
+        scheduleNextRefresh(immediate: false)
+    }
+
+    private func applyPostRefreshPollingStrategy() {
+        guard remainingConfirmationRefreshes > 0 else {
+            return
+        }
+
+        remainingConfirmationRefreshes -= 1
+
+        guard isPollingSuspended == false else {
+            return
+        }
+
+        pollSchedule = .confirmationBurst
+    }
+
+    private func reconcileResolvedSnapshot(_ snapshot: MusicPlayerSnapshot?) -> MusicPlayerSnapshot? {
+        guard let snapshot else {
+            canonicalTimeline = nil
+            return nil
+        }
+
+        if canonicalTimeline == nil {
+            canonicalTimeline = MusicCanonicalTimeline(snapshot: snapshot)
+        }
+
+        return canonicalTimeline?.reconcile(snapshot) ?? snapshot
+    }
+
+    private func applyLocalControlIntent(for action: MusicControlAction) {
+        guard action == .playPause else {
+            return
+        }
+
+        let session: MusicPlaybackSession
+        switch moduleState {
+        case .playing(let currentSession), .paused(let currentSession):
+            session = currentSession
+        default:
+            return
+        }
+
+        if canonicalTimeline == nil {
+            canonicalTimeline = MusicCanonicalTimeline(session: session)
+        }
+
+        guard var timeline = canonicalTimeline else {
+            return
+        }
+
+        let optimisticSnapshot = timeline.toggledPlaybackSnapshot(from: session, at: Date())
+        canonicalTimeline = timeline
+        updateModuleState(.fromResolvedSnapshot(optimisticSnapshot), syncsCanonicalTimeline: false)
     }
 
     private func scheduleNextRefresh(immediate: Bool) {
@@ -415,6 +532,52 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
         }
 
         return false
+    }
+
+    private func observePostLaunchSession(for bundleID: String) async {
+        for attempt in 0..<postLaunchObservationRetryLimit {
+            do {
+                let snapshot = try await snapshotProvider.snapshot()
+                let resolvedSnapshot = sessionResolver.resolve(snapshot)
+                lastProviderError = nil
+
+                if let establishedState = launchEstablishedState(
+                    from: resolvedSnapshot,
+                    expectedBundleID: bundleID
+                ) {
+                    updateModuleState(establishedState)
+                    launchObservationTask = nil
+                    return
+                }
+            } catch is CancellationError {
+                launchObservationTask = nil
+                return
+            } catch let error as MusicProviderError where error.permissionRequirement(displayName: displayName(for: bundleID)) != nil {
+                lastProviderError = error
+                updateModuleState(.permissionRequired(error.permissionRequirement(displayName: displayName(for: bundleID))!))
+                launchObservationTask = nil
+                return
+            } catch let error as MusicProviderError {
+                lastProviderError = error
+            } catch {
+                lastProviderError = .metadataCommandFailed(stderr: error.localizedDescription)
+            }
+
+            guard attempt < postLaunchObservationRetryLimit - 1 else {
+                break
+            }
+
+            if postLaunchObservationDelayNanoseconds > 0 {
+                do {
+                    try await pollSleep(postLaunchObservationDelayNanoseconds)
+                } catch {
+                    launchObservationTask = nil
+                    return
+                }
+            }
+        }
+
+        launchObservationTask = nil
     }
 
     private func launchEstablishedState(
