@@ -499,6 +499,19 @@ struct MusicModuleTests {
         #expect(await runner.lastScript()?.contains("menu item \"播放\"") == true)
     }
 
+    @Test func qqAdapterActivatesQQMusicBeforeClickingPlaybackMenu() async throws {
+        let runner = MusicProcessRunnerSpy()
+        let adapter = QQMusicAdapter(processRunner: runner)
+
+        try await adapter.perform(.playPause)
+
+        let script = try #require(await runner.lastScript())
+        #expect(script.contains("tell application id \"com.tencent.QQMusicMac\" to activate"))
+        let activateRange = try #require(script.range(of: "activate"))
+        let systemEventsRange = try #require(script.range(of: "System Events"))
+        #expect(activateRange.lowerBound < systemEventsRange.lowerBound)
+    }
+
     @Test func qqAdapterUsesSystemEventsMenuControlForNextTrack() async throws {
         let runner = MusicProcessRunnerSpy()
         let adapter = QQMusicAdapter(processRunner: runner)
@@ -1119,6 +1132,21 @@ struct MusicModuleTests {
         #expect(output.stdout == "stdout")
         #expect(output.stderr == "stderr")
         #expect(output.status == 7)
+    }
+
+    @Test func foundationMusicProcessRunnerDrainsLargeStdoutBeforeWaitingForExit() async throws {
+        let runner = FoundationMusicProcessRunner()
+
+        let output = try await withTimeout(seconds: 2) {
+            try await runner.run(
+                "/usr/bin/python3",
+                arguments: ["-c", "import sys; sys.stdout.write('x' * 200000); sys.stderr.write('done')"]
+            )
+        }
+
+        #expect(output.stdout.count == 200000)
+        #expect(output.stderr == "done")
+        #expect(output.status == 0)
     }
 
     @Test func foundationMusicProcessRunnerSurfacesMissingEnvCommand() async throws {
@@ -1754,6 +1782,29 @@ private struct AccessibilityTrustCheckerStub: AccessibilityTrustChecking {
 
     func isTrustedForMediaKeyPosting() -> Bool {
         isTrusted
+    }
+}
+
+private enum TestTimeoutError: Error {
+    case timedOut
+}
+
+private func withTimeout<Value: Sendable>(
+    seconds: TimeInterval,
+    operation: @escaping @Sendable () async throws -> Value
+) async throws -> Value {
+    try await withThrowingTaskGroup(of: Value.self) { group in
+        group.addTask {
+            try await operation()
+        }
+        group.addTask {
+            try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            throw TestTimeoutError.timedOut
+        }
+
+        let result = try await group.next()
+        group.cancelAll()
+        return try #require(result)
     }
 }
 

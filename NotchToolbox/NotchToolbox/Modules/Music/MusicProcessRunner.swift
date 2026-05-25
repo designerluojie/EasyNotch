@@ -37,15 +37,19 @@ struct FoundationMusicProcessRunner: MusicProcessRunning {
             try Task.checkCancellation()
             try processBox.launch(process)
 
-            async let stdoutData = Self.readAll(from: stdoutPipe.fileHandleForReading)
-            async let stderrData = Self.readAll(from: stderrPipe.fileHandleForReading)
+            let outputReader = ProcessPipeReader(
+                stdout: stdoutPipe.fileHandleForReading,
+                stderr: stderrPipe.fileHandleForReading
+            )
+            outputReader.start()
 
             process.waitUntilExit()
+            let outputData = outputReader.waitForData()
             try Task.checkCancellation()
 
             return MusicProcessOutput(
-                stdout: String(decoding: try await stdoutData, as: UTF8.self),
-                stderr: String(decoding: try await stderrData, as: UTF8.self),
+                stdout: String(decoding: outputData.stdout, as: UTF8.self),
+                stderr: String(decoding: outputData.stderr, as: UTF8.self),
                 status: process.terminationStatus
             )
         }
@@ -58,13 +62,6 @@ struct FoundationMusicProcessRunner: MusicProcessRunning {
         }
     }
 
-    private static func readAll(from handle: FileHandle) async throws -> Data {
-        var data = Data()
-        for try await byte in handle.bytes {
-            data.append(byte)
-        }
-        return data
-    }
 }
 
 private final class RunningProcessBox: @unchecked Sendable {
@@ -101,5 +98,55 @@ private final class RunningProcessBox: @unchecked Sendable {
         }
 
         process.terminate()
+    }
+}
+
+nonisolated private final class ProcessPipeReader: @unchecked Sendable {
+    private let stdout: FileHandle
+    private let stderr: FileHandle
+    private let stdoutData = LockedProcessData()
+    private let stderrData = LockedProcessData()
+    private let group = DispatchGroup()
+
+    init(stdout: FileHandle, stderr: FileHandle) {
+        self.stdout = stdout
+        self.stderr = stderr
+    }
+
+    func start() {
+        read(stdout, into: stdoutData)
+        read(stderr, into: stderrData)
+    }
+
+    func waitForData() -> (stdout: Data, stderr: Data) {
+        group.wait()
+        return (stdoutData.value(), stderrData.value())
+    }
+
+    private func read(_ handle: FileHandle, into box: LockedProcessData) {
+        group.enter()
+        DispatchQueue.global(qos: .utility).async {
+            let data = handle.readDataToEndOfFile()
+            box.set(data)
+            self.group.leave()
+        }
+    }
+}
+
+nonisolated private final class LockedProcessData: @unchecked Sendable {
+    private let lock = NSLock()
+    private var data = Data()
+
+    func set(_ data: Data) {
+        lock.lock()
+        self.data = data
+        lock.unlock()
+    }
+
+    func value() -> Data {
+        lock.lock()
+        let value = data
+        lock.unlock()
+        return value
     }
 }

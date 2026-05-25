@@ -38,12 +38,13 @@ private extension QQMusicAdapter {
         switch action {
         case .playPause:
             """
+            \(activateQQMusicScript())
             tell application "System Events"
                 tell process "QQ音乐"
                     try
-                        click menu item "暂停" of menu 1 of menu bar item "播放控制" of menu bar 1
+                        click menu item "暂停" of menu "播放控制" of menu bar item "播放控制" of menu bar 1
                     on error
-                        click menu item "播放" of menu 1 of menu bar item "播放控制" of menu bar 1
+                        click menu item "播放" of menu "播放控制" of menu bar item "播放控制" of menu bar 1
                     end try
                 end tell
             end tell
@@ -57,11 +58,19 @@ private extension QQMusicAdapter {
 
     static func qqPlaybackMenuScript(menuItem: String) -> String {
         """
+        \(activateQQMusicScript())
         tell application "System Events"
             tell process "QQ音乐"
-                click menu item "\(menuItem)" of menu 1 of menu bar item "播放控制" of menu bar 1
+                click menu item "\(menuItem)" of menu "播放控制" of menu bar item "播放控制" of menu bar 1
             end tell
         end tell
+        """
+    }
+
+    static func activateQQMusicScript() -> String {
+        """
+        tell application id "com.tencent.QQMusicMac" to activate
+        delay 0.15
         """
     }
 
