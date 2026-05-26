@@ -5,6 +5,7 @@ nonisolated enum LocalStorageDirectory: Equatable {
     case fileStash
     case clipboard
     case clipboardPayloads
+    case clipboardThumbnails
     case aiChat
     case aiAttachments
     case pomodoro
@@ -60,6 +61,8 @@ private extension LocalStorageDirectory {
             return ["Clipboard"]
         case .clipboardPayloads:
             return ["Clipboard", "Payloads"]
+        case .clipboardThumbnails:
+            return ["Clipboard", "Thumbnails"]
         case .aiChat:
             return ["AIChat"]
         case .aiAttachments:

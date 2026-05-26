@@ -6,6 +6,7 @@ final class NotchShellRuntime: NSObject {
     let interactions: OverlayPanelInteractions
 
     private let coordinator: OverlayCoordinator
+    private let lifecycleDispatcher: ModuleLifecycleDispatcher
     private let globalShortcutService: any GlobalShortcutServicing
     private let launchAtLoginService: any LaunchAtLoginServicing
     private let appLifecycleObserver: AppLifecycleObserver
@@ -27,7 +28,7 @@ final class NotchShellRuntime: NSObject {
         self.globalShortcutService = globalShortcutService ?? InMemoryGlobalShortcutService()
         self.launchAtLoginService = launchAtLoginService ?? InMemoryLaunchAtLoginService()
         self.appLifecycleObserver = appLifecycleObserver ?? AppLifecycleObserver()
-        let lifecycleDispatcher = ModuleLifecycleDispatcher(
+        self.lifecycleDispatcher = ModuleLifecycleDispatcher(
             registry: compositionRoot.moduleRuntimeRegistry
         )
         self.coordinator = OverlayCoordinator(
@@ -100,11 +101,14 @@ final class NotchShellRuntime: NSObject {
 
             coordinator.expand(moduleID: collapsedExpansionModuleID(), onScreenID: nil)
         }
+        lifecycleDispatcher.broadcast(.appDidLaunch)
         appLifecycleObserver.willSleep = { [weak self] in
+            self?.lifecycleDispatcher.broadcast(.appWillSleep)
             self?.compositionRoot.energyGovernor.suspendForSleep()
         }
         appLifecycleObserver.didWake = { [weak self] in
             self?.compositionRoot.energyGovernor.resumeAfterWake()
+            self?.lifecycleDispatcher.broadcast(.appDidWake)
         }
         appLifecycleObserver.start()
         NotificationCenter.default.addObserver(

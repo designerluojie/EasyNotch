@@ -54,6 +54,67 @@ struct AppCompositionRootTests {
         #expect(context.sharedServices === services)
     }
 
+    @Test func compositionRootOwnsSingletonClipboardCoreAndRegistersRuntime() throws {
+        let services = try SharedCoreServices(
+            baseURL: FileManager.default.temporaryDirectory
+                .appending(path: "NotchToolboxTests")
+                .appending(path: UUID().uuidString),
+            credentialStore: InMemorySecureCredentialStore()
+        )
+        let energyGovernor = EnergyGovernor()
+        let root = AppCompositionRoot(sharedServices: services, energyGovernor: energyGovernor)
+
+        #expect(root.clipboardCore.moduleID == .clipboard)
+        #expect(root.moduleRuntimeRegistry.registeredModuleIDs.contains(.clipboard))
+        #expect(root.moduleRuntimeRegistry.runtime(for: .clipboard) != nil)
+    }
+
+    @Test func clipboardModuleStartsActiveWithoutCollapsingOverlayState() throws {
+        let services = try SharedCoreServices(
+            baseURL: FileManager.default.temporaryDirectory
+                .appending(path: "NotchToolboxTests")
+                .appending(path: UUID().uuidString),
+            credentialStore: InMemorySecureCredentialStore()
+        )
+        let root = AppCompositionRoot(sharedServices: services, activeModule: .clipboard)
+
+        #expect(root.activeModule == .clipboard)
+        #expect(root.overlayState == .idle(screenID: "main"))
+    }
+
+    @Test func clipboardModuleStartsWithoutPersistentRestVariantRequest() throws {
+        let services = try SharedCoreServices(
+            baseURL: FileManager.default.temporaryDirectory
+                .appending(path: "NotchToolboxTests")
+                .appending(path: UUID().uuidString),
+            credentialStore: InMemorySecureCredentialStore()
+        )
+        let root = AppCompositionRoot(sharedServices: services, activeModule: .clipboard)
+
+        #expect(root.restVariantStore.resolvedPresentation == .none)
+    }
+
+    @Test func selectingSettingsClearsPersistentRestVariantRequest() {
+        let root = AppCompositionRoot(activeModule: .clipboard)
+
+        root.selectActiveModule(.settings)
+
+        #expect(root.restVariantStore.resolvedPresentation == .none)
+    }
+
+    @Test func clipboardRestVariantContentProviderIsRegistered() {
+        let root = AppCompositionRoot(activeModule: .clipboard)
+        let request = RestVariantRequest(moduleID: .clipboard, kind: .wideNotchStrip)
+
+        let content = root.restVariantContentRegistry.content(
+            for: request,
+            appearance: .wideNotchStrip,
+            context: root.context(for: .clipboard)
+        )
+
+        #expect(content != nil)
+    }
+
     @Test func compositionRootExposesSharedMusicRuntime() throws {
         let compositionRoot = AppCompositionRoot()
 
