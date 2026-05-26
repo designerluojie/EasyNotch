@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import Foundation
 import Testing
@@ -33,6 +34,33 @@ struct NotchShellRuntimeTests {
         #expect(presenter.presentations[2].state == .idle(screenID: "built-in"))
     }
 
+    @Test func appLifecycleNotificationsDriveClipboardPolling() async throws {
+        let compositionRoot = AppCompositionRoot(activeModule: .music, initialScreenID: "built-in")
+        let interactions = OverlayPanelInteractions()
+        let presenter = RuntimeSpyOverlayPanelPresenter()
+        let runtime = NotchShellRuntime(
+            compositionRoot: compositionRoot,
+            interactions: interactions,
+            topologyProvider: RuntimeStubDisplayTopologyProvider(snapshots: [
+                Self.notchSnapshot(id: "built-in")
+            ]),
+            panelPresenter: presenter,
+            primaryScreenID: "built-in",
+            simulateNotchOnNonNotchScreen: true
+        )
+
+        runtime.start()
+        #expect(compositionRoot.clipboardCore.isPolling == true)
+
+        NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.willSleepNotification, object: nil)
+        await Task.yield()
+        #expect(compositionRoot.clipboardCore.isPolling == false)
+
+        NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.didWakeNotification, object: nil)
+        await Task.yield()
+        #expect(compositionRoot.clipboardCore.isPolling == true)
+    }
+
     @Test func startDispatchesLifecycleThroughCompositionRootRegistry() async throws {
         let musicRuntime = RuntimeSpyMusicModuleRuntime()
         let compositionRoot = AppCompositionRoot(
@@ -58,6 +86,7 @@ struct NotchShellRuntimeTests {
         await Task.yield()
 
         #expect(musicRuntime.events == [
+            .appDidLaunch,
             .panelWillExpand(screenID: "built-in"),
             .moduleDidAppear,
             .panelDidExpand(screenID: "built-in")

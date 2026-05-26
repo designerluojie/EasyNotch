@@ -4,6 +4,7 @@ struct PanelShellView: View {
     @ObservedObject var compositionRoot: AppCompositionRoot
 
     @Binding var isMorePresented: Bool
+    var onClipboardPasteSuccess: (() -> Void)? = nil
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -15,7 +16,13 @@ struct PanelShellView: View {
                     onToggleSettings: toggleSettings
                 )
 
-                ContentHostView(compositionRoot: compositionRoot)
+                ContentHostView(
+                    compositionRoot: compositionRoot,
+                    onClipboardPasteSuccess: onClipboardPasteSuccess,
+                    onClipboardPreferredBodySizeChange: { size in
+                        compositionRoot.setPanelBodySize(size, for: .clipboard)
+                    }
+                )
                     .padding(.horizontal, 22)
                     .padding(.top, 15)
                     .padding(.bottom, 15)

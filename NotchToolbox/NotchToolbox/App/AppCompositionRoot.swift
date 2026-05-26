@@ -8,7 +8,13 @@ final class AppCompositionRoot: ObservableObject {
     let sharedServices: SharedCoreServices
     let energyGovernor: EnergyGovernor
     let musicRuntime: MusicModuleRuntime
+    let clipboardCore: ClipboardCore
     let moduleRuntimeRegistry: ModuleRuntimeRegistry
+    lazy var clipboardViewModel = ClipboardViewModel(
+        core: clipboardCore,
+        localFileStore: sharedServices.localFileStore,
+        restVariantStore: restVariantStore
+    )
     let restVariantStore: RestVariantStore
     let restVariantContentRegistry: RestVariantContentRegistry
 
@@ -30,49 +36,98 @@ final class AppCompositionRoot: ObservableObject {
         activeModule: NotchModuleID = .music,
         initialScreenID: String = "main"
     ) {
+        let resolvedSharedServices = sharedServices ?? SharedCoreServices.fallback()
+        let resolvedEnergyGovernor = energyGovernor ?? EnergyGovernor()
+        let resolvedRestVariantStore = restVariantStore ?? RestVariantStore()
+        let resolvedRestVariantContentRegistry = restVariantContentRegistry ?? RestVariantContentRegistry()
+        let resolvedModuleDescriptors = moduleDescriptors ?? NotchModuleDescriptor.defaultDescriptors
         let resolvedMusicRuntime = musicRuntime ?? MusicModuleRuntime()
 
-        self.sharedServices = sharedServices ?? SharedCoreServices.fallback()
-        self.energyGovernor = energyGovernor ?? EnergyGovernor()
-        self.musicRuntime = resolvedMusicRuntime
-        self.energyGovernor.register(resolvedMusicRuntime.energyManagedTask)
-        self.moduleRuntimeRegistry = Self.makeModuleRuntimeRegistry(
-            providedRegistry: moduleRuntimeRegistry,
-            musicRuntime: resolvedMusicRuntime
-        )
-        self.restVariantStore = restVariantStore ?? RestVariantStore()
-        self.restVariantContentRegistry = restVariantContentRegistry ?? RestVariantContentRegistry()
-        self.moduleDescriptors = moduleDescriptors ?? NotchModuleDescriptor.defaultDescriptors
-        self.activeModule = activeModule
-        self.overlayState = .idle(screenID: initialScreenID)
-        self.panelBodySizeOverrides = [:]
+        do {
+            let clipboardStore = try ClipboardStore(
+                fileStore: resolvedSharedServices.localFileStore,
+                settingsStore: resolvedSharedServices.settingsStore
+            )
+            let cleanupService = ClipboardCleanupService(
+                store: clipboardStore,
+                settingsStore: resolvedSharedServices.settingsStore,
+                scheduler: resolvedSharedServices.cleanupScheduler
+            )
+            let pasteboardClient = LiveClipboardPasteboardClient()
+            let pasteExecutor = PasteExecutor(
+                store: clipboardStore,
+                pasteboardClient: pasteboardClient
+            )
+            let clipboardCore = try ClipboardCore(
+                pasteboardClient: pasteboardClient,
+                sourceApplicationProvider: LiveClipboardSourceApplicationProvider(),
+                normalizer: ClipboardNormalizer(),
+                store: clipboardStore,
+                settingsStore: resolvedSharedServices.settingsStore,
+                cleanupService: cleanupService,
+                pasteExecutor: pasteExecutor
+            )
+            let clipboardRuntime = ClipboardModuleRuntime(core: clipboardCore)
+            let runtimeRegistry = Self.makeModuleRuntimeRegistry(
+                providedRegistry: moduleRuntimeRegistry,
+                musicRuntime: resolvedMusicRuntime,
+                clipboardRuntime: clipboardRuntime
+            )
 
-        self.restVariantContentRegistry.register(
-            AnyRestVariantContentProvider(moduleID: .music) { [weak resolvedMusicRuntime] request, appearance, _ in
-                if request.kind == .wideNotchStrip,
-                   appearance == .wideNotchStrip,
-                   let runtime = resolvedMusicRuntime,
-                   let presentation = MusicWideNotchStripPresentation(moduleState: runtime.moduleState) {
-                    MusicWideNotchStripView(presentation: presentation)
-                } else {
-                    EmptyView()
+            self.sharedServices = resolvedSharedServices
+            self.energyGovernor = resolvedEnergyGovernor
+            self.musicRuntime = resolvedMusicRuntime
+            self.clipboardCore = clipboardCore
+            self.moduleRuntimeRegistry = runtimeRegistry
+            self.restVariantStore = resolvedRestVariantStore
+            self.restVariantContentRegistry = resolvedRestVariantContentRegistry
+            self.moduleDescriptors = resolvedModuleDescriptors
+            self.activeModule = activeModule
+            self.overlayState = .idle(screenID: initialScreenID)
+            self.panelBodySizeOverrides = [:]
+
+            self.energyGovernor.register(resolvedMusicRuntime.energyManagedTask)
+            self.energyGovernor.register(clipboardCore)
+
+            self.restVariantContentRegistry.register(
+                AnyRestVariantContentProvider(moduleID: .music) { [weak resolvedMusicRuntime] request, appearance, _ in
+                    if request.kind == .wideNotchStrip,
+                       appearance == .wideNotchStrip,
+                       let runtime = resolvedMusicRuntime,
+                       let presentation = MusicWideNotchStripPresentation(moduleState: runtime.moduleState) {
+                        MusicWideNotchStripView(presentation: presentation)
+                    } else {
+                        EmptyView()
+                    }
                 }
-            }
-        )
-
-        resolvedMusicRuntime.moduleStatePublisher
-            .dropFirst()
-            .sink { [weak self] state in
-                guard let self else {
-                    return
+            )
+            self.restVariantContentRegistry.register(
+                AnyRestVariantContentProvider(moduleID: .clipboard) { request, appearance, _ in
+                    ClipboardRestVariantContentView(
+                        core: clipboardCore,
+                        request: request,
+                        appearance: appearance
+                    )
                 }
+            )
 
-                self.syncMusicPresentationState(for: state)
-                self.objectWillChange.send()
-            }
-            .store(in: &cancellables)
+            resolvedMusicRuntime.moduleStatePublisher
+                .dropFirst()
+                .sink { [weak self] state in
+                    guard let self else {
+                        return
+                    }
 
-        syncMusicPresentationState(for: resolvedMusicRuntime.moduleState)
+                    self.syncMusicPresentationState(for: state)
+                    self.objectWillChange.send()
+                }
+                .store(in: &cancellables)
+
+            syncMusicPresentationState(for: resolvedMusicRuntime.moduleState)
+            syncClipboardRestVariantForActiveModule()
+        } catch {
+            fatalError("Unable to initialize AppCompositionRoot module dependencies: \(error)")
+        }
     }
 
     func selectActiveModule(_ moduleID: NotchModuleID) {
@@ -81,6 +136,7 @@ final class AppCompositionRoot: ObservableObject {
         }
 
         activeModule = moduleID
+        syncClipboardRestVariantForActiveModule()
     }
 
     func context(for moduleID: NotchModuleID) -> NotchModuleContext {
@@ -105,13 +161,16 @@ final class AppCompositionRoot: ObservableObject {
 
     private static func makeModuleRuntimeRegistry(
         providedRegistry: ModuleRuntimeRegistry?,
-        musicRuntime: MusicModuleRuntime
+        musicRuntime: MusicModuleRuntime,
+        clipboardRuntime: ClipboardModuleRuntime
     ) -> ModuleRuntimeRegistry {
         guard let providedRegistry else {
-            return ModuleRuntimeRegistry.defaultRegistry(overrides: [musicRuntime])
+            return ModuleRuntimeRegistry.defaultRegistry(overrides: [musicRuntime, clipboardRuntime])
         }
 
-        let runtimes = providedRegistry.runtimes.filter { $0.id != .music } + [musicRuntime]
+        let runtimes = providedRegistry.runtimes.filter {
+            $0.id != .music && $0.id != .clipboard
+        } + [musicRuntime, clipboardRuntime]
         return ModuleRuntimeRegistry(runtimes: runtimes)
     }
 
@@ -128,6 +187,22 @@ final class AppCompositionRoot: ObservableObject {
                 moduleID: .music,
                 kind: .wideNotchStrip,
                 preferredWidth: 248
+            )
+        )
+    }
+
+    private func syncClipboardRestVariantForActiveModule() {
+        guard activeModule == .clipboard,
+              let descriptor = moduleDescriptors.first(where: { $0.id == .clipboard }),
+              let kind = descriptor.defaultRestVariant else {
+            restVariantStore.clearPersistentRequest(for: .clipboard)
+            return
+        }
+
+        restVariantStore.setPersistentRequest(
+            ClipboardRestVariantPresentation.persistentRequest(
+                for: .clipboard,
+                defaultKind: kind
             )
         )
     }
