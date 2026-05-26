@@ -131,6 +131,11 @@ final class AppCompositionRoot: ObservableObject {
     }
 
     func selectActiveModule(_ moduleID: NotchModuleID) {
+        if case .expanded(let screenID, let expandedModuleID) = overlayState,
+           expandedModuleID != moduleID {
+            overlayState = .expanded(screenID: screenID, moduleID: moduleID)
+        }
+
         guard activeModule != moduleID else {
             return
         }

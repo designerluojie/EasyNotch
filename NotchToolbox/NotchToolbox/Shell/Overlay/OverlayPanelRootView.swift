@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 private enum OverlayPanelChromeColors {
@@ -414,7 +415,7 @@ struct OverlayPanelRootView: View {
         .onHover { isInside in
             if isInside {
                 interactions.pointerEntered(screenID: panelModel.screenID)
-            } else {
+            } else if shouldHonorExpandedHoverExit() {
                 interactions.pointerExited(screenID: panelModel.screenID)
             }
         }
@@ -643,6 +644,19 @@ struct OverlayPanelRootView: View {
         case .idle, .hoverHint, .expanded, .collapsing, .toast:
             return nil
         }
+    }
+
+    private func shouldHonorExpandedHoverExit(mouseLocation: CGPoint = NSEvent.mouseLocation) -> Bool {
+        guard panelModel.state.isExpandedLike,
+              let geometry = panelModel.geometry else {
+            return true
+        }
+
+        let expandedOuterFrame = OverlayPanelChromeMetrics.expandedOuterFrame(
+            for: compositionRoot.panelBodySize(for: compositionRoot.activeModule),
+            on: geometry.screenFrame
+        )
+        return expandedOuterFrame.contains(mouseLocation) == false
     }
 
     private func animatedRestVariantTransitionButton(_ transition: RestVariantTransition) -> some View {

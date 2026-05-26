@@ -15,6 +15,26 @@ struct AppCompositionRootTests {
         #expect(compositionRoot.activeModule == .fileStash)
     }
 
+    @Test func selectActiveModuleWhileExpandedUpdatesOverlayStateModule() {
+        let compositionRoot = AppCompositionRoot(activeModule: .music)
+        compositionRoot.overlayState = .expanded(screenID: "built-in", moduleID: .music)
+
+        compositionRoot.selectActiveModule(.aiChat)
+
+        #expect(compositionRoot.activeModule == .aiChat)
+        #expect(compositionRoot.overlayState == .expanded(screenID: "built-in", moduleID: .aiChat))
+    }
+
+    @Test func selectActiveModuleRepairsExpandedOverlayStateWhenActiveModuleAlreadyMatches() {
+        let compositionRoot = AppCompositionRoot(activeModule: .aiChat)
+        compositionRoot.overlayState = .expanded(screenID: "built-in", moduleID: .music)
+
+        compositionRoot.selectActiveModule(.aiChat)
+
+        #expect(compositionRoot.activeModule == .aiChat)
+        #expect(compositionRoot.overlayState == .expanded(screenID: "built-in", moduleID: .aiChat))
+    }
+
     @Test func selectActiveModuleDoesNotRepublishSameModule() {
         let compositionRoot = AppCompositionRoot(activeModule: .music)
         var publishedValues: [NotchModuleID] = []
