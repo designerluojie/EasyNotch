@@ -92,6 +92,12 @@ final class PanelWindowController: OverlayPanelPresenting {
             return
         }
 
+        if shouldApplyExpandedFrameImmediately(from: previousState, to: resolvedState, targetFrame: targetFrame) {
+            panel.setFrame(targetFrame, display: true)
+            panel.orderFrontRegardless()
+            return
+        }
+
         if panel.isVisible, shouldAnimateFrameTransition(from: previousState, to: resolvedState) {
             animatePanelFrame(to: targetFrame)
         } else {
@@ -196,8 +202,8 @@ final class PanelWindowController: OverlayPanelPresenting {
 
     private func bindCompositionRoot() {
         compositionRoot.$activeModule
-            .sink { [weak self] _ in
-                self?.refreshExpandedLayoutIfNeeded()
+            .sink { [weak self] activeModule in
+                self?.refreshExpandedLayoutIfNeeded(activeModule: activeModule)
             }
             .store(in: &cancellables)
 
@@ -208,12 +214,16 @@ final class PanelWindowController: OverlayPanelPresenting {
             .store(in: &cancellables)
     }
 
-    private func refreshExpandedLayoutIfNeeded() {
+    private func refreshExpandedLayoutIfNeeded(activeModule: NotchModuleID? = nil) {
         guard panelModel.state.isExpandedLike, let geometry = panelModel.geometry else {
             return
         }
 
-        present(state: panelModel.state, geometry: geometry)
+        let refreshedState = expandedStateForActiveModule(
+            activeModule ?? compositionRoot.activeModule,
+            from: panelModel.state
+        )
+        present(state: refreshedState, geometry: geometry)
     }
 
     private func expandedOuterFrame(for moduleID: NotchModuleID, geometry: TopAnchorGeometry) -> CGRect {
@@ -229,6 +239,15 @@ final class PanelWindowController: OverlayPanelPresenting {
             return moduleID
         default:
             return compositionRoot.activeModule
+        }
+    }
+
+    private func expandedStateForActiveModule(_ activeModule: NotchModuleID, from state: OverlayState) -> OverlayState {
+        switch state {
+        case .expanded(let screenID, _):
+            return .expanded(screenID: screenID, moduleID: activeModule)
+        default:
+            return state
         }
     }
 
@@ -258,6 +277,20 @@ final class PanelWindowController: OverlayPanelPresenting {
         }
 
         return targetFrame.width < panel.frame.width || targetFrame.height < panel.frame.height
+    }
+
+    private func shouldApplyExpandedFrameImmediately(
+        from previousState: OverlayState,
+        to nextState: OverlayState,
+        targetFrame: NSRect
+    ) -> Bool {
+        guard case .expanded = previousState,
+              case .expanded = nextState,
+              panel.isVisible else {
+            return false
+        }
+
+        return targetFrame.width > panel.frame.width || targetFrame.height > panel.frame.height
     }
 
     private func shouldLatchRestCollapsePresentation(

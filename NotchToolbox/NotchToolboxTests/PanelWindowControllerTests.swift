@@ -103,6 +103,38 @@ struct PanelWindowControllerTests {
         #expect(controller.panel.frame.height == 420)
     }
 
+    @Test func activeModuleChangeWhileExpandedUpdatesExpandedStateAndFrame() {
+        let compositionRoot = AppCompositionRoot(activeModule: .music)
+        compositionRoot.setPanelBodySize(CGSize(width: 580, height: 120), for: .music)
+        let controller = PanelWindowController(compositionRoot: compositionRoot)
+        let geometry = TopAnchorGeometry(
+            screenID: "built-in",
+            screenFrame: NSRect(x: 0, y: 0, width: 1512, height: 982),
+            anchorKind: .hardwareNotch,
+            notchMetrics: NotchMetrics(visibleSize: CGSize(width: 185, height: 32), source: .hardware),
+            idleFrame: NSRect(x: 100, y: 900, width: 185, height: 32),
+            hoverHintFrame: NSRect(x: 42, y: 902, width: 300, height: 120),
+            hoverHintVisibleFrame: NSRect(x: 95.5, y: 942, width: 193, height: 40),
+            expandedFrame: NSRect(x: 6, y: 674, width: 696, height: 336),
+            expandedVisibleFrame: NSRect(x: 64, y: 702, width: 580, height: 280),
+            toastFrame: NSRect(x: 170, y: 916, width: 320, height: 52),
+            hotzoneFrame: NSRect(x: 100, y: 900, width: 185, height: 32),
+            safeTopInset: 32,
+            idleVisibleHeight: 0
+        )
+
+        controller.present(state: .expanded(screenID: "built-in", moduleID: .music), geometry: geometry)
+        compositionRoot.selectActiveModule(.aiChat)
+
+        #expect(controller.panelModel.state == .expanded(screenID: "built-in", moduleID: .aiChat))
+        #expect(
+            controller.panel.frame == OverlayPanelChromeMetrics.expandedOuterFrame(
+                for: PanelShellPresentation.bodySize(for: .aiChat),
+                on: geometry.screenFrame
+            )
+        )
+    }
+
     @Test func presentingCollapsingKeepsExpandedFrameUntilTimeout() {
         let compositionRoot = AppCompositionRoot()
         compositionRoot.setPanelBodySize(CGSize(width: 580, height: 280), for: .music)
