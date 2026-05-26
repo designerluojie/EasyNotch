@@ -1021,7 +1021,77 @@ struct ClipboardModuleTests {
         #expect(viewModel.cards.count == 1)
         #expect(viewModel.cards[0].previewText == "alpha")
         #expect(viewModel.cards[0].previewState == .textOnly)
+        #expect(viewModel.cards[0].sourceAppBundleID == "com.apple.TextEdit")
+        #expect(viewModel.cards[0].sourceAppName == "TextEdit")
         #expect(viewModel.lastPasteError == nil)
+    }
+
+    @Test func clipboardRelativeTimeTextUsesDiscreteChineseBuckets() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+
+        #expect(ClipboardViewModel.relativeTimeText(for: now.addingTimeInterval(-30), relativeTo: now) == "现在")
+        #expect(ClipboardViewModel.relativeTimeText(for: now.addingTimeInterval(-9 * 60), relativeTo: now) == "9 分钟前")
+        #expect(ClipboardViewModel.relativeTimeText(for: now.addingTimeInterval(-12 * 60), relativeTo: now) == "15 分钟前")
+        #expect(ClipboardViewModel.relativeTimeText(for: now.addingTimeInterval(-35 * 60), relativeTo: now) == "半小时前")
+        #expect(ClipboardViewModel.relativeTimeText(for: now.addingTimeInterval(-4 * 3600), relativeTo: now) == "4 小时前")
+        #expect(ClipboardViewModel.relativeTimeText(for: now.addingTimeInterval(-13 * 3600), relativeTo: now) == "半天前")
+        #expect(ClipboardViewModel.relativeTimeText(for: now.addingTimeInterval(-6 * 86_400), relativeTo: now) == "6 天前")
+        #expect(ClipboardViewModel.relativeTimeText(for: now.addingTimeInterval(-18 * 86_400), relativeTo: now) == "两周前")
+        #expect(ClipboardViewModel.relativeTimeText(for: now.addingTimeInterval(-45 * 86_400), relativeTo: now) == "一个月前")
+        #expect(ClipboardViewModel.relativeTimeText(for: now.addingTimeInterval(-170 * 86_400), relativeTo: now) == "五个月前")
+        #expect(ClipboardViewModel.relativeTimeText(for: now.addingTimeInterval(-240 * 86_400), relativeTo: now) == "半年前")
+        #expect(ClipboardViewModel.relativeTimeText(for: now.addingTimeInterval(-400 * 86_400), relativeTo: now) == "一年前")
+        #expect(ClipboardViewModel.relativeTimeText(for: now.addingTimeInterval(-900 * 86_400), relativeTo: now) == "更久")
+    }
+
+    @Test func compactClipboardLayoutMatchesContentLayerDesignMetrics() {
+        #expect(ClipboardModuleLayout.listSurfaceHeight == 116)
+        #expect(ClipboardModuleLayout.emptySurfaceHeight == 56)
+        #expect(ClipboardModuleLayout.successSurfaceHeight == 56)
+        #expect(ClipboardModuleLayout.panelBodySize(isEmpty: false) == CGSize(width: 580, height: 180))
+        #expect(ClipboardModuleLayout.panelBodySize(isEmpty: true) == CGSize(width: 580, height: 120))
+        #expect(ClipboardModuleLayout.successPanelBodySize == CGSize(width: 580, height: 120))
+        #expect(ClipboardModuleLayout.surfaceFillOpacity == 0)
+        #expect(ClipboardModuleLayout.usesHostSurfaceStroke == true)
+        #expect(ClipboardCardLayout.cardSize == CGSize(width: 96, height: 108))
+        #expect(ClipboardCardLayout.previewSize == CGSize(width: 80, height: 70))
+        #expect(ClipboardCardLayout.cardSpacing == 4)
+    }
+
+    @Test func verticalWheelScrollMapsIntoHorizontalOffset() {
+        let mappedOffset = ClipboardWheelScrollMapper.targetOffset(
+            currentOffset: 20,
+            viewportWidth: 536,
+            contentWidth: 960,
+            deltaX: 0,
+            deltaY: -48
+        )
+
+        #expect(mappedOffset == 68)
+    }
+
+    @Test func wheelScrollMappingClampsToHorizontalBounds() {
+        let mappedOffset = ClipboardWheelScrollMapper.targetOffset(
+            currentOffset: 420,
+            viewportWidth: 536,
+            contentWidth: 960,
+            deltaX: 0,
+            deltaY: -80
+        )
+
+        #expect(mappedOffset == 424)
+    }
+
+    @Test func horizontalDominantWheelInputKeepsNativeScrollBehavior() {
+        let mappedOffset = ClipboardWheelScrollMapper.targetOffset(
+            currentOffset: 20,
+            viewportWidth: 536,
+            contentWidth: 960,
+            deltaX: 30,
+            deltaY: -12
+        )
+
+        #expect(mappedOffset == nil)
     }
 
     @Test func viewModelProjectsMissingReferenceBadgeState() throws {
@@ -1266,7 +1336,7 @@ struct ClipboardModuleTests {
         #expect(core.history.first?.copiedAt ?? .distantPast >= promotedBefore)
     }
 
-    @Test func viewModelPasteInvokesSuccessCallbackAndPromotesSelectedItem() throws {
+    @Test func viewModelPasteEntersExpandedSuccessPhaseThenDelaysCollapseCallback() throws {
         let root = try Self.makeTemporaryRoot()
         let fileStore = LocalFileStore(baseURL: root)
         let settingsStore = try SettingsStore(
@@ -1322,7 +1392,13 @@ struct ClipboardModuleTests {
             cleanupService: cleanup,
             pasteExecutor: executor
         )
-        let viewModel = ClipboardViewModel(core: core)
+        let scheduler = ManualClipboardDelayScheduler()
+        let viewModel = ClipboardViewModel(
+            core: core,
+            successPhaseDuration: Duration.seconds(2),
+            postCollapseResetDelay: Duration.milliseconds(250),
+            delayScheduler: scheduler.schedule(after:action:)
+        )
         var callbackCount = 0
 
         viewModel.refresh()
@@ -1330,10 +1406,22 @@ struct ClipboardModuleTests {
             callbackCount += 1
         }
 
-        #expect(callbackCount == 1)
+        #expect(callbackCount == 0)
         #expect(viewModel.lastPasteError == nil)
+        #expect(viewModel.phase == .pastebackSuccess)
         #expect(viewModel.cards.map(\.previewText) == ["first", "second"])
         #expect(viewModel.cards.first?.id == targetItem.id)
+        #expect(scheduler.scheduledDurations == [Duration.seconds(2)])
+
+        scheduler.runNext()
+
+        #expect(callbackCount == 1)
+        #expect(viewModel.phase == .pastebackSuccess)
+        #expect(scheduler.scheduledDurations == [Duration.seconds(2), Duration.milliseconds(250)])
+
+        scheduler.runNext()
+
+        #expect(viewModel.phase == .history)
     }
 
     @Test func viewModelPasteSetsExplicitErrorWhenItemIsMissing() throws {
@@ -1509,6 +1597,42 @@ struct ClipboardModuleTests {
         let data = try #require(makePNGData(size: NSSize(width: 32, height: 24)))
         try data.write(to: thumbnailURL, options: [.atomic])
         return thumbnailURL
+    }
+}
+
+private extension ResolvedRestPresentation {
+    var activeRequest: RestVariantRequest? {
+        switch self {
+        case .none:
+            nil
+        case .request(let request):
+            request
+        }
+    }
+}
+
+@MainActor
+private final class ManualClipboardDelayScheduler {
+    private(set) var scheduledDurations: [Duration] = []
+    private var actions: [() -> Void] = []
+
+    func schedule(
+        after delay: Duration,
+        action: @escaping @MainActor () -> Void
+    ) -> Task<Void, Never> {
+        scheduledDurations.append(delay)
+        actions.append(action)
+        return Task {}
+    }
+
+    func runNext() {
+        guard actions.isEmpty == false else {
+            Issue.record("Expected scheduled delay action")
+            return
+        }
+
+        let action = actions.removeFirst()
+        action()
     }
 }
 

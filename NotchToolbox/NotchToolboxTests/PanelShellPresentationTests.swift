@@ -31,6 +31,7 @@ struct PanelShellPresentationTests {
         #expect(PanelShellPresentation.bodySize(for: .music) == CGSize(width: 580, height: 280))
         #expect(PanelShellPresentation.bodySize(for: .fileStash) == CGSize(width: 580, height: 280))
         #expect(PanelShellPresentation.bodySize(for: .aiChat) == CGSize(width: 580, height: 280))
+        #expect(PanelShellPresentation.bodySize(for: .clipboard) == CGSize(width: 580, height: 180))
     }
 
     @Test func compositionRootOverrideCanResizeExpandedPanelPerModule() {
@@ -42,5 +43,36 @@ struct PanelShellPresentationTests {
 
         #expect(compositionRoot.panelBodySize(for: .fileStash) == CGSize(width: 640, height: 320))
         #expect(compositionRoot.panelBodySize(for: .music) == CGSize(width: 580, height: 280))
+    }
+
+    @Test func compositionRootOverrideCanResizeClipboardBodyForEmptyState() {
+        let compositionRoot = AppCompositionRoot(activeModule: .clipboard)
+
+        #expect(compositionRoot.panelBodySize(for: .clipboard) == CGSize(width: 580, height: 180))
+
+        compositionRoot.setPanelBodySize(CGSize(width: 580, height: 120), for: .clipboard)
+
+        #expect(compositionRoot.panelBodySize(for: .clipboard) == CGSize(width: 580, height: 120))
+    }
+
+    @Test func clipboardSuccessPhaseHidesContentSurfaceStrokeOnlyForSuccessState() {
+        #expect(
+            ContentHostPresentation.showsSurfaceStroke(
+                activeModule: .clipboard,
+                clipboardPhase: .pastebackSuccess
+            ) == false
+        )
+        #expect(
+            ContentHostPresentation.showsSurfaceStroke(
+                activeModule: .clipboard,
+                clipboardPhase: .history
+            ) == true
+        )
+        #expect(
+            ContentHostPresentation.showsSurfaceStroke(
+                activeModule: .music,
+                clipboardPhase: .pastebackSuccess
+            ) == true
+        )
     }
 }

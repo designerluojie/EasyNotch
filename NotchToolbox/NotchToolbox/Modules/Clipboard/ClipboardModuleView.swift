@@ -4,70 +4,116 @@ struct ClipboardModuleView: View {
     let context: NotchModuleContext
     @ObservedObject var viewModel: ClipboardViewModel
     var onSuccessfulPaste: (() -> Void)? = nil
+    var onPreferredBodySizeChange: ((CGSize) -> Void)? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Clipboard")
-                .font(.title3.weight(.semibold))
+        VStack(alignment: .leading, spacing: 8) {
+            contentSurface
 
-            Group {
-                if viewModel.isEmpty {
-                    VStack(spacing: 8) {
-                        Image(systemName: "doc.on.clipboard")
-                            .font(.title2)
-                            .foregroundStyle(.tertiary)
-
-                        Text("你还没有剪贴板内容")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 180)
-                    .background(
-                        RoundedRectangle(cornerRadius: 22, style: .continuous)
-                            .fill(Color.white.opacity(0.04))
-                    )
-                } else {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        LazyHStack(spacing: 12) {
-                            ForEach(viewModel.cards) { card in
-                                ClipboardCardView(card: card) {
-                                    viewModel.paste(itemID: card.id, onSuccess: onSuccessfulPaste)
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 2)
-                    }
-                    .frame(minHeight: 146)
-                }
-            }
-
-            if let lastPasteError = viewModel.lastPasteError {
+            if viewModel.phase != .pastebackSuccess,
+               let lastPasteError = viewModel.lastPasteError {
                 Text(lastPasteError)
-                    .font(.caption)
-                    .foregroundStyle(.red)
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundStyle(Color(red: 1, green: 0.43, blue: 0.43))
+                    .padding(.leading, 8)
             }
         }
-        .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color(red: 0.18, green: 0.20, blue: 0.25),
-                            Color(red: 0.11, green: 0.12, blue: 0.16),
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.08))
-        }
         .onAppear {
             viewModel.refresh()
+            updatePreferredBodySize()
         }
+        .onChange(of: viewModel.isEmpty) { _ in
+            updatePreferredBodySize()
+        }
+        .onChange(of: viewModel.phase) { _ in
+            updatePreferredBodySize()
+        }
+    }
+
+    private var contentSurface: some View {
+        Group {
+            if viewModel.phase == .pastebackSuccess {
+                pastebackSuccessContent
+            } else if viewModel.isEmpty {
+                VStack(spacing: 0) {
+                    Text("你还没有剪贴板内容")
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundStyle(Color.white.opacity(0.5))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ClipboardHorizontalWheelScrollView {
+                    HStack(alignment: .top, spacing: ClipboardCardLayout.cardSpacing) {
+                        ForEach(viewModel.cards) { card in
+                            ClipboardCardView(card: card) {
+                                viewModel.paste(itemID: card.id, onSuccess: onSuccessfulPaste)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, ClipboardModuleLayout.listInsetHorizontal)
+                    .padding(.top, ClipboardModuleLayout.listInsetTop)
+                    .padding(.bottom, ClipboardModuleLayout.listInsetBottom)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
+        }
+        .frame(
+            maxWidth: .infinity,
+            minHeight: currentSurfaceHeight,
+            maxHeight: currentSurfaceHeight,
+            alignment: .topLeading
+        )
+        .background(Color.white.opacity(ClipboardModuleLayout.surfaceFillOpacity))
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius: ClipboardModuleLayout.contentCornerRadius,
+                style: .continuous
+            )
+        )
+        .animation(
+            .interpolatingSpring(
+                duration: OverlayPanelChromeMetrics.expandedTransitionDuration,
+                bounce: 0
+            ),
+            value: viewModel.phase
+        )
+    }
+
+    private func updatePreferredBodySize() {
+        onPreferredBodySizeChange?(currentPanelBodySize)
+    }
+
+    private var currentSurfaceHeight: CGFloat {
+        switch viewModel.phase {
+        case .history:
+            return viewModel.isEmpty
+                ? ClipboardModuleLayout.emptySurfaceHeight
+                : ClipboardModuleLayout.listSurfaceHeight
+        case .pastebackSuccess:
+            return ClipboardModuleLayout.successSurfaceHeight
+        }
+    }
+
+    private var currentPanelBodySize: CGSize {
+        switch viewModel.phase {
+        case .history:
+            return ClipboardModuleLayout.panelBodySize(isEmpty: viewModel.isEmpty)
+        case .pastebackSuccess:
+            return ClipboardModuleLayout.successPanelBodySize
+        }
+    }
+
+    private var pastebackSuccessContent: some View {
+        VStack(spacing: 4) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(Color.white.opacity(0.96))
+
+            Text("已放回您的剪贴板")
+                .font(.system(size: 12, weight: .regular))
+                .foregroundStyle(Color.white.opacity(0.9))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

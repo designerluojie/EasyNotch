@@ -398,7 +398,10 @@ struct OverlayPanelRootView: View {
             isActive: panelModel.state.isExpandedLike,
             collapsedBodyFrame: collapsedBodyFrame,
             collapsedBottomCornerRadius: transitionBottomCornerRadius,
-            collapseRestAppearance: expandedCollapseRestContentAppearance
+            collapseRestAppearance: expandedCollapseRestContentAppearance,
+            onClipboardPasteSuccess: {
+                interactions.collapse(screenID: panelModel.screenID)
+            }
         ) { appearance in
             restVariantContent(for: appearance)
         }
@@ -1228,6 +1231,7 @@ private struct AnimatedExpandedChromeView<CollapseContent: View>: View {
     let collapsedBodyFrame: CGRect
     let collapsedBottomCornerRadius: CGFloat
     let collapseRestAppearance: OverlayPanelCollapsedAppearance?
+    let onClipboardPasteSuccess: (() -> Void)?
     @ViewBuilder let collapseContent: (OverlayPanelCollapsedAppearance) -> CollapseContent
 
     @State private var expansionProgress: CGFloat = 1
@@ -1285,7 +1289,8 @@ private struct AnimatedExpandedChromeView<CollapseContent: View>: View {
 
                 PanelShellView(
                     compositionRoot: compositionRoot,
-                    isMorePresented: $isMorePresented
+                    isMorePresented: $isMorePresented,
+                    onClipboardPasteSuccess: onClipboardPasteSuccess
                 )
                     .foregroundStyle(.white.opacity(0.9))
                     .frame(width: finalBodyFrame.width, height: finalBodyFrame.height)

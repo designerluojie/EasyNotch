@@ -4,46 +4,54 @@ import SwiftUI
 struct ClipboardCardView: View {
     let card: ClipboardCardViewState
     let onTap: () -> Void
+    @State private var isHovered = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(card.sourceTitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-
-                Spacer(minLength: 8)
-
-                Text(card.relativeTimeText)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
+        Button(action: onTap) {
+            VStack(alignment: .leading, spacing: 6) {
+                headerRow
+                previewContent
             }
-
-            previewContent
+            .padding(.horizontal, ClipboardCardLayout.cardPadding.width)
+            .padding(.vertical, ClipboardCardLayout.cardPadding.height)
+            .frame(
+                width: ClipboardCardLayout.cardSize.width,
+                height: ClipboardCardLayout.cardSize.height,
+                alignment: .topLeading
+            )
         }
-        .padding(14)
-        .frame(width: 180, height: 132, alignment: .topLeading)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.white.opacity(0.06))
+        .buttonStyle(
+            ClipboardCardButtonStyle(
+                isHovered: isHovered,
+                isEnabled: card.isPastebackSupported
+            )
         )
-        .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.08))
+        .onHover { hovered in
+            isHovered = hovered
         }
-        .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .onTapGesture(perform: onTap)
         .disabled(card.isPastebackSupported == false)
         .opacity(card.isPastebackSupported ? 1 : 0.55)
+    }
+
+    private var headerRow: some View {
+        HStack(alignment: .center, spacing: 6) {
+            sourceIcon
+
+            Spacer(minLength: 4)
+
+            Text(card.relativeTimeText)
+                .font(.system(size: ClipboardCardLayout.timeFontSize, weight: .regular))
+                .foregroundStyle(Color.white.opacity(0.5))
+                .lineLimit(1)
+        }
+        .frame(width: ClipboardCardLayout.previewSize.width, alignment: .leading)
     }
 
     @ViewBuilder
     private var previewContent: some View {
         switch card.previewState {
         case .textOnly:
-            previewText(lineLimit: 5, font: .callout)
+            previewText(lineLimit: 5)
         case let .thumbnail(thumbnail):
             thumbnailPreview(thumbnail, showsMissingReferenceBadge: false)
         case let .thumbnailWithMissingReference(thumbnail):
@@ -53,35 +61,51 @@ struct ClipboardCardView: View {
         }
     }
 
-    private func previewText(lineLimit: Int, font: Font) -> some View {
+    private func previewText(lineLimit: Int) -> some View {
         Text(card.previewText)
-            .font(font)
-            .foregroundStyle(.primary)
+            .font(.system(size: ClipboardCardLayout.previewFontSize, weight: .regular))
+            .foregroundStyle(Color.white)
+            .lineSpacing(ClipboardCardLayout.previewLineSpacing)
             .multilineTextAlignment(.leading)
             .lineLimit(lineLimit)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(
+                width: ClipboardCardLayout.previewSize.width,
+                height: ClipboardCardLayout.previewSize.height,
+                alignment: .topLeading
+            )
     }
 
     private func thumbnailPreview(
         _ thumbnail: ClipboardCardThumbnail,
         showsMissingReferenceBadge: Bool
     ) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ZStack(alignment: .topTrailing) {
-                thumbnailImage(for: thumbnail)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 74)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        ZStack(alignment: .topTrailing) {
+            thumbnailImage(for: thumbnail)
+                .frame(
+                    width: ClipboardCardLayout.previewSize.width,
+                    height: ClipboardCardLayout.previewSize.height,
+                    alignment: .center
+                )
+                .background(
+                    RoundedRectangle(
+                        cornerRadius: ClipboardCardLayout.previewCornerRadius,
+                        style: .continuous
+                    )
+                    .fill(Color.white.opacity(0.03))
+                )
+                .clipShape(
+                    RoundedRectangle(
+                        cornerRadius: ClipboardCardLayout.previewCornerRadius,
+                        style: .continuous
+                    )
+                )
 
-                if showsMissingReferenceBadge {
-                    Image(systemName: "questionmark.circle.fill")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.white, Color.orange)
-                        .padding(6)
-                }
+            if showsMissingReferenceBadge {
+                Image(systemName: "questionmark.circle.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white, Color.orange)
+                    .padding(4)
             }
-
-            previewText(lineLimit: 2, font: .caption)
         }
     }
 
@@ -90,7 +114,7 @@ struct ClipboardCardView: View {
         if let image = NSImage(contentsOf: thumbnail.url) {
             Image(nsImage: image)
                 .resizable()
-                .scaledToFill()
+                .scaledToFit()
         } else {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(Color.white.opacity(0.08))
@@ -103,19 +127,52 @@ struct ClipboardCardView: View {
     }
 
     private var missingReferencePlaceholder: some View {
-        VStack(spacing: 10) {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.white.opacity(0.05))
-                .frame(maxWidth: .infinity)
-                .frame(height: 74)
-                .overlay {
-                    Image(systemName: "questionmark.folder")
-                        .font(.title2)
-                        .foregroundStyle(.secondary)
-                }
+        ZStack(alignment: .topTrailing) {
+            RoundedRectangle(
+                cornerRadius: ClipboardCardLayout.previewCornerRadius,
+                style: .continuous
+            )
+            .fill(Color.white.opacity(0.05))
+            .frame(
+                width: ClipboardCardLayout.previewSize.width,
+                height: ClipboardCardLayout.previewSize.height
+            )
+            .overlay {
+                Image(systemName: "questionmark.folder")
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+            }
 
-            previewText(lineLimit: 2, font: .caption)
-                .foregroundStyle(.secondary)
+            Image(systemName: "questionmark.circle.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.white, Color.orange)
+                .padding(4)
+        }
+    }
+
+    @ViewBuilder
+    private var sourceIcon: some View {
+        if let appIcon = sourceApplicationIcon {
+            Image(nsImage: appIcon)
+                .resizable()
+                .interpolation(.high)
+                .frame(
+                    width: ClipboardCardLayout.sourceIconSize,
+                    height: ClipboardCardLayout.sourceIconSize
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        } else {
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(Color.white.opacity(0.08))
+                .frame(
+                    width: ClipboardCardLayout.sourceIconSize,
+                    height: ClipboardCardLayout.sourceIconSize
+                )
+                .overlay {
+                    Image(systemName: fallbackSourceSymbol)
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(Color.white.opacity(0.78))
+                }
         }
     }
 
@@ -128,5 +185,72 @@ struct ClipboardCardView: View {
         case .folderPreview:
             return "folder"
         }
+    }
+
+    private var fallbackSourceSymbol: String {
+        switch card.contentType {
+        case .plainText, .richText, .figmaText:
+            return "text.alignleft"
+        case .image, .svg, .figmaGraphic:
+            return "photo"
+        case .file:
+            return "doc"
+        }
+    }
+
+    private var sourceApplicationIcon: NSImage? {
+        if let bundleID = card.sourceAppBundleID,
+           let applicationURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
+        {
+            return NSWorkspace.shared.icon(forFile: applicationURL.path(percentEncoded: false))
+        }
+
+        return nil
+    }
+}
+
+private struct ClipboardCardButtonStyle: ButtonStyle {
+    let isHovered: Bool
+    let isEnabled: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        let isInteractive = isEnabled && (isHovered || configuration.isPressed)
+
+        return configuration.label
+            .background {
+                ClipboardCardInteractionBackground(isVisible: isInteractive)
+            }
+            .clipShape(
+                RoundedRectangle(
+                    cornerRadius: ClipboardCardLayout.cardCornerRadius,
+                    style: .continuous
+                )
+            )
+            .contentShape(
+                RoundedRectangle(
+                    cornerRadius: ClipboardCardLayout.cardCornerRadius,
+                    style: .continuous
+                )
+            )
+    }
+}
+
+private struct ClipboardCardInteractionBackground: View {
+    let isVisible: Bool
+
+    var body: some View {
+        RoundedRectangle(
+            cornerRadius: ClipboardCardLayout.cardCornerRadius,
+            style: .continuous
+        )
+        .fill(
+            isVisible
+            ? Color.white.opacity(ClipboardCardLayout.interactionFillOpacity)
+            : Color.clear
+        )
+        .animation(
+            .easeOut(duration: ClipboardCardLayout.hoverAnimationDuration),
+            value: isVisible
+        )
     }
 }

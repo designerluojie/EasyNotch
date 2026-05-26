@@ -17,6 +17,8 @@ enum ClipboardCardPreviewState: Equatable {
 struct ClipboardCardViewState: Identifiable, Equatable {
     var id: UUID
     var sourceTitle: String
+    var sourceAppBundleID: String?
+    var sourceAppName: String?
     var relativeTimeText: String
     var previewText: String
     var previewState: ClipboardCardPreviewState

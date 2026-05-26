@@ -82,6 +82,39 @@ struct AppCompositionRootTests {
         #expect(root.overlayState == .idle(screenID: "main"))
     }
 
+    @Test func clipboardModuleStartsWithoutPersistentRestVariantRequest() throws {
+        let services = try SharedCoreServices(
+            baseURL: FileManager.default.temporaryDirectory
+                .appending(path: "NotchToolboxTests")
+                .appending(path: UUID().uuidString),
+            credentialStore: InMemorySecureCredentialStore()
+        )
+        let root = AppCompositionRoot(sharedServices: services, activeModule: .clipboard)
+
+        #expect(root.restVariantStore.resolvedPresentation == .none)
+    }
+
+    @Test func selectingSettingsClearsPersistentRestVariantRequest() {
+        let root = AppCompositionRoot(activeModule: .clipboard)
+
+        root.selectActiveModule(.settings)
+
+        #expect(root.restVariantStore.resolvedPresentation == .none)
+    }
+
+    @Test func clipboardRestVariantContentProviderIsRegistered() {
+        let root = AppCompositionRoot(activeModule: .clipboard)
+        let request = RestVariantRequest(moduleID: .clipboard, kind: .wideNotchStrip)
+
+        let content = root.restVariantContentRegistry.content(
+            for: request,
+            appearance: .wideNotchStrip,
+            context: root.context(for: .clipboard)
+        )
+
+        #expect(content != nil)
+    }
+
     @Test func restVariantContentRegistryResolvesModuleProviderWithRequestContext() {
         let compositionRoot = AppCompositionRoot()
         let request = RestVariantRequest(
@@ -126,5 +159,16 @@ struct AppCompositionRootTests {
         )
 
         #expect(content == nil)
+    }
+}
+
+private extension ResolvedRestPresentation {
+    var activeRequest: RestVariantRequest? {
+        switch self {
+        case .none:
+            nil
+        case .request(let request):
+            request
+        }
     }
 }
