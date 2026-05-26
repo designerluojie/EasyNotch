@@ -1,6 +1,7 @@
 import Combine
 import CoreGraphics
 import Foundation
+import SwiftUI
 
 @MainActor
 final class AppCompositionRoot: ObservableObject {
@@ -11,7 +12,8 @@ final class AppCompositionRoot: ObservableObject {
     let moduleLifecycleDispatcher: ModuleLifecycleDispatcher
     lazy var clipboardViewModel = ClipboardViewModel(
         core: clipboardCore,
-        localFileStore: sharedServices.localFileStore
+        localFileStore: sharedServices.localFileStore,
+        restVariantStore: restVariantStore
     )
     let restVariantStore: RestVariantStore
     let restVariantContentRegistry: RestVariantContentRegistry
@@ -63,6 +65,15 @@ final class AppCompositionRoot: ObservableObject {
             resolvedEnergyGovernor.register(clipboardCore)
             let clipboardRuntime = ClipboardModuleRuntime(core: clipboardCore)
             let runtimeRegistry = ModuleRuntimeRegistry.defaultRegistry(overrides: [clipboardRuntime])
+            resolvedRestVariantContentRegistry.register(
+                AnyRestVariantContentProvider(moduleID: .clipboard) { request, appearance, _ in
+                    ClipboardRestVariantContentView(
+                        core: clipboardCore,
+                        request: request,
+                        appearance: appearance
+                    )
+                }
+            )
 
             self.sharedServices = resolvedSharedServices
             self.energyGovernor = resolvedEnergyGovernor
@@ -75,6 +86,7 @@ final class AppCompositionRoot: ObservableObject {
             self.activeModule = activeModule
             self.overlayState = .idle(screenID: initialScreenID)
             self.panelBodySizeOverrides = [:]
+            syncClipboardRestVariantForActiveModule()
         } catch {
             fatalError("Unable to initialize AppCompositionRoot clipboard dependencies: \(error)")
         }
@@ -86,6 +98,7 @@ final class AppCompositionRoot: ObservableObject {
         }
 
         activeModule = moduleID
+        syncClipboardRestVariantForActiveModule()
     }
 
     func context(for moduleID: NotchModuleID) -> NotchModuleContext {
@@ -106,5 +119,21 @@ final class AppCompositionRoot: ObservableObject {
         } else {
             panelBodySizeOverrides.removeValue(forKey: moduleID)
         }
+    }
+
+    private func syncClipboardRestVariantForActiveModule() {
+        guard activeModule == .clipboard,
+              let descriptor = moduleDescriptors.first(where: { $0.id == .clipboard }),
+              let kind = descriptor.defaultRestVariant else {
+            restVariantStore.clearPersistentRequest(for: .clipboard)
+            return
+        }
+
+        restVariantStore.setPersistentRequest(
+            ClipboardRestVariantPresentation.persistentRequest(
+                for: .clipboard,
+                defaultKind: kind
+            )
+        )
     }
 }
