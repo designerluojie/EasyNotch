@@ -647,6 +647,10 @@ struct OverlayPanelRootView: View {
     }
 
     private func shouldHonorExpandedHoverExit(mouseLocation: CGPoint = NSEvent.mouseLocation) -> Bool {
+        guard compositionRoot.suppressesPointerExitCollapse == false else {
+            return false
+        }
+
         guard panelModel.state.isExpandedLike,
               let geometry = panelModel.geometry else {
             return true

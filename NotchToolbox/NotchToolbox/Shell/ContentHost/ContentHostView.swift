@@ -44,7 +44,10 @@ struct ContentHostView: View {
         case .fileStash:
             FileStashModuleView(context: compositionRoot.context(for: .fileStash))
         case .aiChat:
-            AIChatModuleView(context: compositionRoot.context(for: .aiChat))
+            AIChatModuleView(
+                context: compositionRoot.context(for: .aiChat),
+                model: compositionRoot.aiChatModel
+            )
         case .clipboard:
             ClipboardModuleView(
                 context: compositionRoot.context(for: .clipboard),

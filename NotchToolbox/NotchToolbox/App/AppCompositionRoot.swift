@@ -10,6 +10,7 @@ final class AppCompositionRoot: ObservableObject {
     let musicRuntime: MusicModuleRuntime
     let clipboardCore: ClipboardCore
     let moduleRuntimeRegistry: ModuleRuntimeRegistry
+    let aiChatModel: AIChatModuleModel
     lazy var clipboardViewModel = ClipboardViewModel(
         core: clipboardCore,
         localFileStore: sharedServices.localFileStore,
@@ -21,7 +22,10 @@ final class AppCompositionRoot: ObservableObject {
     @Published private(set) var moduleDescriptors: [NotchModuleDescriptor]
     @Published var activeModule: NotchModuleID
     @Published var overlayState: OverlayState
+    @Published private(set) var aiChatActivityHint: AIChatActivityHint
     @Published private(set) var panelBodySizeOverrides: [NotchModuleID: CGSize]
+    @Published private(set) var suppressesPointerExitCollapse: Bool
+    @Published private(set) var suppressesOutsideClickCollapse: Bool
 
     private var cancellables: Set<AnyCancellable> = []
 
@@ -73,21 +77,44 @@ final class AppCompositionRoot: ObservableObject {
                 musicRuntime: resolvedMusicRuntime,
                 clipboardRuntime: clipboardRuntime
             )
+            let resolvedAIChatModel = AIChatModuleModel(
+                sharedServices: resolvedSharedServices,
+                governor: resolvedEnergyGovernor
+            )
 
             self.sharedServices = resolvedSharedServices
             self.energyGovernor = resolvedEnergyGovernor
             self.musicRuntime = resolvedMusicRuntime
             self.clipboardCore = clipboardCore
             self.moduleRuntimeRegistry = runtimeRegistry
+            self.aiChatModel = resolvedAIChatModel
             self.restVariantStore = resolvedRestVariantStore
             self.restVariantContentRegistry = resolvedRestVariantContentRegistry
             self.moduleDescriptors = resolvedModuleDescriptors
             self.activeModule = activeModule
             self.overlayState = .idle(screenID: initialScreenID)
-            self.panelBodySizeOverrides = [:]
+            self.aiChatActivityHint = .idle
+            self.panelBodySizeOverrides = [
+                .aiChat: AIChatPanelPresentation.expandedBodySize
+            ]
+            self.suppressesPointerExitCollapse = false
+            self.suppressesOutsideClickCollapse = false
 
             self.energyGovernor.register(resolvedMusicRuntime.energyManagedTask)
             self.energyGovernor.register(clipboardCore)
+            resolvedAIChatModel.bindActivityHint { [weak self] hint in
+                self?.updateAIChatActivityHint(hint)
+            }
+            resolvedAIChatModel.$isComposerFocused
+                .sink { [weak self] isFocused in
+                    self?.updatePointerExitCollapseSuppression(isAIChatComposerFocused: isFocused)
+                }
+                .store(in: &cancellables)
+            resolvedAIChatModel.$isImagePickerPresented
+                .sink { [weak self] isPresented in
+                    self?.updateImagePickerCollapseSuppression(isImagePickerPresented: isPresented)
+                }
+                .store(in: &cancellables)
 
             self.restVariantContentRegistry.register(
                 AnyRestVariantContentProvider(moduleID: .music) { [weak resolvedMusicRuntime] request, appearance, _ in
@@ -141,6 +168,8 @@ final class AppCompositionRoot: ObservableObject {
         }
 
         activeModule = moduleID
+        updatePointerExitCollapseSuppression()
+        updateImagePickerCollapseSuppression()
         syncClipboardRestVariantForActiveModule()
     }
 
@@ -162,6 +191,18 @@ final class AppCompositionRoot: ObservableObject {
         } else {
             panelBodySizeOverrides.removeValue(forKey: moduleID)
         }
+    }
+
+    func updateAIChatActivityHint(_ hint: AIChatActivityHint) {
+        aiChatActivityHint = hint
+    }
+
+    func title(for descriptor: NotchModuleDescriptor) -> String {
+        guard descriptor.id == .aiChat, aiChatActivityHint == .running else {
+            return descriptor.title
+        }
+
+        return "\(descriptor.title) •"
     }
 
     private static func makeModuleRuntimeRegistry(
@@ -210,5 +251,29 @@ final class AppCompositionRoot: ObservableObject {
                 defaultKind: kind
             )
         )
+    }
+
+    private func updatePointerExitCollapseSuppression(
+        isAIChatComposerFocused: Bool? = nil,
+        isImagePickerPresented: Bool? = nil
+    ) {
+        let isFocused = isAIChatComposerFocused ?? aiChatModel.isComposerFocused
+        let isPresented = isImagePickerPresented ?? aiChatModel.isImagePickerPresented
+        let nextValue = activeModule == .aiChat && (isFocused || isPresented)
+        guard suppressesPointerExitCollapse != nextValue else {
+            return
+        }
+
+        suppressesPointerExitCollapse = nextValue
+    }
+
+    private func updateImagePickerCollapseSuppression(isImagePickerPresented: Bool? = nil) {
+        let isPresented = isImagePickerPresented ?? aiChatModel.isImagePickerPresented
+        let nextOutsideClickValue = activeModule == .aiChat && isPresented
+        if suppressesOutsideClickCollapse != nextOutsideClickValue {
+            suppressesOutsideClickCollapse = nextOutsideClickValue
+        }
+
+        updatePointerExitCollapseSuppression(isImagePickerPresented: isPresented)
     }
 }

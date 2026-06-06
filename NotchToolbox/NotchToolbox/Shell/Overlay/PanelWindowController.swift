@@ -151,7 +151,8 @@ final class PanelWindowController: OverlayPanelPresenting {
 
     @discardableResult
     func handleGlobalMouseDown(at screenPoint: CGPoint) -> Bool {
-        guard let dismissalScreenID = dismissalScreenID,
+        guard compositionRoot.suppressesOutsideClickCollapse == false,
+              let dismissalScreenID = dismissalScreenID,
               let hitFrame = visibleHitTestFrame,
               panel.isVisible,
               hitFrame.contains(screenPoint) == false else {
