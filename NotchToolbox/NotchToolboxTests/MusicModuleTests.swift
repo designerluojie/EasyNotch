@@ -472,7 +472,7 @@ struct MusicModuleTests {
         #expect(message.emphasis == .warning)
     }
 
-    @Test func qqAdapterLaunchesByBundleIdentifier() async throws {
+    @Test func qqAdapterLaunchesByBundleIdentifierInBackground() async throws {
         let runner = MusicProcessRunnerSpy()
         let adapter = QQMusicAdapter(processRunner: runner)
 
@@ -480,6 +480,7 @@ struct MusicModuleTests {
 
         #expect(await runner.lastInvocation() == [
             "/usr/bin/open",
+            "-g",
             "-b",
             "com.tencent.QQMusicMac"
         ])
@@ -499,17 +500,15 @@ struct MusicModuleTests {
         #expect(await runner.lastScript()?.contains("menu item \"播放\"") == true)
     }
 
-    @Test func qqAdapterActivatesQQMusicBeforeClickingPlaybackMenu() async throws {
+    @Test func qqAdapterDoesNotActivateQQMusicBeforeClickingPlaybackMenu() async throws {
         let runner = MusicProcessRunnerSpy()
         let adapter = QQMusicAdapter(processRunner: runner)
 
         try await adapter.perform(.playPause)
 
         let script = try #require(await runner.lastScript())
-        #expect(script.contains("tell application id \"com.tencent.QQMusicMac\" to activate"))
-        let activateRange = try #require(script.range(of: "activate"))
-        let systemEventsRange = try #require(script.range(of: "System Events"))
-        #expect(activateRange.lowerBound < systemEventsRange.lowerBound)
+        #expect(script.contains("System Events"))
+        #expect(script.contains("activate") == false)
     }
 
     @Test func qqAdapterUsesSystemEventsMenuControlForNextTrack() async throws {
@@ -591,7 +590,7 @@ struct MusicModuleTests {
         }
     }
 
-    @Test func systemMediaControlAdapterLaunchesTheTargetBundle() async throws {
+    @Test func systemMediaControlAdapterLaunchesTheTargetBundleInBackground() async throws {
         let runner = MusicProcessRunnerSpy()
         let adapter = SystemMediaControlAdapter(
             capability: .neteaseMusic,
@@ -602,6 +601,7 @@ struct MusicModuleTests {
 
         #expect(await runner.lastInvocation() == [
             "/usr/bin/open",
+            "-g",
             "-b",
             "com.netease.163music"
         ])

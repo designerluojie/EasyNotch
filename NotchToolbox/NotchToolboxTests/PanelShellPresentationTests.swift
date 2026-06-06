@@ -55,7 +55,7 @@ struct PanelShellPresentationTests {
         #expect(compositionRoot.panelBodySize(for: .clipboard) == CGSize(width: 580, height: 120))
     }
 
-    @Test func clipboardSuccessPhaseHidesContentSurfaceStrokeOnlyForSuccessState() {
+    @Test func contentSurfaceStrokeIsHiddenForMusicAndClipboardSuccess() {
         #expect(
             ContentHostPresentation.showsSurfaceStroke(
                 activeModule: .clipboard,
@@ -71,8 +71,8 @@ struct PanelShellPresentationTests {
         #expect(
             ContentHostPresentation.showsSurfaceStroke(
                 activeModule: .music,
-                clipboardPhase: .pastebackSuccess
-            ) == true
+                clipboardPhase: .history
+            ) == false
         )
     }
 }

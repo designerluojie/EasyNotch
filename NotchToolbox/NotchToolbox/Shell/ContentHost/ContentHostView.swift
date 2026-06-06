@@ -5,6 +5,10 @@ enum ContentHostPresentation {
         activeModule: NotchModuleID,
         clipboardPhase: ClipboardExpandedPhase
     ) -> Bool {
+        if activeModule == .music {
+            return false
+        }
+
         if activeModule == .clipboard && clipboardPhase == .pastebackSuccess {
             return false
         }
