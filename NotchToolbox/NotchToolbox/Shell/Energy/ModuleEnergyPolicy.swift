@@ -12,8 +12,11 @@ struct ModuleEnergyPolicy: Equatable, Codable {
     let closedMode: EnergyMode
     let collapsedMode: EnergyMode
     let visibleMode: EnergyMode
+    // Persistent background residency for normal closed/collapsed overlay states.
     let allowsBackgroundCore: Bool
     let pausesOnSleep: Bool
+    // Narrow override used only while an explicit temporary continuation is active.
+    let temporaryBackgroundMode: EnergyMode?
 }
 
 extension ModuleEnergyPolicy {
@@ -39,7 +42,8 @@ extension ModuleEnergyPolicy {
         collapsedMode: .collapsedSummary,
         visibleMode: .visible,
         allowsBackgroundCore: true,
-        pausesOnSleep: true
+        pausesOnSleep: true,
+        temporaryBackgroundMode: nil
     )
 
     static let fileStash = ModuleEnergyPolicy(
@@ -47,7 +51,8 @@ extension ModuleEnergyPolicy {
         collapsedMode: .suspended,
         visibleMode: .visible,
         allowsBackgroundCore: false,
-        pausesOnSleep: true
+        pausesOnSleep: true,
+        temporaryBackgroundMode: nil
     )
 
     static let aiChat = ModuleEnergyPolicy(
@@ -55,7 +60,8 @@ extension ModuleEnergyPolicy {
         collapsedMode: .suspended,
         visibleMode: .visible,
         allowsBackgroundCore: false,
-        pausesOnSleep: true
+        pausesOnSleep: true,
+        temporaryBackgroundMode: .backgroundCore
     )
 
     static let clipboard = ModuleEnergyPolicy(
@@ -63,7 +69,8 @@ extension ModuleEnergyPolicy {
         collapsedMode: .backgroundCore,
         visibleMode: .visible,
         allowsBackgroundCore: true,
-        pausesOnSleep: true
+        pausesOnSleep: true,
+        temporaryBackgroundMode: nil
     )
 
     static let pomodoro = ModuleEnergyPolicy(
@@ -71,7 +78,8 @@ extension ModuleEnergyPolicy {
         collapsedMode: .collapsedSummary,
         visibleMode: .visible,
         allowsBackgroundCore: true,
-        pausesOnSleep: false
+        pausesOnSleep: false,
+        temporaryBackgroundMode: nil
     )
 
     static let settings = ModuleEnergyPolicy(
@@ -79,6 +87,7 @@ extension ModuleEnergyPolicy {
         collapsedMode: .suspended,
         visibleMode: .visible,
         allowsBackgroundCore: false,
-        pausesOnSleep: true
+        pausesOnSleep: true,
+        temporaryBackgroundMode: nil
     )
 }

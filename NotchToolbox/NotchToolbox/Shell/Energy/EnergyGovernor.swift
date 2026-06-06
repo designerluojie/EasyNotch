@@ -23,8 +23,10 @@ protocol EnergyManagedTask: AnyObject {
 @MainActor
 final class EnergyGovernor {
     private var tasksByModule: [NotchModuleID: [EnergyTaskID: any EnergyManagedTask]] = [:]
+    private var temporaryBackgroundContinuations: Set<NotchModuleID> = []
+    private var overlayState: OverlayState = .idle(screenID: "main")
     private var modesByModule: [NotchModuleID: EnergyMode]
-    private var modesBeforeSleep: [NotchModuleID: EnergyMode]?
+    private var isSleeping = false
 
     init() {
         modesByModule = Dictionary(
@@ -47,8 +49,19 @@ final class EnergyGovernor {
         modesByModule[moduleID] ?? ModuleEnergyPolicy.defaultPolicy(for: moduleID).closedMode
     }
 
+    func beginTemporaryBackgroundContinuation(for moduleID: NotchModuleID) {
+        temporaryBackgroundContinuations.insert(moduleID)
+        reevaluateMode(for: moduleID)
+    }
+
+    func endTemporaryBackgroundContinuation(for moduleID: NotchModuleID) {
+        temporaryBackgroundContinuations.remove(moduleID)
+        reevaluateMode(for: moduleID)
+    }
+
     func applyOverlayState(_ state: OverlayState) {
-        modesBeforeSleep = nil
+        overlayState = state
+        isSleeping = false
 
         for moduleID in NotchModuleID.allCases {
             updateMode(desiredMode(for: moduleID, state: state), for: moduleID)
@@ -56,8 +69,8 @@ final class EnergyGovernor {
     }
 
     func suspendForSleep() {
-        if modesBeforeSleep == nil {
-            modesBeforeSleep = modesByModule
+        if !isSleeping {
+            isSleeping = true
         }
 
         for moduleID in NotchModuleID.allCases {
@@ -71,26 +84,40 @@ final class EnergyGovernor {
     }
 
     func resumeAfterWake() {
-        guard let modesBeforeSleep else {
+        guard isSleeping else {
             return
         }
 
-        self.modesBeforeSleep = nil
+        isSleeping = false
         for moduleID in NotchModuleID.allCases {
-            updateMode(
-                modesBeforeSleep[moduleID] ?? ModuleEnergyPolicy.defaultPolicy(for: moduleID).closedMode,
-                for: moduleID
-            )
+            updateMode(desiredMode(for: moduleID, state: overlayState), for: moduleID)
         }
     }
 
+    private func reevaluateMode(for moduleID: NotchModuleID) {
+        updateMode(desiredMode(for: moduleID, state: overlayState), for: moduleID)
+    }
+
     private func desiredMode(for moduleID: NotchModuleID, state: OverlayState) -> EnergyMode {
+        let policy = ModuleEnergyPolicy.defaultPolicy(for: moduleID)
+
+        if isSleeping, policy.pausesOnSleep {
+            return .suspended
+        }
+
         switch state {
         case .expanded(_, let activeModuleID) where activeModuleID == moduleID:
-            return .visible
+            return policy.visibleMode
         default:
-            return ModuleEnergyPolicy.defaultPolicy(for: moduleID).closedMode
+            break
         }
+
+        if temporaryBackgroundContinuations.contains(moduleID),
+           let temporaryMode = policy.temporaryBackgroundMode {
+            return temporaryMode
+        }
+
+        return policy.closedMode
     }
 
     private func updateMode(_ mode: EnergyMode, for moduleID: NotchModuleID) {

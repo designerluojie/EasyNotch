@@ -10,7 +10,10 @@ final class NotchShellRuntime: NSObject {
     private let globalShortcutService: any GlobalShortcutServicing
     private let launchAtLoginService: any LaunchAtLoginServicing
     private let appLifecycleObserver: AppLifecycleObserver
+    private let aiChatHistoryPruner: any AIChatHistoryPruning
+    private let aiChatHistoryPruneDelay: Duration
     private var isStarted = false
+    private var aiChatHistoryPruneTask: Task<Void, Never>?
 
     init(
         compositionRoot: AppCompositionRoot,
@@ -21,13 +24,19 @@ final class NotchShellRuntime: NSObject {
         simulateNotchOnNonNotchScreen: Bool,
         globalShortcutService: (any GlobalShortcutServicing)? = nil,
         launchAtLoginService: (any LaunchAtLoginServicing)? = nil,
-        appLifecycleObserver: AppLifecycleObserver? = nil
+        appLifecycleObserver: AppLifecycleObserver? = nil,
+        aiChatHistoryPruner: (any AIChatHistoryPruning)? = nil,
+        aiChatHistoryPruneDelay: Duration = .seconds(10)
     ) {
         self.compositionRoot = compositionRoot
         self.interactions = interactions
         self.globalShortcutService = globalShortcutService ?? InMemoryGlobalShortcutService()
         self.launchAtLoginService = launchAtLoginService ?? InMemoryLaunchAtLoginService()
         self.appLifecycleObserver = appLifecycleObserver ?? AppLifecycleObserver()
+        self.aiChatHistoryPruner = aiChatHistoryPruner ?? AIChatHistoryPruner(
+            sharedServices: compositionRoot.sharedServices
+        )
+        self.aiChatHistoryPruneDelay = aiChatHistoryPruneDelay
         self.lifecycleDispatcher = ModuleLifecycleDispatcher(
             registry: compositionRoot.moduleRuntimeRegistry
         )
@@ -69,6 +78,7 @@ final class NotchShellRuntime: NSObject {
         }
 
         isStarted = true
+        scheduleAIChatHistoryPrune()
         interactions.requestExpand = { [weak self] screenID in
             guard let self else {
                 return
@@ -121,7 +131,20 @@ final class NotchShellRuntime: NSObject {
     }
 
     deinit {
+        aiChatHistoryPruneTask?.cancel()
         NotificationCenter.default.removeObserver(self)
+    }
+
+    private func scheduleAIChatHistoryPrune() {
+        let delay = aiChatHistoryPruneDelay
+        let pruner = aiChatHistoryPruner
+        aiChatHistoryPruneTask = Task {
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else {
+                return
+            }
+            await pruner.pruneIfNeeded()
+        }
     }
 
     @objc private func screenParametersDidChange(_ notification: Notification) {

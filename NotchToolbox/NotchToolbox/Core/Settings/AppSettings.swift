@@ -41,6 +41,7 @@ nonisolated struct AppSettings: Codable, Equatable {
     var clipboardAutoCleanupPolicy: CleanupPolicy
     var fileStashAutoCleanupPolicy: CleanupPolicy
     var aiProviderConfigSummaries: [AIProviderConfigSummary]
+    var lastAIChatHistoryPrunedAt: Date?
 
     init(
         launchAtLogin: Bool,
@@ -52,7 +53,8 @@ nonisolated struct AppSettings: Codable, Equatable {
         clipboardMaxItems: Int,
         clipboardAutoCleanupPolicy: CleanupPolicy,
         fileStashAutoCleanupPolicy: CleanupPolicy,
-        aiProviderConfigSummaries: [AIProviderConfigSummary]
+        aiProviderConfigSummaries: [AIProviderConfigSummary],
+        lastAIChatHistoryPrunedAt: Date? = nil
     ) {
         self.launchAtLogin = launchAtLogin
         self.globalShortcut = globalShortcut
@@ -64,6 +66,7 @@ nonisolated struct AppSettings: Codable, Equatable {
         self.clipboardAutoCleanupPolicy = clipboardAutoCleanupPolicy
         self.fileStashAutoCleanupPolicy = fileStashAutoCleanupPolicy
         self.aiProviderConfigSummaries = aiProviderConfigSummaries
+        self.lastAIChatHistoryPrunedAt = lastAIChatHistoryPrunedAt
     }
 
     static let defaultValue = AppSettings(
@@ -95,6 +98,7 @@ extension AppSettings {
         case clipboardAutoCleanupPolicy
         case fileStashAutoCleanupPolicy
         case aiProviderConfigSummaries
+        case lastAIChatHistoryPrunedAt
     }
 
     nonisolated init(from decoder: Decoder) throws {
@@ -111,7 +115,25 @@ extension AppSettings {
             clipboardMaxItems: try container.decodeIfPresent(Int.self, forKey: .clipboardMaxItems) ?? defaults.clipboardMaxItems,
             clipboardAutoCleanupPolicy: try container.decodeIfPresent(CleanupPolicy.self, forKey: .clipboardAutoCleanupPolicy) ?? defaults.clipboardAutoCleanupPolicy,
             fileStashAutoCleanupPolicy: try container.decodeIfPresent(CleanupPolicy.self, forKey: .fileStashAutoCleanupPolicy) ?? defaults.fileStashAutoCleanupPolicy,
-            aiProviderConfigSummaries: try container.decodeIfPresent([AIProviderConfigSummary].self, forKey: .aiProviderConfigSummaries) ?? defaults.aiProviderConfigSummaries
+            aiProviderConfigSummaries: Self.mergedAIProviderSummaries(
+                try container.decodeIfPresent([AIProviderConfigSummary].self, forKey: .aiProviderConfigSummaries)
+                    ?? defaults.aiProviderConfigSummaries
+            ),
+            lastAIChatHistoryPrunedAt: try container.decodeIfPresent(Date.self, forKey: .lastAIChatHistoryPrunedAt)
         )
+    }
+
+    private nonisolated static func mergedAIProviderSummaries(
+        _ storedSummaries: [AIProviderConfigSummary]
+    ) -> [AIProviderConfigSummary] {
+        AIProviderKind.allCases.map { provider in
+            storedSummaries.first { $0.provider == provider }
+                ?? AIProviderConfigSummary(
+                    provider: provider,
+                    status: .unconfigured,
+                    selectedModelID: nil,
+                    imageInputCapability: .target
+                )
+        }
     }
 }
