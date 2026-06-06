@@ -12,7 +12,7 @@ struct QQMusicAdapter: MusicPlayerAdapter {
     func launch() async throws {
         let output = try await processRunner.run(
             "/usr/bin/open",
-            arguments: ["-b", capability.bundleID]
+            arguments: ["-g", "-b", capability.bundleID]
         )
 
         guard output.status == 0 else {
@@ -38,7 +38,6 @@ private extension QQMusicAdapter {
         switch action {
         case .playPause:
             """
-            \(activateQQMusicScript())
             tell application "System Events"
                 tell process "QQ音乐"
                     try
@@ -58,19 +57,11 @@ private extension QQMusicAdapter {
 
     static func qqPlaybackMenuScript(menuItem: String) -> String {
         """
-        \(activateQQMusicScript())
         tell application "System Events"
             tell process "QQ音乐"
                 click menu item "\(menuItem)" of menu "播放控制" of menu bar item "播放控制" of menu bar 1
             end tell
         end tell
-        """
-    }
-
-    static func activateQQMusicScript() -> String {
-        """
-        tell application id "com.tencent.QQMusicMac" to activate
-        delay 0.15
         """
     }
 

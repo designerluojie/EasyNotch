@@ -75,7 +75,7 @@ nonisolated struct SystemMediaControlAdapter: MusicPlayerAdapter {
     func launch() async throws {
         let output = try await processRunner.run(
             "/usr/bin/open",
-            arguments: ["-b", capability.bundleID]
+            arguments: ["-g", "-b", capability.bundleID]
         )
 
         guard output.status == 0 else {
