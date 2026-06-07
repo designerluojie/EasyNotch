@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 private enum OverlayPanelChromeColors {
     static let shellFill = Color.black.opacity(OverlayPanelChromeMetrics.shellFillOpacity)
@@ -43,6 +44,13 @@ struct OverlayPanelRootView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .preferredColorScheme(.dark)
         .contentShape(Rectangle())
+        .onDrop(
+            of: [UTType.fileURL.identifier],
+            delegate: ShellFileDropDelegate(
+                screenID: panelModel.screenID,
+                interactions: interactions
+            )
+        )
         .onHover { isInside in
             guard usesRootHoverTracking else {
                 return
@@ -702,6 +710,92 @@ struct OverlayPanelRootView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
+    }
+}
+
+private struct ShellFileDropDelegate: DropDelegate {
+    let screenID: String
+    let interactions: OverlayPanelInteractions
+
+    func validateDrop(info: DropInfo) -> Bool {
+        info.hasItemsConforming(to: [UTType.fileURL.identifier])
+    }
+
+    func dropEntered(info: DropInfo) {
+        interactions.fileDragEntered(screenID: screenID)
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .copy)
+    }
+
+    func dropExited(info: DropInfo) {
+        interactions.fileDragExited(screenID: screenID)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        let providers = info.itemProviders(for: [UTType.fileURL.identifier])
+        return FileDropProviderResolver.loadFileURLs(from: providers) { urls in
+            interactions.fileDropped(screenID: screenID, urls: urls)
+        }
+    }
+}
+
+private enum FileDropProviderResolver {
+    static func loadFileURLs(
+        from providers: [NSItemProvider],
+        completion: @escaping ([URL]) -> Void
+    ) -> Bool {
+        let matchingProviders = providers.filter {
+            $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier)
+        }
+
+        guard matchingProviders.isEmpty == false else {
+            DispatchQueue.main.async {
+                completion([])
+            }
+            return false
+        }
+
+        let group = DispatchGroup()
+        let lock = NSLock()
+        var urls: [URL] = []
+
+        for provider in matchingProviders {
+            group.enter()
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                defer { group.leave() }
+                guard let url = fileURL(from: item) else {
+                    return
+                }
+
+                lock.lock()
+                urls.append(url)
+                lock.unlock()
+            }
+        }
+
+        group.notify(queue: .main) {
+            completion(urls)
+        }
+
+        return true
+    }
+
+    private static func fileURL(from item: NSSecureCoding?) -> URL? {
+        if let url = item as? URL {
+            return url
+        }
+
+        if let data = item as? Data {
+            return URL(dataRepresentation: data, relativeTo: nil)
+        }
+
+        if let string = item as? String {
+            return URL(string: string)
+        }
+
+        return nil
     }
 }
 

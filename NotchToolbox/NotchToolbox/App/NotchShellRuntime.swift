@@ -101,6 +101,29 @@ final class NotchShellRuntime: NSObject {
         interactions.requestCollapseTimeout = { [weak self] screenID in
             self?.coordinator.completePointerExitCollapse(onScreenID: screenID)
         }
+        interactions.requestFileDragEnter = { [weak self] screenID in
+            guard let self else {
+                return
+            }
+
+            compositionRoot.fileStashViewModel.setDropTargeted(true)
+            coordinator.expand(moduleID: .fileStash, onScreenID: screenID)
+        }
+        interactions.requestFileDragExit = { [weak self] _ in
+            self?.compositionRoot.fileStashViewModel.setDropTargeted(false)
+        }
+        interactions.requestFileDrop = { [weak self] screenID, urls in
+            guard let self else {
+                return
+            }
+
+            coordinator.expand(moduleID: .fileStash, onScreenID: screenID)
+            if urls.isEmpty {
+                compositionRoot.fileStashViewModel.setDropTargeted(false)
+            } else {
+                compositionRoot.fileStashViewModel.addDroppedFileURLs(urls)
+            }
+        }
         try? launchAtLoginService.setEnabled(compositionRoot.sharedServices.settingsStore.settings.launchAtLogin)
         try? globalShortcutService.register(
             compositionRoot.sharedServices.settingsStore.settings.globalShortcut

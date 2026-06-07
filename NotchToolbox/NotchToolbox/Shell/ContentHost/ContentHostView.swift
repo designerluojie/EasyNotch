@@ -42,7 +42,10 @@ struct ContentHostView: View {
         case .music:
             MusicModuleView(runtime: compositionRoot.musicRuntime)
         case .fileStash:
-            FileStashModuleView(context: compositionRoot.context(for: .fileStash))
+            FileStashModuleView(
+                context: compositionRoot.context(for: .fileStash),
+                viewModel: compositionRoot.fileStashViewModel
+            )
         case .aiChat:
             AIChatModuleView(
                 context: compositionRoot.context(for: .aiChat),

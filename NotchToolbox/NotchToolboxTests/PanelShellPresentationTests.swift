@@ -29,7 +29,7 @@ struct PanelShellPresentationTests {
 
     @Test func defaultExpandedBodySizesStayStablePerModule() {
         #expect(PanelShellPresentation.bodySize(for: .music) == CGSize(width: 580, height: 280))
-        #expect(PanelShellPresentation.bodySize(for: .fileStash) == CGSize(width: 580, height: 280))
+        #expect(PanelShellPresentation.bodySize(for: .fileStash) == CGSize(width: 580, height: 120))
         #expect(PanelShellPresentation.bodySize(for: .aiChat) == CGSize(width: 580, height: 280))
         #expect(PanelShellPresentation.bodySize(for: .clipboard) == CGSize(width: 580, height: 180))
     }
@@ -37,7 +37,7 @@ struct PanelShellPresentationTests {
     @Test func compositionRootOverrideCanResizeExpandedPanelPerModule() {
         let compositionRoot = AppCompositionRoot(activeModule: .fileStash)
 
-        #expect(compositionRoot.panelBodySize(for: .fileStash) == CGSize(width: 580, height: 280))
+        #expect(compositionRoot.panelBodySize(for: .fileStash) == CGSize(width: 580, height: 120))
 
         compositionRoot.setPanelBodySize(CGSize(width: 640, height: 320), for: .fileStash)
 
