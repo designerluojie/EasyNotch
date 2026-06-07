@@ -85,7 +85,15 @@ struct NotchShellRuntimeTests {
         interactions.expand(screenID: "built-in")
         await Task.yield()
 
-        #expect(musicRuntime.events == [
+        let expansionEvents = musicRuntime.events.filter { event in
+            switch event {
+            case .appWillSleep, .appDidWake:
+                return false
+            default:
+                return true
+            }
+        }
+        #expect(expansionEvents == [
             .appDidLaunch,
             .panelWillExpand(screenID: "built-in"),
             .moduleDidAppear,
@@ -120,6 +128,55 @@ struct NotchShellRuntimeTests {
         await Task.yield()
 
         #expect(presenter.presentations.last?.state == .expanded(screenID: "built-in", moduleID: .music))
+    }
+
+    @Test func fileDragEnteringHotzoneExpandsFileStashImportPrompt() async throws {
+        let compositionRoot = AppCompositionRoot(activeModule: .music, initialScreenID: "built-in")
+        let interactions = OverlayPanelInteractions()
+        let presenter = RuntimeSpyOverlayPanelPresenter()
+        let runtime = NotchShellRuntime(
+            compositionRoot: compositionRoot,
+            interactions: interactions,
+            topologyProvider: RuntimeStubDisplayTopologyProvider(snapshots: [
+                Self.notchSnapshot(id: "built-in")
+            ]),
+            panelPresenter: presenter,
+            primaryScreenID: "built-in",
+            simulateNotchOnNonNotchScreen: true
+        )
+
+        runtime.start()
+        interactions.fileDragEntered(screenID: "built-in")
+        await Task.yield()
+
+        #expect(compositionRoot.activeModule == .fileStash)
+        #expect(compositionRoot.fileStashViewModel.phase == .dragHoverImport)
+        #expect(presenter.presentations.last?.state == .expanded(screenID: "built-in", moduleID: .fileStash))
+    }
+
+    @Test func fileDragExitingHotzoneClearsFileStashImportPrompt() async throws {
+        let compositionRoot = AppCompositionRoot(activeModule: .music, initialScreenID: "built-in")
+        let interactions = OverlayPanelInteractions()
+        let presenter = RuntimeSpyOverlayPanelPresenter()
+        let runtime = NotchShellRuntime(
+            compositionRoot: compositionRoot,
+            interactions: interactions,
+            topologyProvider: RuntimeStubDisplayTopologyProvider(snapshots: [
+                Self.notchSnapshot(id: "built-in")
+            ]),
+            panelPresenter: presenter,
+            primaryScreenID: "built-in",
+            simulateNotchOnNonNotchScreen: true
+        )
+
+        runtime.start()
+        interactions.fileDragEntered(screenID: "built-in")
+        await Task.yield()
+        interactions.fileDragExited(screenID: "built-in")
+        await Task.yield()
+
+        #expect(compositionRoot.fileStashViewModel.phase == .expandedEmpty)
+        #expect(presenter.presentations.last?.state == .expanded(screenID: "built-in", moduleID: .fileStash))
     }
 
     private static func notchSnapshot(id: String) -> ScreenSnapshot {

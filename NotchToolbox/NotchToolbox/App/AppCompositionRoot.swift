@@ -8,9 +8,11 @@ final class AppCompositionRoot: ObservableObject {
     let sharedServices: SharedCoreServices
     let energyGovernor: EnergyGovernor
     let musicRuntime: MusicModuleRuntime
+    let fileStashCore: FileStashCore
     let clipboardCore: ClipboardCore
     let moduleRuntimeRegistry: ModuleRuntimeRegistry
     let aiChatModel: AIChatModuleModel
+    lazy var fileStashViewModel = FileStashViewModel(core: fileStashCore)
     lazy var clipboardViewModel = ClipboardViewModel(
         core: clipboardCore,
         localFileStore: sharedServices.localFileStore,
@@ -48,6 +50,18 @@ final class AppCompositionRoot: ObservableObject {
         let resolvedMusicRuntime = musicRuntime ?? MusicModuleRuntime()
 
         do {
+            let fileStashStore = try FileStashStore(
+                fileStore: resolvedSharedServices.localFileStore
+            )
+            let fileStashCleanupService = FileStashCleanupService(
+                store: fileStashStore,
+                settingsStore: resolvedSharedServices.settingsStore,
+                scheduler: resolvedSharedServices.cleanupScheduler
+            )
+            let fileStashCore = try FileStashCore(
+                store: fileStashStore,
+                cleanupService: fileStashCleanupService
+            )
             let clipboardStore = try ClipboardStore(
                 fileStore: resolvedSharedServices.localFileStore,
                 settingsStore: resolvedSharedServices.settingsStore
@@ -85,6 +99,7 @@ final class AppCompositionRoot: ObservableObject {
             self.sharedServices = resolvedSharedServices
             self.energyGovernor = resolvedEnergyGovernor
             self.musicRuntime = resolvedMusicRuntime
+            self.fileStashCore = fileStashCore
             self.clipboardCore = clipboardCore
             self.moduleRuntimeRegistry = runtimeRegistry
             self.aiChatModel = resolvedAIChatModel

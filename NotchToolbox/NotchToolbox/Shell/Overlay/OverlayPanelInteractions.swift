@@ -10,6 +10,9 @@ final class OverlayPanelInteractions: ObservableObject {
     var requestPointerEnter: ((String) -> Void)?
     var requestPointerExit: ((String) -> Void)?
     var requestCollapseTimeout: ((String) -> Void)?
+    var requestFileDragEnter: ((String) -> Void)?
+    var requestFileDragExit: ((String) -> Void)?
+    var requestFileDrop: ((String, [URL]) -> Void)?
 
     init(hotzoneController: HotzoneController? = nil) {
         self.hotzoneController = hotzoneController ?? HotzoneController()
@@ -55,5 +58,28 @@ final class OverlayPanelInteractions: ObservableObject {
 
     func pointerExited(screenID: String) {
         hotzoneController.pointerExited(screenID: screenID)
+    }
+
+    func fileDragEntered(screenID: String) {
+        hotzoneController.cancelCollapseTimeout(screenID: screenID)
+        let requestFileDragEnter = requestFileDragEnter
+        Task { @MainActor in
+            requestFileDragEnter?(screenID)
+        }
+    }
+
+    func fileDragExited(screenID: String) {
+        let requestFileDragExit = requestFileDragExit
+        Task { @MainActor in
+            requestFileDragExit?(screenID)
+        }
+    }
+
+    func fileDropped(screenID: String, urls: [URL]) {
+        hotzoneController.cancelCollapseTimeout(screenID: screenID)
+        let requestFileDrop = requestFileDrop
+        Task { @MainActor in
+            requestFileDrop?(screenID, urls)
+        }
     }
 }

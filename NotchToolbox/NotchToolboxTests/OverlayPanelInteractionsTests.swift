@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import NotchToolbox
 
@@ -32,5 +33,38 @@ struct OverlayPanelInteractionsTests {
 
         await Task.yield()
         #expect(requestedScreens == ["built-in"])
+    }
+
+    @Test func fileDragEnteredRunsOnLaterMainActorTurn() async {
+        let interactions = OverlayPanelInteractions()
+        var requestedScreens: [String] = []
+        interactions.requestFileDragEnter = { screenID in
+            requestedScreens.append(screenID)
+        }
+
+        interactions.fileDragEntered(screenID: "built-in")
+
+        #expect(requestedScreens.isEmpty)
+
+        await Task.yield()
+        #expect(requestedScreens == ["built-in"])
+    }
+
+    @Test func fileDropRunsOnLaterMainActorTurn() async throws {
+        let interactions = OverlayPanelInteractions()
+        let fileURL = try #require(URL(string: "file:///tmp/notch-drop.txt"))
+        var requestedDrops: [(screenID: String, urls: [URL])] = []
+        interactions.requestFileDrop = { screenID, urls in
+            requestedDrops.append((screenID, urls))
+        }
+
+        interactions.fileDropped(screenID: "built-in", urls: [fileURL])
+
+        #expect(requestedDrops.isEmpty)
+
+        await Task.yield()
+        #expect(requestedDrops.count == 1)
+        #expect(requestedDrops.first?.screenID == "built-in")
+        #expect(requestedDrops.first?.urls == [fileURL])
     }
 }

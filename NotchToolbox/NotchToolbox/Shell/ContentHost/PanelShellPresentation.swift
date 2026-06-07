@@ -64,7 +64,9 @@ extension PanelShellPresentation {
         switch moduleID {
         case .music:
             return CGSize(width: 580, height: 280)
-        case .fileStash, .aiChat:
+        case .fileStash:
+            return FileStashModuleLayout.panelBodySize
+        case .aiChat:
             return CGSize(width: 580, height: 280)
         case .clipboard:
             return ClipboardModuleLayout.listPanelBodySize
