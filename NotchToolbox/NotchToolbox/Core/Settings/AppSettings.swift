@@ -32,6 +32,7 @@ nonisolated enum CleanupPolicy: String, Codable, Equatable, CaseIterable {
 
 nonisolated struct AppSettings: Codable, Equatable {
     var launchAtLogin: Bool
+    var isGlobalShortcutEnabled: Bool
     var globalShortcut: KeyboardShortcutDescriptor
     var simulateNotchOnNonNotchScreen: Bool
     var animationMode: AnimationMode
@@ -45,6 +46,7 @@ nonisolated struct AppSettings: Codable, Equatable {
 
     init(
         launchAtLogin: Bool,
+        isGlobalShortcutEnabled: Bool,
         globalShortcut: KeyboardShortcutDescriptor,
         simulateNotchOnNonNotchScreen: Bool,
         animationMode: AnimationMode,
@@ -57,6 +59,7 @@ nonisolated struct AppSettings: Codable, Equatable {
         lastAIChatHistoryPrunedAt: Date? = nil
     ) {
         self.launchAtLogin = launchAtLogin
+        self.isGlobalShortcutEnabled = isGlobalShortcutEnabled
         self.globalShortcut = globalShortcut
         self.simulateNotchOnNonNotchScreen = simulateNotchOnNonNotchScreen
         self.animationMode = animationMode
@@ -71,6 +74,7 @@ nonisolated struct AppSettings: Codable, Equatable {
 
     static let defaultValue = AppSettings(
         launchAtLogin: false,
+        isGlobalShortcutEnabled: true,
         globalShortcut: KeyboardShortcutDescriptor(
             keyEquivalent: "t",
             modifiers: [.command, .option]
@@ -89,6 +93,7 @@ nonisolated struct AppSettings: Codable, Equatable {
 extension AppSettings {
     private enum CodingKeys: String, CodingKey {
         case launchAtLogin
+        case isGlobalShortcutEnabled
         case globalShortcut
         case simulateNotchOnNonNotchScreen
         case animationMode
@@ -107,6 +112,7 @@ extension AppSettings {
 
         self.init(
             launchAtLogin: try container.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? defaults.launchAtLogin,
+            isGlobalShortcutEnabled: try container.decodeIfPresent(Bool.self, forKey: .isGlobalShortcutEnabled) ?? defaults.isGlobalShortcutEnabled,
             globalShortcut: try container.decodeIfPresent(KeyboardShortcutDescriptor.self, forKey: .globalShortcut) ?? defaults.globalShortcut,
             simulateNotchOnNonNotchScreen: try container.decodeIfPresent(Bool.self, forKey: .simulateNotchOnNonNotchScreen) ?? defaults.simulateNotchOnNonNotchScreen,
             animationMode: try container.decodeIfPresent(AnimationMode.self, forKey: .animationMode) ?? defaults.animationMode,
