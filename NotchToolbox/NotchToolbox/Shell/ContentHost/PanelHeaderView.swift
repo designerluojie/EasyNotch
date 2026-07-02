@@ -2,6 +2,8 @@ import SwiftUI
 
 struct PanelHeaderView: View {
     let activeModule: NotchModuleID
+    let primaryTabs: [NotchModuleID]
+    let moreItems: [PanelMoreModuleItem]
     let onSelectModule: (NotchModuleID) -> Void
     let onToggleMore: () -> Void
     let onToggleSettings: () -> Void
@@ -12,6 +14,8 @@ struct PanelHeaderView: View {
         HStack(alignment: .top) {
             ModuleTabBarView(
                 activeModule: activeModule,
+                primaryTabs: primaryTabs,
+                moreItems: moreItems,
                 onSelectModule: onSelectModule,
                 onToggleMore: onToggleMore
             )

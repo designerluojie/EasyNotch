@@ -10,7 +10,7 @@ final class OverlayCoordinator {
     private let lifecycleDispatcher: ModuleLifecycleDispatcher
     private let interactionStateMachine: InteractionStateMachine
     private let energyGovernor: EnergyGovernor
-    private let simulateNotchOnNonNotchScreen: Bool
+    private var simulateNotchOnNonNotchScreen: Bool
 
     private var profiles: [ScreenProfile] = []
     private var activeScreenID: String?
@@ -46,7 +46,7 @@ final class OverlayCoordinator {
                 return
             }
 
-            self.refreshScreens(primaryScreenID: self.activeScreenID)
+            self.refreshRestPresentation()
         }
         refreshProfiles(primaryScreenID: activeScreenID)
         guard let profile = activeProfile() ?? profiles.first else {
@@ -58,6 +58,15 @@ final class OverlayCoordinator {
         compositionRoot.overlayState = state
         presentPanels(activeState: state)
         energyGovernor.applyOverlayState(state)
+    }
+
+    func setSimulateNotchOnNonNotchScreen(_ isEnabled: Bool) {
+        guard simulateNotchOnNonNotchScreen != isEnabled else {
+            return
+        }
+
+        simulateNotchOnNonNotchScreen = isEnabled
+        refreshScreens(primaryScreenID: activeScreenID)
     }
 
     func expand(moduleID: NotchModuleID) {
@@ -77,7 +86,7 @@ final class OverlayCoordinator {
             targetScreenID: targetProfile.id
         )
         activeScreenID = targetProfile.id
-        compositionRoot.activeModule = moduleID
+        compositionRoot.selectActiveModule(moduleID)
         let state = interactionStateMachine.reduce(
             previousState,
             event: .expand(screenID: targetProfile.id, moduleID: moduleID)
@@ -216,6 +225,33 @@ final class OverlayCoordinator {
         }
     }
 
+    private func refreshRestPresentation() {
+        switch compositionRoot.overlayState {
+        case .idle(let screenID, _):
+            applyState(.idle(screenID: screenID))
+        case .hoverHint(let screenID, _):
+            applyState(.hoverHint(screenID: screenID))
+        case .expanded(let screenID, let moduleID):
+            guard let transientRequest = resolvedPresentation().transientRequest else {
+                return
+            }
+
+            guard transientRequest.moduleID != moduleID else {
+                return
+            }
+
+            applyState(.idle(screenID: screenID))
+        case .collapsing(let screenID, _):
+            guard resolvedPresentation().isTransientRequest else {
+                return
+            }
+
+            applyState(.idle(screenID: screenID))
+        case .toast:
+            break
+        }
+    }
+
     private func refreshProfiles(primaryScreenID: String?) {
         let resolvedProfiles = topologyProvider.currentSnapshots().map {
             profileResolver.resolve(
@@ -260,11 +296,20 @@ final class OverlayCoordinator {
         for profile in profiles {
             let state = profile.id == activeScreenID
                 ? activeState
-                : OverlayState.idle(screenID: profile.id)
+                : inactiveState(screenID: profile.id, activeState: activeState)
             panelPresenter.present(
                 state: state,
                 geometry: geometryCalculator.calculate(for: profile)
             )
+        }
+    }
+
+    private func inactiveState(screenID: String, activeState: OverlayState) -> OverlayState {
+        switch activeState {
+        case .idle, .hoverHint:
+            return resolvedIdleState(screenID: screenID)
+        case .expanded, .collapsing, .toast:
+            return .idle(screenID: screenID)
         }
     }
 

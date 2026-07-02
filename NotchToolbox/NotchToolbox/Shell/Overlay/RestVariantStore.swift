@@ -20,7 +20,7 @@ final class RestVariantStore {
             return .request(activeTransientRequest)
         }
 
-        if let request = persistentRequests.values.sorted(by: { $0.moduleID.rawValue < $1.moduleID.rawValue }).first {
+        if let request = persistentRequests.values.sorted(by: Self.persistentRequestComesFirst(_:_:)).first {
             return .request(request)
         }
 
@@ -28,18 +28,20 @@ final class RestVariantStore {
     }
 
     func setPersistentRequest(_ request: RestVariantRequest) {
+        let previousPresentation = resolvedPresentation
         persistentRequests[request.moduleID] = RestVariantRequest(
             moduleID: request.moduleID,
             kind: request.kind,
             preferredWidth: request.preferredWidth,
             preferredHeight: request.preferredHeight
         )
-        publishResolvedPresentationIfNeeded()
+        publishResolvedPresentationIfNeeded(from: previousPresentation)
     }
 
     func clearPersistentRequest(for moduleID: NotchModuleID) {
+        let previousPresentation = resolvedPresentation
         persistentRequests[moduleID] = nil
-        publishResolvedPresentationIfNeeded()
+        publishResolvedPresentationIfNeeded(from: previousPresentation)
     }
 
     func enqueueTransientRequest(_ request: RestVariantRequest) {
@@ -53,12 +55,35 @@ final class RestVariantStore {
         activateNextTransientIfPossible()
     }
 
+    func replacePersistentRequestWithTransient(
+        for moduleID: NotchModuleID,
+        request: RestVariantRequest
+    ) {
+        let previousPresentation = resolvedPresentation
+        persistentRequests[moduleID] = nil
+
+        guard case .transient = request.lifetime else {
+            persistentRequests[request.moduleID] = RestVariantRequest(
+                moduleID: request.moduleID,
+                kind: request.kind,
+                preferredWidth: request.preferredWidth,
+                preferredHeight: request.preferredHeight
+            )
+            publishResolvedPresentationIfNeeded(from: previousPresentation)
+            return
+        }
+
+        queuedTransientRequests.append(request)
+        queuedTransientRequests.sort(by: Self.transientRequestComesFirst(_:_:))
+        activateNextTransientIfPossible(from: previousPresentation)
+    }
+
     deinit {
         activeTransientTask?.cancel()
         transientBridgeTask?.cancel()
     }
 
-    private func activateNextTransientIfPossible() {
+    private func activateNextTransientIfPossible(from previousPresentation: ResolvedRestPresentation? = nil) {
         guard activeTransientRequest == nil, transientBridgeTask == nil else {
             return
         }
@@ -67,9 +92,10 @@ final class RestVariantStore {
             return
         }
 
+        let previousPresentation = previousPresentation ?? resolvedPresentation
         queuedTransientRequests.removeFirst()
         activeTransientRequest = nextRequest
-        publishResolvedPresentationIfNeeded()
+        publishResolvedPresentationIfNeeded(from: previousPresentation)
         scheduleTransientExpiry(for: nextRequest)
     }
 
@@ -98,8 +124,9 @@ final class RestVariantStore {
 
         activeTransientTask?.cancel()
         activeTransientTask = nil
+        let previousPresentation = resolvedPresentation
         activeTransientRequest = nil
-        publishResolvedPresentationIfNeeded()
+        publishResolvedPresentationIfNeeded(from: previousPresentation)
 
         guard queuedTransientRequests.isEmpty == false else {
             return
@@ -123,8 +150,13 @@ final class RestVariantStore {
         activateNextTransientIfPossible()
     }
 
-    private func publishResolvedPresentationIfNeeded() {
-        onResolvedPresentationChange?(resolvedPresentation)
+    private func publishResolvedPresentationIfNeeded(from previousPresentation: ResolvedRestPresentation) {
+        let currentPresentation = resolvedPresentation
+        guard currentPresentation != previousPresentation else {
+            return
+        }
+
+        onResolvedPresentationChange?(currentPresentation)
     }
 
     private static func transientRequestComesFirst(
@@ -136,6 +168,28 @@ final class RestVariantStore {
             return lhsDate < rhsDate
         default:
             return lhs.moduleID.rawValue < rhs.moduleID.rawValue
+        }
+    }
+
+    private static func persistentRequestComesFirst(
+        _ lhs: RestVariantRequest,
+        _ rhs: RestVariantRequest
+    ) -> Bool {
+        let lhsPriority = persistentPriority(for: lhs.moduleID)
+        let rhsPriority = persistentPriority(for: rhs.moduleID)
+        if lhsPriority != rhsPriority {
+            return lhsPriority < rhsPriority
+        }
+
+        return lhs.moduleID.rawValue < rhs.moduleID.rawValue
+    }
+
+    private static func persistentPriority(for moduleID: NotchModuleID) -> Int {
+        switch moduleID {
+        case .pomodoro:
+            return 0
+        default:
+            return 1
         }
     }
 }

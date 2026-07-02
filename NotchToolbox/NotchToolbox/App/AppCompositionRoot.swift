@@ -10,6 +10,7 @@ final class AppCompositionRoot: ObservableObject {
     let musicRuntime: MusicModuleRuntime
     let fileStashCore: FileStashCore
     let clipboardCore: ClipboardCore
+    let pomodoroCore: PomodoroCore
     let moduleRuntimeRegistry: ModuleRuntimeRegistry
     let aiChatModel: AIChatModuleModel
     lazy var fileStashViewModel = FileStashViewModel(core: fileStashCore)
@@ -18,6 +19,7 @@ final class AppCompositionRoot: ObservableObject {
         localFileStore: sharedServices.localFileStore,
         restVariantStore: restVariantStore
     )
+    let pomodoroViewModel: PomodoroViewModel
     let restVariantStore: RestVariantStore
     let restVariantContentRegistry: RestVariantContentRegistry
 
@@ -30,6 +32,9 @@ final class AppCompositionRoot: ObservableObject {
     @Published private(set) var suppressesOutsideClickCollapse: Bool
 
     private var cancellables: Set<AnyCancellable> = []
+    private var activePomodoroToastSessionID: UUID?
+    private var pomodoroToastDismissTask: Task<Void, Never>?
+    private var isNavigationPopoverPresented = false
 
     init(
         sharedServices: SharedCoreServices? = nil,
@@ -39,7 +44,7 @@ final class AppCompositionRoot: ObservableObject {
         restVariantStore: RestVariantStore? = nil,
         restVariantContentRegistry: RestVariantContentRegistry? = nil,
         moduleDescriptors: [NotchModuleDescriptor]? = nil,
-        activeModule: NotchModuleID = .music,
+        activeModule: NotchModuleID? = nil,
         initialScreenID: String = "main"
     ) {
         let resolvedSharedServices = sharedServices ?? SharedCoreServices.fallback()
@@ -86,6 +91,11 @@ final class AppCompositionRoot: ObservableObject {
                 pasteExecutor: pasteExecutor
             )
             let clipboardRuntime = ClipboardModuleRuntime(core: clipboardCore)
+            let pomodoroStore = try PomodoroSessionStore(
+                fileStore: resolvedSharedServices.localFileStore
+            )
+            let pomodoroCore = try PomodoroCore(store: pomodoroStore)
+            let pomodoroViewModel = PomodoroViewModel(core: pomodoroCore)
             let runtimeRegistry = Self.makeModuleRuntimeRegistry(
                 providedRegistry: moduleRuntimeRegistry,
                 musicRuntime: resolvedMusicRuntime,
@@ -101,12 +111,16 @@ final class AppCompositionRoot: ObservableObject {
             self.musicRuntime = resolvedMusicRuntime
             self.fileStashCore = fileStashCore
             self.clipboardCore = clipboardCore
+            self.pomodoroCore = pomodoroCore
             self.moduleRuntimeRegistry = runtimeRegistry
             self.aiChatModel = resolvedAIChatModel
+            self.pomodoroViewModel = pomodoroViewModel
             self.restVariantStore = resolvedRestVariantStore
             self.restVariantContentRegistry = resolvedRestVariantContentRegistry
             self.moduleDescriptors = resolvedModuleDescriptors
             self.activeModule = activeModule
+                ?? resolvedSharedServices.settingsStore.settings.moduleOrder.first
+                ?? .music
             self.overlayState = .idle(screenID: initialScreenID)
             self.aiChatActivityHint = .idle
             self.panelBodySizeOverrides = [
@@ -117,6 +131,7 @@ final class AppCompositionRoot: ObservableObject {
 
             self.energyGovernor.register(resolvedMusicRuntime.energyManagedTask)
             self.energyGovernor.register(clipboardCore)
+            self.energyGovernor.register(pomodoroCore)
             resolvedAIChatModel.bindActivityHint { [weak self] hint in
                 self?.updateAIChatActivityHint(hint)
             }
@@ -128,6 +143,19 @@ final class AppCompositionRoot: ObservableObject {
             resolvedAIChatModel.$isImagePickerPresented
                 .sink { [weak self] isPresented in
                     self?.updateImagePickerCollapseSuppression(isImagePickerPresented: isPresented)
+                }
+                .store(in: &cancellables)
+
+            // Closed loop: a provider configured/removed anywhere (Settings window
+            // or the in-module config phase) writes settingsStore; the live AI Chat
+            // module observes that and refreshes so it unlocks/locks/updates models
+            // without needing to be reopened.
+            resolvedSharedServices.settingsStore.$settings
+                .map(\.aiProviderConfigSummaries)
+                .removeDuplicates()
+                .dropFirst()
+                .sink { [weak resolvedAIChatModel] summaries in
+                    resolvedAIChatModel?.reloadProviderSummaries(summaries)
                 }
                 .store(in: &cancellables)
 
@@ -152,6 +180,15 @@ final class AppCompositionRoot: ObservableObject {
                     )
                 }
             )
+            self.restVariantContentRegistry.register(
+                AnyRestVariantContentProvider(moduleID: .pomodoro) { request, appearance, _ in
+                    PomodoroRestVariantContentView(
+                        viewModel: pomodoroViewModel,
+                        request: request,
+                        appearance: appearance
+                    )
+                }
+            )
 
             resolvedMusicRuntime.moduleStatePublisher
                 .dropFirst()
@@ -164,9 +201,15 @@ final class AppCompositionRoot: ObservableObject {
                     self.objectWillChange.send()
                 }
                 .store(in: &cancellables)
+            pomodoroCore.$sessionSnapshot
+                .sink { [weak self] snapshot in
+                    self?.syncPomodoroRestVariant(sessionSnapshot: snapshot)
+                }
+                .store(in: &cancellables)
 
             syncMusicPresentationState(for: resolvedMusicRuntime.moduleState)
             syncClipboardRestVariantForActiveModule()
+            syncPomodoroRestVariant(sessionSnapshot: pomodoroCore.sessionSnapshot)
         } catch {
             fatalError("Unable to initialize AppCompositionRoot module dependencies: \(error)")
         }
@@ -186,6 +229,16 @@ final class AppCompositionRoot: ObservableObject {
         updatePointerExitCollapseSuppression()
         updateImagePickerCollapseSuppression()
         syncClipboardRestVariantForActiveModule()
+        syncPomodoroRestVariant(sessionSnapshot: pomodoroCore.sessionSnapshot)
+    }
+
+    func setNavigationPopoverPresented(_ isPresented: Bool) {
+        guard isNavigationPopoverPresented != isPresented else {
+            return
+        }
+
+        isNavigationPopoverPresented = isPresented
+        updateOutsideClickCollapseSuppression()
     }
 
     func context(for moduleID: NotchModuleID) -> NotchModuleContext {
@@ -268,6 +321,44 @@ final class AppCompositionRoot: ObservableObject {
         )
     }
 
+    private func syncPomodoroRestVariant(sessionSnapshot: PomodoroSessionSnapshot?) {
+        guard let request = PomodoroRestVariantPresentation.request(for: sessionSnapshot) else {
+            activePomodoroToastSessionID = nil
+            pomodoroToastDismissTask?.cancel()
+            pomodoroToastDismissTask = nil
+            restVariantStore.clearPersistentRequest(for: .pomodoro)
+            return
+        }
+
+        switch request.lifetime {
+        case .persistent:
+            activePomodoroToastSessionID = nil
+            pomodoroToastDismissTask?.cancel()
+            pomodoroToastDismissTask = nil
+            restVariantStore.setPersistentRequest(request)
+        case .transient:
+            let sessionID = sessionSnapshot?.id
+            guard activePomodoroToastSessionID != sessionID else {
+                return
+            }
+
+            activePomodoroToastSessionID = sessionID
+            restVariantStore.replacePersistentRequestWithTransient(for: .pomodoro, request: request)
+            pomodoroToastDismissTask?.cancel()
+            pomodoroToastDismissTask = Task { [weak pomodoroCore] in
+                do {
+                    try await Task.sleep(for: PomodoroRestVariantPresentation.toastDuration)
+                } catch {
+                    return
+                }
+
+                await MainActor.run {
+                    try? pomodoroCore?.dismissFinishedToast()
+                }
+            }
+        }
+    }
+
     private func updatePointerExitCollapseSuppression(
         isAIChatComposerFocused: Bool? = nil,
         isImagePickerPresented: Bool? = nil
@@ -283,12 +374,15 @@ final class AppCompositionRoot: ObservableObject {
     }
 
     private func updateImagePickerCollapseSuppression(isImagePickerPresented: Bool? = nil) {
+        updateOutsideClickCollapseSuppression(isImagePickerPresented: isImagePickerPresented)
+        updatePointerExitCollapseSuppression(isImagePickerPresented: isImagePickerPresented)
+    }
+
+    private func updateOutsideClickCollapseSuppression(isImagePickerPresented: Bool? = nil) {
         let isPresented = isImagePickerPresented ?? aiChatModel.isImagePickerPresented
-        let nextOutsideClickValue = activeModule == .aiChat && isPresented
+        let nextOutsideClickValue = isNavigationPopoverPresented || (activeModule == .aiChat && isPresented)
         if suppressesOutsideClickCollapse != nextOutsideClickValue {
             suppressesOutsideClickCollapse = nextOutsideClickValue
         }
-
-        updatePointerExitCollapseSuppression(isImagePickerPresented: isPresented)
     }
 }

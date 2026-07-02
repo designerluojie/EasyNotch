@@ -53,7 +53,7 @@ struct DisplayGeometryTests {
         #expect(profile.notchMetrics == nil)
     }
 
-    @Test func simulatedNotchUsesShallowVisibleTriggerStrip() {
+    @Test func simulatedNotchUsesHardwareHeightHoverWidthShape() {
         let profile = ScreenProfile(
             id: "external",
             kind: .externalWithoutNotch,
@@ -69,9 +69,9 @@ struct DisplayGeometryTests {
         let geometry = AnchorGeometryCalculator().calculate(for: profile)
 
         #expect(geometry.anchorKind == .simulatedNotch)
-        #expect(geometry.idleVisibleHeight == 6)
-        #expect(geometry.idleFrame.width == 185)
-        #expect(geometry.idleFrame.height == 6)
+        #expect(geometry.idleVisibleHeight == 30)
+        #expect(geometry.idleFrame.width == OverlayPanelChromeMetrics.hoverBodySize.width)
+        #expect(geometry.idleFrame.height == 30)
         #expect(geometry.notchMetrics.visibleSize == CGSize(width: 185, height: 32))
         #expect(geometry.notchMetrics.source == .fallback)
         #expect(geometry.hotzoneFrame.height > geometry.idleVisibleHeight)
@@ -127,7 +127,9 @@ struct DisplayGeometryTests {
         let geometry = AnchorGeometryCalculator().calculate(for: profile)
 
         #expect(geometry.anchorKind == .centerHandler)
-        #expect(geometry.idleFrame.width == 160)
+        #expect(geometry.idleVisibleHeight == 6)
+        #expect(geometry.idleFrame.width == 185)
+        #expect(geometry.idleFrame.height == 6)
         #expect(geometry.expandedFrame.width == 780)
         #expect(geometry.expandedVisibleFrame.width == 580)
         #expect(geometry.expandedFrame.midX == profile.frame.midX)

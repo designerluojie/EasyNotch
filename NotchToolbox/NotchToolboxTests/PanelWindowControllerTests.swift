@@ -4,10 +4,11 @@ import Testing
 @testable import NotchToolbox
 
 @MainActor
+@Suite(.serialized)
 struct PanelWindowControllerTests {
 
     @Test func panelUsesTopOverlayWindowConfiguration() {
-        let controller = PanelWindowController(compositionRoot: AppCompositionRoot())
+        let controller = PanelWindowController(compositionRoot: Self.makeCompositionRoot())
         let panel = controller.panel
 
         #expect(panel.styleMask.contains(.borderless))
@@ -20,8 +21,20 @@ struct PanelWindowControllerTests {
         #expect(panel.collectionBehavior.contains(.fullScreenAuxiliary))
     }
 
+    @Test func animationPolicyUsesSettingsSpeed() {
+        let compositionRoot = Self.makeCompositionRoot()
+        let controller = PanelWindowController(compositionRoot: compositionRoot)
+        let normalDuration = controller.animationPolicy.transitionDuration
+
+        try? compositionRoot.sharedServices.settingsStore.update { settings in
+            settings.animationSpeed = .fast
+        }
+
+        #expect(controller.animationPolicy.transitionDuration < normalDuration)
+    }
+
     @Test func presentUsesExpandedFrameForExpandedState() {
-        let compositionRoot = AppCompositionRoot()
+        let compositionRoot = Self.makeCompositionRoot()
         compositionRoot.setPanelBodySize(CGSize(width: 580, height: 280), for: .music)
         let controller = PanelWindowController(compositionRoot: compositionRoot)
         let geometry = TopAnchorGeometry(
@@ -53,7 +66,7 @@ struct PanelWindowControllerTests {
     }
 
     @Test func presentTracksPreviousStateForHoverToExpandedTransition() {
-        let compositionRoot = AppCompositionRoot()
+        let compositionRoot = Self.makeCompositionRoot()
         let controller = PanelWindowController(compositionRoot: compositionRoot)
         let geometry = TopAnchorGeometry(
             screenID: "built-in",
@@ -78,7 +91,7 @@ struct PanelWindowControllerTests {
     }
 
     @Test func activeModuleSizeOverrideRecomputesExpandedFrame() {
-        let compositionRoot = AppCompositionRoot(activeModule: .fileStash)
+        let compositionRoot = Self.makeCompositionRoot(activeModule: .fileStash)
         compositionRoot.setPanelBodySize(CGSize(width: 640, height: 320), for: .fileStash)
         let controller = PanelWindowController(compositionRoot: compositionRoot)
         let geometry = TopAnchorGeometry(
@@ -103,8 +116,8 @@ struct PanelWindowControllerTests {
         #expect(controller.panel.frame.height == 420)
     }
 
-    @Test func activeModuleChangeWhileExpandedUpdatesExpandedStateAndFrame() {
-        let compositionRoot = AppCompositionRoot(activeModule: .music)
+    @Test func activeModuleChangeWhileExpandedUpdatesExpandedStateAndFrame() throws {
+        let compositionRoot = Self.makeCompositionRoot(activeModule: .music)
         compositionRoot.setPanelBodySize(CGSize(width: 580, height: 120), for: .music)
         let controller = PanelWindowController(compositionRoot: compositionRoot)
         let geometry = TopAnchorGeometry(
@@ -129,14 +142,14 @@ struct PanelWindowControllerTests {
         #expect(controller.panelModel.state == .expanded(screenID: "built-in", moduleID: .aiChat))
         #expect(
             controller.panel.frame == OverlayPanelChromeMetrics.expandedOuterFrame(
-                for: PanelShellPresentation.bodySize(for: .aiChat),
+                for: compositionRoot.panelBodySize(for: .aiChat),
                 on: geometry.screenFrame
             )
         )
     }
 
     @Test func presentingCollapsingKeepsExpandedFrameUntilTimeout() {
-        let compositionRoot = AppCompositionRoot()
+        let compositionRoot = Self.makeCompositionRoot()
         compositionRoot.setPanelBodySize(CGSize(width: 580, height: 280), for: .music)
         let controller = PanelWindowController(compositionRoot: compositionRoot)
         let geometry = TopAnchorGeometry(
@@ -166,7 +179,7 @@ struct PanelWindowControllerTests {
     }
 
     @Test func presentingHoverHintKeepsIdleFrame() {
-        let controller = PanelWindowController(compositionRoot: AppCompositionRoot())
+        let controller = PanelWindowController(compositionRoot: Self.makeCompositionRoot())
         let geometry = TopAnchorGeometry(
             screenID: "built-in",
             screenFrame: NSRect(x: 0, y: 0, width: 1512, height: 982),
@@ -189,7 +202,7 @@ struct PanelWindowControllerTests {
     }
 
     @Test func presentingHoverHintUsesWideNotchStripHoverFrame() {
-        let controller = PanelWindowController(compositionRoot: AppCompositionRoot())
+        let controller = PanelWindowController(compositionRoot: Self.makeCompositionRoot())
         let geometry = TopAnchorGeometry(
             screenID: "built-in",
             screenFrame: NSRect(x: 0, y: 0, width: 1512, height: 982),
@@ -220,7 +233,7 @@ struct PanelWindowControllerTests {
     }
 
     @Test func presentingHoverHintUsesHeaderlessMiniPanelHoverFrame() {
-        let controller = PanelWindowController(compositionRoot: AppCompositionRoot())
+        let controller = PanelWindowController(compositionRoot: Self.makeCompositionRoot())
         let geometry = TopAnchorGeometry(
             screenID: "built-in",
             screenFrame: NSRect(x: 0, y: 0, width: 1512, height: 982),
@@ -253,7 +266,7 @@ struct PanelWindowControllerTests {
     }
 
     @Test func hoverExitDefersIdleFrameResetUntilHoverAnimationCompletes() async {
-        let controller = PanelWindowController(compositionRoot: AppCompositionRoot())
+        let controller = PanelWindowController(compositionRoot: Self.makeCompositionRoot())
         let geometry = TopAnchorGeometry(
             screenID: "built-in",
             screenFrame: NSRect(x: 0, y: 0, width: 1512, height: 982),
@@ -281,7 +294,7 @@ struct PanelWindowControllerTests {
     }
 
     @Test func wideToHeaderlessTransitionUsesImmediateLargerFrameWithoutWindowTween() {
-        let controller = PanelWindowController(compositionRoot: AppCompositionRoot())
+        let controller = PanelWindowController(compositionRoot: Self.makeCompositionRoot())
         let geometry = TopAnchorGeometry(
             screenID: "built-in",
             screenFrame: NSRect(x: 0, y: 0, width: 1512, height: 982),
@@ -321,7 +334,7 @@ struct PanelWindowControllerTests {
     }
 
     @Test func headerlessToWideTransitionDefersSmallerFrameResetUntilMorphCompletes() async {
-        let controller = PanelWindowController(compositionRoot: AppCompositionRoot())
+        let controller = PanelWindowController(compositionRoot: Self.makeCompositionRoot())
         let geometry = TopAnchorGeometry(
             screenID: "built-in",
             screenFrame: NSRect(x: 0, y: 0, width: 1512, height: 982),
@@ -369,7 +382,7 @@ struct PanelWindowControllerTests {
     }
 
     @Test func headerlessToWideTransitionLatchesWideTargetAcrossIntermediateTransparentIdle() async {
-        let controller = PanelWindowController(compositionRoot: AppCompositionRoot())
+        let controller = PanelWindowController(compositionRoot: Self.makeCompositionRoot())
         let geometry = TopAnchorGeometry(
             screenID: "built-in",
             screenFrame: NSRect(x: 0, y: 0, width: 1512, height: 982),
@@ -417,7 +430,7 @@ struct PanelWindowControllerTests {
     }
 
     @Test func collapseDefersIdleFrameResetUntilExpandedAnimationCompletes() async {
-        let compositionRoot = AppCompositionRoot()
+        let compositionRoot = Self.makeCompositionRoot()
         compositionRoot.setPanelBodySize(CGSize(width: 580, height: 280), for: .music)
         let controller = PanelWindowController(compositionRoot: compositionRoot)
         let geometry = TopAnchorGeometry(
@@ -452,7 +465,7 @@ struct PanelWindowControllerTests {
     }
 
     @Test func expandedCollapseCapturesDefaultRestTargetInScreenCoordinates() {
-        let compositionRoot = AppCompositionRoot()
+        let compositionRoot = Self.makeCompositionRoot()
         compositionRoot.setPanelBodySize(CGSize(width: 580, height: 280), for: .music)
         let controller = PanelWindowController(compositionRoot: compositionRoot)
         let geometry = TopAnchorGeometry(
@@ -479,7 +492,7 @@ struct PanelWindowControllerTests {
     }
 
     @Test func expandedCollapseReturnsToWideNotchStripTargetCapturedOnExpand() async {
-        let compositionRoot = AppCompositionRoot()
+        let compositionRoot = Self.makeCompositionRoot()
         compositionRoot.setPanelBodySize(CGSize(width: 580, height: 280), for: .music)
         let controller = PanelWindowController(compositionRoot: compositionRoot)
         let geometry = TopAnchorGeometry(
@@ -529,8 +542,54 @@ struct PanelWindowControllerTests {
         #expect(controller.panel.frame == geometry.wideNotchStripFrame)
     }
 
+    @Test func expandedCollapseUsesRestPresentationThatAppearsWhileExpanded() async {
+        let compositionRoot = Self.makeCompositionRoot()
+        compositionRoot.setPanelBodySize(CGSize(width: 580, height: 280), for: .pomodoro)
+        let controller = PanelWindowController(compositionRoot: compositionRoot)
+        let geometry = TopAnchorGeometry(
+            screenID: "built-in",
+            screenFrame: NSRect(x: 0, y: 0, width: 1512, height: 982),
+            anchorKind: .hardwareNotch,
+            notchMetrics: NotchMetrics(visibleSize: CGSize(width: 185, height: 32), source: .hardware),
+            idleFrame: NSRect(x: 663.5, y: 950, width: 185, height: 32),
+            hoverHintFrame: NSRect(x: 606, y: 862, width: 300, height: 120),
+            hoverHintVisibleFrame: NSRect(x: 659.5, y: 942, width: 193, height: 40),
+            wideNotchStripFrame: NSRect(x: 632, y: 950, width: 248, height: 32),
+            wideNotchStripVisibleFrame: NSRect(x: 632, y: 950, width: 248, height: 32),
+            wideNotchStripHoverFrame: NSRect(x: 632, y: 942, width: 248, height: 40),
+            wideNotchStripHoverVisibleFrame: NSRect(x: 632, y: 942, width: 248, height: 40),
+            headerlessMiniPanelFrame: NSRect(x: 596, y: 854, width: 320, height: 128),
+            headerlessMiniPanelVisibleFrame: NSRect(x: 596, y: 854, width: 320, height: 128),
+            headerlessMiniPanelHoverFrame: NSRect(x: 596, y: 846, width: 320, height: 136),
+            headerlessMiniPanelHoverVisibleFrame: NSRect(x: 596, y: 846, width: 320, height: 136),
+            expandedFrame: NSRect(x: 40, y: 670, width: 628, height: 312),
+            expandedVisibleFrame: NSRect(x: 64, y: 702, width: 580, height: 280),
+            toastFrame: NSRect(x: 596, y: 930, width: 320, height: 52),
+            hotzoneFrame: NSRect(x: 626, y: 950, width: 260, height: 32),
+            safeTopInset: 32,
+            idleVisibleHeight: 0
+        )
+        let widePresentation = ResolvedRestPresentation.request(
+            RestVariantRequest(moduleID: .pomodoro, kind: .wideNotchStrip)
+        )
+
+        controller.present(state: .idle(screenID: "built-in"), geometry: geometry)
+        controller.present(state: .expanded(screenID: "built-in", moduleID: .pomodoro), geometry: geometry)
+        controller.present(state: .idle(screenID: "built-in", presentation: widePresentation), geometry: geometry)
+
+        #expect(controller.panelModel.state == .idle(screenID: "built-in", presentation: widePresentation))
+        #expect(controller.panelModel.expandedCollapseTarget?.restState == .idle(
+            screenID: "built-in",
+            presentation: widePresentation
+        ))
+
+        try? await Task.sleep(nanoseconds: 700_000_000)
+
+        #expect(controller.panel.frame == geometry.wideNotchStripFrame)
+    }
+
     @Test func expandedCollapseReturnsToCustomWidthWideNotchStripTargetCapturedOnExpand() async {
-        let compositionRoot = AppCompositionRoot()
+        let compositionRoot = Self.makeCompositionRoot()
         compositionRoot.setPanelBodySize(CGSize(width: 580, height: 280), for: .music)
         let controller = PanelWindowController(compositionRoot: compositionRoot)
         let geometry = TopAnchorGeometry(
@@ -579,7 +638,7 @@ struct PanelWindowControllerTests {
     }
 
     @Test func expandedCollapseReturnsToHeaderlessMiniPanelTargetCapturedOnExpand() async {
-        let compositionRoot = AppCompositionRoot()
+        let compositionRoot = Self.makeCompositionRoot()
         compositionRoot.setPanelBodySize(CGSize(width: 580, height: 280), for: .pomodoro)
         let controller = PanelWindowController(compositionRoot: compositionRoot)
         let geometry = TopAnchorGeometry(
@@ -630,7 +689,7 @@ struct PanelWindowControllerTests {
     }
 
     @Test func expandedCollapseReturnsToCustomSizeHeaderlessMiniPanelTargetCapturedOnExpand() async {
-        let compositionRoot = AppCompositionRoot()
+        let compositionRoot = Self.makeCompositionRoot()
         compositionRoot.setPanelBodySize(CGSize(width: 580, height: 280), for: .pomodoro)
         let controller = PanelWindowController(compositionRoot: compositionRoot)
         let geometry = TopAnchorGeometry(
@@ -681,7 +740,7 @@ struct PanelWindowControllerTests {
     }
 
     @Test func outsideClickCollapsesExpandedPanelImmediately() async {
-        let compositionRoot = AppCompositionRoot(activeModule: .music, initialScreenID: "built-in")
+        let compositionRoot = Self.makeCompositionRoot(activeModule: .music, initialScreenID: "built-in")
         let interactions = OverlayPanelInteractions()
         let controller = PanelWindowController(
             compositionRoot: compositionRoot,
@@ -712,8 +771,42 @@ struct PanelWindowControllerTests {
         #expect(collapsedScreenID == "built-in")
     }
 
+    @Test func outsideClickDoesNotCollapseWhileNavigationPopoverIsPresented() async {
+        let compositionRoot = Self.makeCompositionRoot(activeModule: .music, initialScreenID: "built-in")
+        let interactions = OverlayPanelInteractions()
+        let controller = PanelWindowController(
+            compositionRoot: compositionRoot,
+            interactions: interactions
+        )
+        let geometry = TopAnchorGeometry(
+            screenID: "built-in",
+            screenFrame: NSRect(x: 0, y: 0, width: 1512, height: 982),
+            anchorKind: .hardwareNotch,
+            notchMetrics: NotchMetrics(visibleSize: CGSize(width: 185, height: 32), source: .hardware),
+            idleFrame: NSRect(x: 100, y: 900, width: 185, height: 32),
+            hoverHintFrame: NSRect(x: 82, y: 910, width: 242, height: 72),
+            hoverHintVisibleFrame: NSRect(x: 106, y: 942, width: 194, height: 40),
+            expandedFrame: NSRect(x: 40, y: 670, width: 628, height: 312),
+            expandedVisibleFrame: NSRect(x: 64, y: 702, width: 580, height: 280),
+            toastFrame: NSRect(x: 170, y: 916, width: 320, height: 52),
+            hotzoneFrame: NSRect(x: 100, y: 900, width: 185, height: 32),
+            safeTopInset: 32,
+            idleVisibleHeight: 0
+        )
+        var collapsedScreenID: String?
+        interactions.requestCollapse = { collapsedScreenID = $0 }
+
+        controller.present(state: .expanded(screenID: "built-in", moduleID: .music), geometry: geometry)
+        compositionRoot.setNavigationPopoverPresented(true)
+        controller.handleGlobalMouseDown(at: CGPoint(x: 10, y: 10))
+        await Task.yield()
+
+        #expect(collapsedScreenID == nil)
+        #expect(controller.panelModel.state == .expanded(screenID: "built-in", moduleID: .music))
+    }
+
     @Test func clickInsideShadowPaddingStillCountsAsOutsideClick() async {
-        let compositionRoot = AppCompositionRoot(activeModule: .music, initialScreenID: "built-in")
+        let compositionRoot = Self.makeCompositionRoot(activeModule: .music, initialScreenID: "built-in")
         let interactions = OverlayPanelInteractions()
         let controller = PanelWindowController(
             compositionRoot: compositionRoot,
@@ -745,7 +838,7 @@ struct PanelWindowControllerTests {
     }
 
     @Test func dismissOrdersPanelOut() {
-        let controller = PanelWindowController(compositionRoot: AppCompositionRoot())
+        let controller = PanelWindowController(compositionRoot: Self.makeCompositionRoot())
         let geometry = TopAnchorGeometry(
             screenID: "built-in",
             screenFrame: NSRect(x: 0, y: 0, width: 1512, height: 982),
@@ -769,7 +862,7 @@ struct PanelWindowControllerTests {
     }
 
     @Test func presentDoesNotPublishGlobalOverlayState() {
-        let compositionRoot = AppCompositionRoot(initialScreenID: "built-in")
+        let compositionRoot = Self.makeCompositionRoot(initialScreenID: "built-in")
         let controller = PanelWindowController(compositionRoot: compositionRoot)
         let geometry = TopAnchorGeometry(
             screenID: "built-in",
@@ -792,8 +885,8 @@ struct PanelWindowControllerTests {
         #expect(compositionRoot.overlayState == .idle(screenID: "built-in"))
     }
 
-    @Test func expandedCollapseSettleKeepsCapturedRestPresentationAgainstImmediateHover() async {
-        let compositionRoot = AppCompositionRoot()
+    @Test func expandedCollapseSettleKeepsUpdatedRestPresentationAgainstImmediateHover() async throws {
+        let compositionRoot = Self.makeCompositionRoot()
         compositionRoot.setPanelBodySize(CGSize(width: 580, height: 280), for: .music)
         let controller = PanelWindowController(compositionRoot: compositionRoot)
         let geometry = TopAnchorGeometry(
@@ -829,16 +922,16 @@ struct PanelWindowControllerTests {
         controller.present(state: .hoverHint(screenID: "built-in", presentation: widePresentation), geometry: geometry)
         controller.present(state: .expanded(screenID: "built-in", moduleID: .music), geometry: geometry)
         controller.present(state: .idle(screenID: "built-in", presentation: headerlessPresentation), geometry: geometry)
-        try? await Task.sleep(nanoseconds: 650_000_000)
+        #expect(await Self.waitUntil { controller.panel.frame == geometry.headerlessMiniPanelFrame })
 
         controller.present(state: .hoverHint(screenID: "built-in", presentation: headerlessPresentation), geometry: geometry)
 
-        #expect(controller.panelModel.state == .hoverHint(screenID: "built-in", presentation: widePresentation))
-        #expect(controller.panel.frame == geometry.wideNotchStripHoverFrame)
+        #expect(controller.panelModel.state == .hoverHint(screenID: "built-in", presentation: headerlessPresentation))
+        #expect(controller.panel.frame == geometry.headerlessMiniPanelHoverFrame)
     }
 
     @Test func expandedCollapseSettleKeepsDefaultRestIdleAgainstImmediateHover() async {
-        let compositionRoot = AppCompositionRoot()
+        let compositionRoot = Self.makeCompositionRoot()
         compositionRoot.setPanelBodySize(CGSize(width: 580, height: 280), for: .music)
         let controller = PanelWindowController(compositionRoot: compositionRoot)
         let geometry = TopAnchorGeometry(
@@ -868,5 +961,39 @@ struct PanelWindowControllerTests {
         #expect(controller.panel.frame.size == geometry.idleFrame.size)
         #expect(abs(controller.panel.frame.minX - geometry.idleFrame.minX) < 1)
         #expect(abs(controller.panel.frame.minY - geometry.idleFrame.minY) < 1)
+    }
+
+    private static func makeCompositionRoot(
+        activeModule: NotchModuleID = .music,
+        initialScreenID: String = "main"
+    ) -> AppCompositionRoot {
+        AppCompositionRoot(
+            sharedServices: try! SharedCoreServices(
+                baseURL: FileManager.default.temporaryDirectory
+                    .appending(path: "PanelWindowControllerTests")
+                    .appending(path: UUID().uuidString),
+                credentialStore: InMemorySecureCredentialStore()
+            ),
+            activeModule: activeModule,
+            initialScreenID: initialScreenID
+        )
+    }
+
+    private static func waitUntil(
+        timeoutNanoseconds: UInt64 = 1_500_000_000,
+        condition: @escaping @MainActor () -> Bool
+    ) async -> Bool {
+        let stepNanoseconds: UInt64 = 25_000_000
+        let deadline = DispatchTime.now().uptimeNanoseconds + timeoutNanoseconds
+
+        while DispatchTime.now().uptimeNanoseconds < deadline {
+            if condition() {
+                return true
+            }
+
+            try? await Task.sleep(nanoseconds: stepNanoseconds)
+        }
+
+        return condition()
     }
 }

@@ -46,6 +46,24 @@ struct OverlayPanelRootPresentationTests {
         )
     }
 
+    @Test func navigationPopoverOnlyAllowedForExpandedPanel() {
+        #expect(
+            OverlayPanelRootPresentation.allowsNavigationPopover(
+                for: .expanded(screenID: "built-in", moduleID: .music)
+            )
+        )
+        #expect(
+            OverlayPanelRootPresentation.allowsNavigationPopover(
+                for: .collapsing(screenID: "built-in", reason: .pointerExit)
+            ) == false
+        )
+        #expect(
+            OverlayPanelRootPresentation.allowsNavigationPopover(
+                for: .idle(screenID: "built-in")
+            ) == false
+        )
+    }
+
     @Test func idleAndHoverUseDistinctVisualStates() {
         #expect(OverlayPanelRootPresentation.visualState(for: .idle(screenID: "built-in")) == .idle)
         #expect(OverlayPanelRootPresentation.visualState(for: .hoverHint(screenID: "built-in")) == .hoverHint)
@@ -575,18 +593,25 @@ struct OverlayPanelRootPresentationTests {
         )
         let simulatedHeight = OverlayPanelRootPresentation.hoverRevealStartHeight(
             anchorKind: .simulatedNotch,
+            idleVisibleHeight: 30,
+            notchMetrics: nil
+        )
+        let centerHandlerHeight = OverlayPanelRootPresentation.hoverRevealStartHeight(
+            anchorKind: .centerHandler,
             idleVisibleHeight: 6,
             notchMetrics: nil
         )
 
         #expect(hardwareHeight == 32)
-        #expect(simulatedHeight == 6)
+        #expect(simulatedHeight == 30)
+        #expect(centerHandlerHeight == 6)
         #expect(
             OverlayPanelRootPresentation.hoverRevealMaskFrame(visibleHeight: hardwareHeight) ==
             CGRect(x: 0, y: 0, width: OverlayPanelChromeMetrics.hoverBodySize.width, height: 32)
         )
         #expect(OverlayPanelRootPresentation.hoverRevealCornerRadius(visibleHeight: hardwareHeight) == 12)
-        #expect(OverlayPanelRootPresentation.hoverRevealCornerRadius(visibleHeight: simulatedHeight) == 3)
+        #expect(OverlayPanelRootPresentation.hoverRevealCornerRadius(visibleHeight: simulatedHeight) == 12)
+        #expect(OverlayPanelRootPresentation.hoverRevealCornerRadius(visibleHeight: centerHandlerHeight) == 3)
     }
 
     @Test func collapseSettlesAtUnderlyingNotchHeightBeforeDisappearing() {
@@ -602,19 +627,31 @@ struct OverlayPanelRootPresentationTests {
         )
         let simulatedHeight = OverlayPanelRootPresentation.collapseSettledHeight(
             anchorKind: .simulatedNotch,
-            idleVisibleHeight: 6,
+            idleVisibleHeight: 30,
             notchMetrics: nil
         )
         let simulatedWidth = OverlayPanelRootPresentation.collapseSettledWidth(
             anchorKind: .simulatedNotch,
+            idleWidth: OverlayPanelChromeMetrics.hoverBodySize.width,
+            notchMetrics: nil
+        )
+        let centerHandlerHeight = OverlayPanelRootPresentation.collapseSettledHeight(
+            anchorKind: .centerHandler,
+            idleVisibleHeight: 6,
+            notchMetrics: nil
+        )
+        let centerHandlerWidth = OverlayPanelRootPresentation.collapseSettledWidth(
+            anchorKind: .centerHandler,
             idleWidth: 185,
             notchMetrics: nil
         )
 
         #expect(hardwareHeight == 32)
         #expect(hardwareWidth == 185)
-        #expect(simulatedHeight == 6)
-        #expect(simulatedWidth == 185)
+        #expect(simulatedHeight == 30)
+        #expect(simulatedWidth == OverlayPanelChromeMetrics.hoverBodySize.width)
+        #expect(centerHandlerHeight == 6)
+        #expect(centerHandlerWidth == 185)
     }
 
     @Test func variableHeightHoverNotchShapeAnimatesVisibleHeight() {

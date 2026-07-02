@@ -1,3 +1,4 @@
+import Carbon
 import Testing
 @testable import NotchToolbox
 
@@ -15,6 +16,15 @@ struct LifecycleServicesTests {
 
         #expect(service.registeredShortcut == AppSettings.defaultValue.globalShortcut)
         #expect(triggerCount == 1)
+    }
+
+    @Test func carbonShortcutMapperSupportsDefaultShortcut() throws {
+        #expect(try KeyboardShortcutCarbonMapper.keyCode(for: "t") == 17)
+        #expect(KeyboardShortcutCarbonMapper.canMap(AppSettings.defaultValue.globalShortcut))
+        #expect(
+            KeyboardShortcutCarbonMapper.modifiers(for: [.command, .option])
+            == UInt32(cmdKey) | UInt32(optionKey)
+        )
     }
 
     @Test func launchAtLoginServicePersistsRequestedState() throws {

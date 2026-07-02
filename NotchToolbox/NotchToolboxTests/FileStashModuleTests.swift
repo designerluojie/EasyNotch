@@ -52,6 +52,23 @@ struct FileStashModuleTests {
         #expect(items[0].addedAt == Date(timeIntervalSince1970: 30))
     }
 
+    @Test func storeKeepsNewestThirtyItemsWhenCapacityIsExceeded() throws {
+        let root = try Self.makeTemporaryRoot()
+        let store = try Self.makeStore(root: root)
+
+        for index in 0..<31 {
+            let fileURL = try Self.makeFile(root: root, name: "file-\(index).txt", contents: "\(index)")
+            _ = try store.stash(urls: [fileURL], addedAt: Date(timeIntervalSince1970: TimeInterval(index)))
+        }
+
+        let items = try store.loadItems()
+
+        #expect(items.count == 30)
+        #expect(items.first?.displayName == "file-30.txt")
+        #expect(items.last?.displayName == "file-1.txt")
+        #expect(items.contains { $0.displayName == "file-0.txt" } == false)
+    }
+
     @Test func storeMarksDeletedFileAsInvalidInsteadOfHidingIt() throws {
         let root = try Self.makeTemporaryRoot()
         let store = try Self.makeStore(root: root)
@@ -118,6 +135,75 @@ struct FileStashModuleTests {
         #expect(viewModel.cards[0].displayName == "screenshot.png")
         #expect(viewModel.cards[0].typeLabel == "PNG")
         #expect(viewModel.phase == .dragHoverImport)
+    }
+
+    @Test func viewModelKeepsTemporaryImportAnimationUntilCompleted() throws {
+        let root = try Self.makeTemporaryRoot()
+        let store = try Self.makeStore(root: root)
+        let core = try FileStashCore(store: store)
+        let viewModel = FileStashViewModel(core: core)
+        let fileURL = try Self.makeFile(root: root, name: "drop.png", contents: "image")
+
+        viewModel.beginDroppedFileImport(
+            urls: [fileURL],
+            startLocation: CGPoint(x: 412, y: 78)
+        )
+
+        let animation = try #require(viewModel.importAnimation)
+        #expect(animation.displayName == "drop.png")
+        #expect(animation.startLocation == CGPoint(x: 412, y: 78))
+        #expect(viewModel.cards.map(\.displayName) == ["drop.png"])
+        #expect(viewModel.phase == .expandedFilled)
+
+        viewModel.completeImportAnimation(id: animation.id)
+
+        #expect(viewModel.importAnimation == nil)
+    }
+
+    @Test func droppedFileCardIsHeldForRevealUntilImportAnimationCompletes() throws {
+        let root = try Self.makeTemporaryRoot()
+        let store = try Self.makeStore(root: root)
+        let core = try FileStashCore(store: store)
+        let viewModel = FileStashViewModel(core: core)
+        let fileURL = try Self.makeFile(root: root, name: "reveal.png", contents: "image")
+
+        viewModel.beginDroppedFileImport(
+            urls: [fileURL],
+            startLocation: CGPoint(x: 412, y: 78)
+        )
+
+        let animation = try #require(viewModel.importAnimation)
+        let card = try #require(viewModel.cards.first)
+        #expect(viewModel.isCardPendingReveal(card.id))
+
+        viewModel.completeImportAnimation(id: animation.id)
+
+        #expect(viewModel.isCardPendingReveal(card.id) == false)
+    }
+
+    @Test func viewModelCreatesNewImportAnimationForEveryDrop() throws {
+        let root = try Self.makeTemporaryRoot()
+        let store = try Self.makeStore(root: root)
+        let core = try FileStashCore(store: store)
+        let viewModel = FileStashViewModel(core: core)
+        let fileURL = try Self.makeFile(root: root, name: "repeat.png", contents: "image")
+
+        viewModel.beginDroppedFileImport(
+            urls: [fileURL],
+            startLocation: CGPoint(x: 412, y: 78)
+        )
+        let firstAnimation = try #require(viewModel.importAnimation)
+
+        viewModel.beginDroppedFileImport(
+            urls: [fileURL],
+            startLocation: CGPoint(x: 260, y: 72)
+        )
+        let secondAnimation = try #require(viewModel.importAnimation)
+
+        #expect(secondAnimation.id != firstAnimation.id)
+        #expect(secondAnimation.displayName == "repeat.png")
+        #expect(secondAnimation.startLocation == CGPoint(x: 260, y: 72))
+        #expect(viewModel.cards.map(\.displayName) == ["repeat.png"])
     }
 
     private static func makeTemporaryRoot() throws -> URL {

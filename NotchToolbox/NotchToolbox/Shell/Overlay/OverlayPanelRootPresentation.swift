@@ -216,6 +216,14 @@ nonisolated struct OverlayPanelRootPresentation {
         }
     }
 
+    static func allowsNavigationPopover(for state: OverlayState) -> Bool {
+        if case .expanded = state {
+            return true
+        }
+
+        return false
+    }
+
     static func shouldAnimateWindowFrameTransition(from previousState: OverlayState, to nextState: OverlayState) -> Bool {
         if shouldMorphVisibleRestVariants(from: previousState, to: nextState) {
             return false
@@ -295,7 +303,7 @@ nonisolated struct OverlayPanelRootPresentation {
         case .simulatedNotch:
             requestedHeight = idleVisibleHeight
         case .centerHandler, .none:
-            requestedHeight = OverlayPanelChromeMetrics.hoverBodySize.height
+            requestedHeight = idleVisibleHeight
         }
 
         return requestedHeight
@@ -314,7 +322,7 @@ nonisolated struct OverlayPanelRootPresentation {
         case .simulatedNotch:
             requestedWidth = idleWidth
         case .centerHandler, .none:
-            requestedWidth = OverlayPanelChromeMetrics.hoverBodySize.width
+            requestedWidth = idleWidth
         }
 
         return requestedWidth

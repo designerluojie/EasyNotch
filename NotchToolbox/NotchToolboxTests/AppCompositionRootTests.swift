@@ -46,6 +46,18 @@ struct AppCompositionRootTests {
         _ = cancellable
     }
 
+    @Test func navigationPopoverSuppressesOutsideClickCollapseUntilClosed() {
+        let compositionRoot = AppCompositionRoot(activeModule: .music)
+
+        compositionRoot.setNavigationPopoverPresented(true)
+
+        #expect(compositionRoot.suppressesOutsideClickCollapse)
+
+        compositionRoot.setNavigationPopoverPresented(false)
+
+        #expect(!compositionRoot.suppressesOutsideClickCollapse)
+    }
+
     @Test func compositionRootRetainsSharedCoreServices() throws {
         let services = try SharedCoreServices(
             baseURL: FileManager.default.temporaryDirectory
@@ -114,8 +126,8 @@ struct AppCompositionRootTests {
         #expect(root.restVariantStore.resolvedPresentation == .none)
     }
 
-    @Test func selectingSettingsClearsPersistentRestVariantRequest() {
-        let root = AppCompositionRoot(activeModule: .clipboard)
+    @Test func selectingSettingsClearsPersistentRestVariantRequest() throws {
+        let root = AppCompositionRoot(sharedServices: try Self.makeSharedServices(), activeModule: .clipboard)
 
         root.selectActiveModule(.settings)
 
@@ -133,6 +145,84 @@ struct AppCompositionRootTests {
         )
 
         #expect(content != nil)
+    }
+
+    @Test func compositionRootOwnsPomodoroCoreAndViewModel() throws {
+        let services = try SharedCoreServices(
+            baseURL: FileManager.default.temporaryDirectory
+                .appending(path: "NotchToolboxTests")
+                .appending(path: UUID().uuidString),
+            credentialStore: InMemorySecureCredentialStore()
+        )
+        let root = AppCompositionRoot(sharedServices: services, activeModule: .pomodoro)
+
+        #expect(root.pomodoroCore.moduleID == .pomodoro)
+        #expect(root.pomodoroViewModel.core === root.pomodoroCore)
+    }
+
+    @Test func pomodoroRestVariantContentProviderIsRegistered() throws {
+        let services = try SharedCoreServices(
+            baseURL: FileManager.default.temporaryDirectory
+                .appending(path: "NotchToolboxTests")
+                .appending(path: UUID().uuidString),
+            credentialStore: InMemorySecureCredentialStore()
+        )
+        let root = AppCompositionRoot(sharedServices: services, activeModule: .pomodoro)
+        try root.pomodoroCore.startFocus()
+        let request = try #require(PomodoroRestVariantPresentation.request(for: root.pomodoroCore))
+
+        let content = root.restVariantContentRegistry.content(
+            for: request,
+            appearance: .wideNotchStrip,
+            context: root.context(for: .pomodoro)
+        )
+
+        #expect(content != nil)
+    }
+
+    @Test func runningPomodoroKeepsWideNotchStripWhenAnotherModuleIsActive() throws {
+        let services = try SharedCoreServices(
+            baseURL: FileManager.default.temporaryDirectory
+                .appending(path: "NotchToolboxTests")
+                .appending(path: UUID().uuidString),
+            credentialStore: InMemorySecureCredentialStore()
+        )
+        let root = AppCompositionRoot(sharedServices: services, activeModule: .pomodoro)
+        try root.pomodoroCore.startFocus()
+
+        root.selectActiveModule(.music)
+
+        guard case .request(let request) = root.restVariantStore.resolvedPresentation else {
+            Issue.record("Expected running Pomodoro to keep a wide-notch-strip request")
+            return
+        }
+
+        #expect(request.moduleID == .pomodoro)
+        #expect(request.kind == .wideNotchStrip)
+        #expect(request.preferredWidth == PomodoroRestVariantPresentation.collapsedWidth)
+        #expect(request.preferredHeight == PomodoroRestVariantPresentation.collapsedHeight)
+    }
+
+    @Test func startingPomodoroImmediatelyPublishesWideNotchStripRequest() throws {
+        let services = try SharedCoreServices(
+            baseURL: FileManager.default.temporaryDirectory
+                .appending(path: "NotchToolboxTests")
+                .appending(path: UUID().uuidString),
+            credentialStore: InMemorySecureCredentialStore()
+        )
+        let root = AppCompositionRoot(sharedServices: services, activeModule: .pomodoro)
+
+        try root.pomodoroCore.startFocus()
+
+        guard case .request(let request) = root.restVariantStore.resolvedPresentation else {
+            Issue.record("Expected starting Pomodoro to publish a wide-notch-strip request immediately")
+            return
+        }
+
+        #expect(request.moduleID == .pomodoro)
+        #expect(request.kind == .wideNotchStrip)
+        #expect(request.preferredWidth == PomodoroRestVariantPresentation.collapsedWidth)
+        #expect(request.preferredHeight == PomodoroRestVariantPresentation.collapsedHeight)
     }
 
     @Test func compositionRootExposesSharedMusicRuntime() throws {
@@ -257,9 +347,9 @@ struct AppCompositionRootTests {
         #expect(content == nil)
     }
 
-    @Test func musicPlaybackRegistersWideNotchStripRequest() {
+    @Test func musicPlaybackRegistersWideNotchStripRequest() throws {
         let runtime = MusicModuleRuntime(initialState: .empty(players: MusicPlayerCapability.v1Targets))
-        let compositionRoot = AppCompositionRoot(musicRuntime: runtime)
+        let compositionRoot = AppCompositionRoot(sharedServices: try Self.makeSharedServices(), musicRuntime: runtime)
 
         runtime.updateModuleState(
             .playing(
@@ -294,7 +384,7 @@ struct AppCompositionRootTests {
         #expect(request.preferredWidth == 248)
     }
 
-    @Test func musicWideNotchStripClearsWhenPlaybackEnds() {
+    @Test func musicWideNotchStripClearsWhenPlaybackEnds() throws {
         let runtime = MusicModuleRuntime(
             initialState: .playing(
                 MusicPlaybackSession(
@@ -317,7 +407,7 @@ struct AppCompositionRootTests {
                 )
             )
         )
-        let compositionRoot = AppCompositionRoot(musicRuntime: runtime)
+        let compositionRoot = AppCompositionRoot(sharedServices: try Self.makeSharedServices(), musicRuntime: runtime)
 
         runtime.updateModuleState(.empty(players: MusicPlayerCapability.v1Targets))
 
@@ -330,7 +420,7 @@ struct AppCompositionRootTests {
         #expect(compositionRoot.panelBodySize(for: .music) == CGSize(width: 580, height: 120))
     }
 
-    @Test func musicEmptyStateClearsWideNotchStripRequest() {
+    @Test func musicEmptyStateClearsWideNotchStripRequest() throws {
         let runtime = MusicModuleRuntime(
             initialState: .playing(
                 MusicPlaybackSession(
@@ -353,7 +443,7 @@ struct AppCompositionRootTests {
                 )
             )
         )
-        let compositionRoot = AppCompositionRoot(musicRuntime: runtime)
+        let compositionRoot = AppCompositionRoot(sharedServices: try Self.makeSharedServices(), musicRuntime: runtime)
 
         runtime.updateModuleState(.empty(players: MusicPlayerCapability.v1Targets))
 
@@ -393,5 +483,14 @@ struct AppCompositionRootTests {
         )
 
         #expect(content != nil)
+    }
+
+    private static func makeSharedServices() throws -> SharedCoreServices {
+        try SharedCoreServices(
+            baseURL: FileManager.default.temporaryDirectory
+                .appending(path: "NotchToolboxTests")
+                .appending(path: UUID().uuidString),
+            credentialStore: InMemorySecureCredentialStore()
+        )
     }
 }

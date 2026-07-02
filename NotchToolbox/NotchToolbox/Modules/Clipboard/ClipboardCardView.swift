@@ -19,6 +19,12 @@ struct ClipboardCardView: View {
                 height: ClipboardCardLayout.cardSize.height,
                 alignment: .topLeading
             )
+            .overlay {
+                if ClipboardLayoutDiagnostics.isEnabled {
+                    ClipboardCardLayoutDebugOverlay()
+                        .allowsHitTesting(false)
+                }
+            }
         }
         .buttonStyle(
             ClipboardCardButtonStyle(
@@ -111,11 +117,7 @@ struct ClipboardCardView: View {
 
     @ViewBuilder
     private func thumbnailImage(for thumbnail: ClipboardCardThumbnail) -> some View {
-        if let image = NSImage(contentsOf: thumbnail.url) {
-            Image(nsImage: image)
-                .resizable()
-                .scaledToFit()
-        } else {
+        CachedThumbnailImage(url: thumbnail.url) {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(Color.white.opacity(0.08))
                 .overlay {

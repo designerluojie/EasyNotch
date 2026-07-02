@@ -55,6 +55,7 @@ final class ClipboardCore: ObservableObject, EnergyManagedTask {
     }
 
     func handleAppDidLaunch() throws {
+        _ = try cleanupService.runIfNeeded()
         history = try store.loadHistory()
     }
 
@@ -63,6 +64,9 @@ final class ClipboardCore: ObservableObject, EnergyManagedTask {
     }
 
     func handleDidWake() {
+        if let result = try? cleanupService.runIfNeeded(), result.didRun {
+            history = (try? store.loadHistory()) ?? history
+        }
         lastKnownChangeCount = pasteboardClient.changeCount
         startPollingIfNeeded()
     }

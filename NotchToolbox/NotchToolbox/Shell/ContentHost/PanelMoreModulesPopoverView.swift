@@ -5,20 +5,55 @@ struct PanelMoreModulesPopoverView: View {
     let items: [PanelMoreModuleItem]
     let onSelectModule: (NotchModuleID) -> Void
 
-    @State private var hoveredModule: NotchModuleID?
+    var body: some View {
+        PanelSelectionPopoverView(
+            items: items.map { item in
+                PanelSelectionPopoverItem(
+                    id: item.moduleID,
+                    title: item.title,
+                    isSelected: activeModule == item.moduleID
+                )
+            },
+            onSelect: onSelectModule
+        )
+    }
+}
+
+struct PanelSelectionPopoverItem<ID: Hashable>: Identifiable {
+    let id: ID
+    let title: String
+    var isSelected: Bool
+}
+
+struct PanelSelectionPopoverView<ID: Hashable>: View {
+    let items: [PanelSelectionPopoverItem<ID>]
+    let width: CGFloat
+    let onSelect: (ID) -> Void
+
+    @State private var hoveredItemID: ID?
+
+    init(
+        items: [PanelSelectionPopoverItem<ID>],
+        width: CGFloat = 152,
+        onSelect: @escaping (ID) -> Void
+    ) {
+        self.items = items
+        self.width = width
+        self.onSelect = onSelect
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             ForEach(items) { item in
                 Button {
-                    onSelectModule(item.moduleID)
+                    onSelect(item.id)
                 } label: {
                     HStack {
                         Text(item.title)
                             .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(.white)
                         Spacer()
-                        if activeModule == item.moduleID {
+                        if item.isSelected {
                             Image(systemName: "checkmark")
                                 .font(.system(size: 10, weight: .semibold))
                                 .foregroundStyle(.white.opacity(0.72))
@@ -28,16 +63,16 @@ struct PanelMoreModulesPopoverView: View {
                     .padding(.horizontal, 12)
                     .background(
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(backgroundColor(for: item.moduleID))
+                            .fill(backgroundColor(for: item))
                     )
                 }
                 .buttonStyle(.plain)
                 .onHover { isHovering in
-                    hoveredModule = isHovering ? item.moduleID : (hoveredModule == item.moduleID ? nil : hoveredModule)
+                    hoveredItemID = isHovering ? item.id : (hoveredItemID == item.id ? nil : hoveredItemID)
                 }
             }
         }
-        .frame(width: 152)
+        .frame(width: width)
         .padding(3.5)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -48,15 +83,15 @@ struct PanelMoreModulesPopoverView: View {
                 )
         )
         .shadow(color: .black.opacity(0.4), radius: 16, y: 4)
-        .animation(.easeOut(duration: 0.12), value: hoveredModule)
+        .animation(.easeOut(duration: 0.12), value: hoveredItemID)
     }
 
-    private func backgroundColor(for moduleID: NotchModuleID) -> Color {
-        if activeModule == moduleID {
+    private func backgroundColor(for item: PanelSelectionPopoverItem<ID>) -> Color {
+        if item.isSelected {
             return .black
         }
 
-        if hoveredModule == moduleID {
+        if hoveredItemID == item.id {
             return Color.white.opacity(0.1)
         }
 
