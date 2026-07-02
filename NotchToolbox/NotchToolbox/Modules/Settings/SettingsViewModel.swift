@@ -130,7 +130,7 @@ final class SettingsViewModel: ObservableObject {
         providerDraft = SettingsProviderDraft(
             provider: provider,
             apiKey: "",
-            selectedModelID: selectedModelID
+            selectedModelIDs: Set(selectedModelID.map { [$0] } ?? [])
         )
         lastErrorMessage = nil
     }
@@ -139,8 +139,8 @@ final class SettingsViewModel: ObservableObject {
         providerDraft?.apiKey = apiKey
     }
 
-    func updateProviderDraft(modelID: String) {
-        providerDraft?.selectedModelID = modelID
+    func updateProviderDraft(selectedModelIDs: Set<String>) {
+        providerDraft?.selectedModelIDs = selectedModelIDs
     }
 
     func cancelProviderConfiguration() {
@@ -149,8 +149,36 @@ final class SettingsViewModel: ObservableObject {
         isSavingProvider = false
     }
 
+    /// The presentation used to drive the shared configuration overlay card.
+    var providerOverlayPresentation: AIChatConfigurationOverlayPresentation? {
+        providerDraft.map { AIChatConfigurationPresentation.editableOverlay(for: $0.provider) }
+    }
+
+    /// The single model id that will actually be saved — the first catalog model
+    /// present in the draft's selection (mirrors the configuration phase).
+    var selectedModelIDForSave: String? {
+        guard let providerDraft else {
+            return nil
+        }
+
+        return AIProviderCatalog.models(for: providerDraft.provider)
+            .first { providerDraft.selectedModelIDs.contains($0.modelID) }?
+            .modelID
+    }
+
+    var canSaveProvider: Bool {
+        guard let providerDraft, !isSavingProvider else {
+            return false
+        }
+
+        return !providerDraft.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && selectedModelIDForSave != nil
+    }
+
     func saveProviderConfiguration() async {
-        guard let configurationService, let providerDraft else {
+        guard let configurationService,
+              let providerDraft,
+              let modelID = selectedModelIDForSave else {
             return
         }
         isSavingProvider = true
@@ -159,14 +187,17 @@ final class SettingsViewModel: ObservableObject {
             try await configurationService.saveConfiguration(
                 for: providerDraft.provider,
                 draft: ProviderDraftConfig(
-                    apiKey: providerDraft.apiKey,
-                    selectedModelID: providerDraft.selectedModelID
+                    apiKey: providerDraft.apiKey.trimmingCharacters(in: .whitespacesAndNewlines),
+                    selectedModelID: modelID
                 )
             )
             self.providerDraft = nil
             self.providerSummaries = configurationService.summaries()
         } catch {
-            lastErrorMessage = "保存失败，请检查 API Key 和模型。"
+            lastErrorMessage = AIChatConfigurationPresentation.saveErrorMessage(
+                error,
+                provider: providerDraft.provider
+            )
         }
         isSavingProvider = false
     }
@@ -221,5 +252,5 @@ nonisolated enum SettingsModuleMoveDirection {
 nonisolated struct SettingsProviderDraft: Equatable {
     var provider: AIProviderKind
     var apiKey: String
-    var selectedModelID: String?
+    var selectedModelIDs: Set<String>
 }

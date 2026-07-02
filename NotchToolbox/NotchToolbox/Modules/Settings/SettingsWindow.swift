@@ -7,6 +7,7 @@ struct SettingsWindow: View {
     let onClose: () -> Void
 
     @State private var selectedTab: SettingsTab = .general
+    @State private var isTrafficHovered = false
     @StateObject private var dropdownCoordinator = SettingsDropdownCoordinator()
 
     var body: some View {
@@ -17,7 +18,7 @@ struct SettingsWindow: View {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .stroke(Color.white.opacity(0.2), lineWidth: 1)
                 )
-                .shadow(color: .black.opacity(0.35), radius: 48, y: 16)
+                .shadow(color: .black.opacity(0.40), radius: 20, y: 8)
 
             HStack(spacing: 0) {
                 sidebar
@@ -30,13 +31,14 @@ struct SettingsWindow: View {
             trafficLights
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
-            if let draft = viewModel.providerDraft {
-                SettingsProviderConfigurationOverlay(
-                    draft: draft,
-                    viewModel: viewModel
-                )
-                .transition(.opacity.combined(with: .scale(scale: 0.98)))
+            if viewModel.providerDraft != nil {
+                SettingsProviderConfigurationOverlay(viewModel: viewModel)
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
             }
+
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.2), lineWidth: 1)
+                .allowsHitTesting(false)
         }
         .environmentObject(dropdownCoordinator)
         .overlayPreferenceValue(SettingsDropdownAnchorPreferenceKey.self) { anchors in
@@ -72,7 +74,7 @@ struct SettingsWindow: View {
                         .transition(
                             .asymmetric(
                                 insertion: .offset(y: -8).combined(with: .opacity),
-                                removal: .offset(y: -4).combined(with: .opacity)
+                                removal: .identity
                             )
                         )
                     }
@@ -82,9 +84,10 @@ struct SettingsWindow: View {
             }
         }
         .frame(width: SettingsWindowMetrics.windowSize.width, height: SettingsWindowMetrics.windowSize.height)
+        .shadow(color: .black.opacity(0.40), radius: 20, y: 8)
+        .frame(width: SettingsWindowMetrics.outerSize.width, height: SettingsWindowMetrics.outerSize.height)
         .preferredColorScheme(.dark)
         .animation(.easeOut(duration: 0.12), value: viewModel.providerDraft)
-        .animation(SettingsFloatingMenuMetrics.presentationAnimation, value: dropdownCoordinator.activeDropdown?.id)
     }
 
     private var sidebar: some View {
@@ -107,6 +110,7 @@ struct SettingsWindow: View {
                 SettingsSidebarGlassBackground()
                 Color(red: 43 / 255, green: 43 / 255, blue: 43 / 255)
                     .opacity(0.75)
+                SettingsWindowDragHandle()
             }
         )
     }
@@ -128,12 +132,14 @@ struct SettingsWindow: View {
     }
 
     private var trafficLights: some View {
-        HStack(spacing: 9) {
-            SettingsTrafficLight(color: Color(red: 1, green: 115 / 255, blue: 106 / 255), action: onClose)
-            SettingsTrafficLight(color: Color(red: 254 / 255, green: 188 / 255, blue: 46 / 255), action: {})
-            SettingsTrafficLight(color: Color(red: 25 / 255, green: 195 / 255, blue: 50 / 255), action: {})
-        }
+        SettingsTrafficLight(
+            color: Color(red: 1, green: 115 / 255, blue: 106 / 255),
+            isRevealed: isTrafficHovered,
+            action: onClose
+        )
         .padding(1)
+        .onHover { isTrafficHovered = $0 }
+        .animation(.easeOut(duration: 0.12), value: isTrafficHovered)
         .padding(.leading, 11)
         .padding(.top, 11)
     }
@@ -192,58 +198,183 @@ private struct SettingsGeneralPane: View {
 private struct SettingsFeaturesPane: View {
     @ObservedObject var viewModel: SettingsViewModel
 
+    @State private var contentHeight: CGFloat = 0
+    @State private var scrollOffset: CGFloat = 0
+    @State private var isIndicatorVisible = false
+    @State private var hideWorkItem: DispatchWorkItem?
+
+    private let scrollSpaceName = "SettingsFeaturesScroll"
+    private let topContentPadding: CGFloat = 40
+
     var body: some View {
-        ScrollView(.vertical, showsIndicators: true) {
-            VStack(spacing: 0) {
-                SettingsSectionHeader("功能排序")
-                SettingsModuleOrderBox(viewModel: viewModel)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 9)
+        GeometryReader { geo in
+            ScrollView(.vertical) {
+                VStack(spacing: 0) {
+                    scrollMarker(.top)
 
-                SettingsDivider()
+                    SettingsSectionHeader("功能排序")
+                    SettingsModuleOrderBox(viewModel: viewModel)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 9)
 
-                SettingsSectionHeader("文件暂存")
-                SettingsMenuRow(
-                    title: "自动清理暂存文件",
-                    value: viewModel.settings.fileStashAutoCleanupPolicy.displayTitle,
-                    items: viewModel.supportedCleanupPolicies.map { policy in
-                        SettingsMenuItem(title: policy.displayTitle) {
-                            viewModel.setFileStashCleanupPolicy(policy)
+                    SettingsDivider()
+
+                    SettingsSectionHeader("文件暂存")
+                    SettingsMenuRow(
+                        title: "自动清理暂存文件",
+                        value: viewModel.settings.fileStashAutoCleanupPolicy.displayTitle,
+                        items: viewModel.supportedCleanupPolicies.map { policy in
+                            SettingsMenuItem(title: policy.displayTitle) {
+                                viewModel.setFileStashCleanupPolicy(policy)
+                            }
                         }
-                    }
-                )
+                    )
 
-                SettingsDivider()
+                    SettingsDivider()
 
-                SettingsSectionHeader("剪贴板")
-                SettingsMenuRow(
-                    title: "最大保存数",
-                    value: "\(viewModel.settings.clipboardMaxItems)",
-                    items: viewModel.supportedClipboardMaxItems.map { maxItems in
-                        SettingsMenuItem(title: "\(maxItems)") {
-                            viewModel.setClipboardMaxItems(maxItems)
+                    SettingsSectionHeader("剪贴板")
+                    SettingsMenuRow(
+                        title: "最大保存数",
+                        value: "\(viewModel.settings.clipboardMaxItems)",
+                        items: viewModel.supportedClipboardMaxItems.map { maxItems in
+                            SettingsMenuItem(title: "\(maxItems)") {
+                                viewModel.setClipboardMaxItems(maxItems)
+                            }
                         }
-                    }
-                )
-                SettingsMenuRow(
-                    title: "自动清理剪贴板内容",
-                    value: viewModel.settings.clipboardAutoCleanupPolicy.displayTitle,
-                    items: viewModel.supportedCleanupPolicies.map { policy in
-                        SettingsMenuItem(title: policy.displayTitle) {
-                            viewModel.setClipboardCleanupPolicy(policy)
+                    )
+                    SettingsMenuRow(
+                        title: "自动清理剪贴板内容",
+                        value: viewModel.settings.clipboardAutoCleanupPolicy.displayTitle,
+                        items: viewModel.supportedCleanupPolicies.map { policy in
+                            SettingsMenuItem(title: policy.displayTitle) {
+                                viewModel.setClipboardCleanupPolicy(policy)
+                            }
                         }
-                    }
-                )
+                    )
 
-                SettingsDivider()
+                    SettingsDivider()
 
-                SettingsSectionHeader("AI Chat")
-                SettingsProviderRows(viewModel: viewModel)
-                    .padding(.bottom, 20)
+                    SettingsSectionHeader("AI Chat")
+                    SettingsProviderRows(viewModel: viewModel)
+                        .padding(.bottom, 20)
+
+                    scrollMarker(.bottom)
+                }
+                .padding(.top, topContentPadding)
+                .padding(.horizontal, 12)
             }
-            .padding(.top, 40)
+            .coordinateSpace(name: scrollSpaceName)
+            .scrollIndicators(.never)
+            .overlay(alignment: .trailing) {
+                scrollIndicator(viewportHeight: geo.size.height)
+                    .allowsHitTesting(false)
+            }
+            .onPreferenceChange(SettingsFeaturesScrollMetricsKey.self) { metrics in
+                updateMetrics(metrics, viewportHeight: geo.size.height)
+            }
         }
-        .padding(.horizontal, 12)
+    }
+
+    private func scrollMarker(_ edge: SettingsFeaturesScrollEdge, height: CGFloat = 0) -> some View {
+        GeometryReader { proxy in
+            let frame = proxy.frame(in: .named(scrollSpaceName))
+            Color.clear.preference(
+                key: SettingsFeaturesScrollMetricsKey.self,
+                value: edge == .top
+                    ? SettingsFeaturesScrollMetrics(topY: frame.minY, bottomY: nil)
+                    : SettingsFeaturesScrollMetrics(topY: nil, bottomY: frame.maxY)
+            )
+        }
+        .frame(height: height)
+    }
+
+    @ViewBuilder
+    private func scrollIndicator(viewportHeight: CGFloat) -> some View {
+        let verticalInset: CGFloat = 8
+        let trackHeight = max(0, viewportHeight - (verticalInset * 2))
+        let maxScrollOffset = max(contentHeight - viewportHeight, 0)
+
+        if contentHeight > viewportHeight + 1,
+           isIndicatorVisible,
+           trackHeight > 0,
+           maxScrollOffset > 1 {
+            let visibleRatio = min(max(viewportHeight / max(contentHeight, 1), 0), 1)
+            let thumbHeight = min(trackHeight, max(24, floor(trackHeight * visibleRatio)))
+            let travel = max(trackHeight - thumbHeight, 0)
+            let progress = min(max(scrollOffset / maxScrollOffset, 0), 1)
+            let thumbY = verticalInset + (travel * progress)
+
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.white.opacity(0.30))
+                .frame(width: 3, height: thumbHeight)
+                .frame(maxHeight: .infinity, alignment: .top)
+                .offset(y: thumbY)
+                .padding(.trailing, 8)
+        }
+    }
+
+    private func updateMetrics(_ metrics: SettingsFeaturesScrollMetrics, viewportHeight: CGFloat) {
+        guard let topY = metrics.topY, let bottomY = metrics.bottomY else {
+            return
+        }
+
+        let newContentHeight = max(0, bottomY - topY + topContentPadding)
+        let newOffset = max(0, topContentPadding - topY)
+        let heightChanged = abs(newContentHeight - contentHeight) > 0.5
+        let offsetChanged = abs(newOffset - scrollOffset) > 0.5
+
+        // Only write @State when the value meaningfully changed, otherwise sub-pixel
+        // geometry jitter feeds an endless layout → preference → @State → layout loop.
+        if heightChanged {
+            contentHeight = newContentHeight
+        }
+        if offsetChanged {
+            scrollOffset = newOffset
+        }
+
+        if offsetChanged, newContentHeight > viewportHeight + 1 {
+            showIndicatorTemporarily()
+        }
+    }
+
+    private func showIndicatorTemporarily() {
+        hideWorkItem?.cancel()
+        if !isIndicatorVisible {
+            withAnimation(.easeOut(duration: 0.12)) {
+                isIndicatorVisible = true
+            }
+        }
+
+        let workItem = DispatchWorkItem {
+            withAnimation(.easeOut(duration: 0.3)) {
+                isIndicatorVisible = false
+            }
+        }
+        hideWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: workItem)
+    }
+}
+
+private enum SettingsFeaturesScrollEdge: Equatable {
+    case top
+    case bottom
+}
+
+private struct SettingsFeaturesScrollMetrics: Equatable {
+    var topY: CGFloat?
+    var bottomY: CGFloat?
+
+    mutating func merge(_ other: SettingsFeaturesScrollMetrics) {
+        topY = other.topY ?? topY
+        bottomY = other.bottomY ?? bottomY
+    }
+}
+
+private struct SettingsFeaturesScrollMetricsKey: PreferenceKey {
+    static var defaultValue = SettingsFeaturesScrollMetrics()
+
+    static func reduce(value: inout SettingsFeaturesScrollMetrics, nextValue: () -> SettingsFeaturesScrollMetrics) {
+        value.merge(nextValue())
     }
 }
 
@@ -252,10 +383,9 @@ private struct SettingsAboutPane: View {
         VStack(spacing: 0) {
             SettingsSectionHeader("版本")
             VStack(spacing: 10) {
-                Image(nsImage: NSApp.applicationIconImage)
+                Image("AboutLogo")
                     .resizable()
                     .frame(width: 96, height: 96)
-                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
 
                 VStack(spacing: 2) {
                     Text("NotchWork")
@@ -282,37 +412,86 @@ private struct SettingsAboutPane: View {
 private struct SettingsModuleOrderBox: View {
     @ObservedObject var viewModel: SettingsViewModel
 
+    @State private var order: [NotchModuleID]
+    @State private var draggingModule: NotchModuleID?
+
+    private let rowHeight: CGFloat = 28
+    private let coordinateSpaceName = "SettingsModuleOrderBox"
+
+    init(viewModel: SettingsViewModel) {
+        _viewModel = ObservedObject(wrappedValue: viewModel)
+        _order = State(initialValue: viewModel.sortableModuleOrder)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            ForEach(viewModel.sortableModuleOrder, id: \.self) { moduleID in
-                HStack {
-                    Text(moduleID.settingsTitle)
-                        .font(SettingsWindowTheme.bodyFont)
-                        .foregroundStyle(.white)
-                    Spacer()
-                    HStack(spacing: 2) {
-                        SettingsIconButton(systemName: "chevron.up") {
-                            viewModel.moveModule(moduleID, direction: .up)
-                        }
-                        SettingsIconButton(systemName: "chevron.down") {
-                            viewModel.moveModule(moduleID, direction: .down)
-                        }
-                        Image(systemName: "line.3.horizontal")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.55))
-                            .frame(width: 18, height: 18)
-                    }
-                }
-                .frame(height: 28)
-                .padding(.horizontal, 16)
+            ForEach(order, id: \.self) { moduleID in
+                row(moduleID)
             }
         }
+        .coordinateSpace(name: coordinateSpaceName)
         .padding(.vertical, 4)
         .frame(width: 344)
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(Color.white.opacity(0.1), lineWidth: 1)
         )
+        .onChange(of: viewModel.sortableModuleOrder) { _ in
+            syncOrder()
+        }
+    }
+
+    private func row(_ moduleID: NotchModuleID) -> some View {
+        HStack {
+            Text(moduleID.settingsTitle)
+                .font(SettingsWindowTheme.bodyFont)
+                .foregroundStyle(.white)
+            Spacer()
+            Image(systemName: "line.3.horizontal")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.white.opacity(draggingModule == moduleID ? 0.9 : 0.55))
+                .frame(width: 28, height: 28, alignment: .trailing)
+                .contentShape(Rectangle())
+                .gesture(dragGesture(for: moduleID))
+        }
+        .frame(height: rowHeight)
+        .padding(.horizontal, 16)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(draggingModule == moduleID ? Color.white.opacity(0.06) : .clear)
+        )
+    }
+
+    private func dragGesture(for moduleID: NotchModuleID) -> some Gesture {
+        DragGesture(minimumDistance: 2, coordinateSpace: .named(coordinateSpaceName))
+            .onChanged { value in
+                if draggingModule == nil {
+                    draggingModule = moduleID
+                }
+                guard let dragging = draggingModule,
+                      let fromIndex = order.firstIndex(of: dragging) else {
+                    return
+                }
+
+                let targetIndex = min(max(Int(value.location.y / rowHeight), 0), order.count - 1)
+                if targetIndex != fromIndex {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        let item = order.remove(at: fromIndex)
+                        order.insert(item, at: targetIndex)
+                    }
+                }
+            }
+            .onEnded { _ in
+                draggingModule = nil
+                viewModel.setModuleOrder(order)
+            }
+    }
+
+    private func syncOrder() {
+        guard draggingModule == nil else {
+            return
+        }
+        order = viewModel.sortableModuleOrder
     }
 }
 
@@ -351,6 +530,10 @@ private struct SettingsProviderRows: View {
                             viewModel.beginProviderConfiguration(summary.provider)
                         }
                     }
+                    // Cancel the button's inner horizontal padding on the trailing
+                    // side so the label's right edge lines up with the dropdown
+                    // values above, while the hover highlight keeps its padding.
+                    .padding(.trailing, -8)
                 }
                 .frame(height: 36)
                 .padding(.horizontal, 16)
@@ -360,7 +543,6 @@ private struct SettingsProviderRows: View {
 }
 
 private struct SettingsProviderConfigurationOverlay: View {
-    let draft: SettingsProviderDraft
     @ObservedObject var viewModel: SettingsViewModel
 
     var body: some View {
@@ -373,77 +555,46 @@ private struct SettingsProviderConfigurationOverlay: View {
                     viewModel.cancelProviderConfiguration()
                 }
 
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Text("\(draft.provider.settingsTitle) 配置")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.white)
-                    Spacer()
-                    SettingsIconButton(systemName: "xmark") {
-                        viewModel.cancelProviderConfiguration()
-                    }
-                }
-
-                SecureField(
-                    "API Key",
-                    text: Binding(
+            // Reuse the exact configuration card from the in-module config phase
+            // so both entry points stay in lockstep. It renders as an in-window
+            // overlay here — never a nested popup window.
+            if let presentation = viewModel.providerOverlayPresentation {
+                AIChatConfigurationOverlayCardView(
+                    presentation: presentation,
+                    apiKey: Binding(
                         get: { viewModel.providerDraft?.apiKey ?? "" },
                         set: { viewModel.updateProviderDraft(apiKey: $0) }
-                    )
-                )
-                .textFieldStyle(.plain)
-                .font(SettingsWindowTheme.bodyFont)
-                .foregroundStyle(.white)
-                .padding(.horizontal, 10)
-                .frame(height: 30)
-                .background(
-                    Color.white.opacity(SettingsControlInteractionMetrics.baseFillOpacity),
-                    in: RoundedRectangle(cornerRadius: 6, style: .continuous)
-                )
-
-                SettingsDropdownButton(
-                    value: AIProviderCatalog.model(
-                        provider: draft.provider,
-                        id: viewModel.providerDraft?.selectedModelID ?? ""
-                    )?.displayName ?? "选择模型",
-                    items: AIProviderCatalog.models(for: draft.provider).map { model in
-                        SettingsMenuItem(title: model.displayName) {
-                            viewModel.updateProviderDraft(modelID: model.modelID)
-                        }
-                    }
-                )
-
-                if let error = viewModel.lastErrorMessage {
-                    Text(error)
-                        .font(.system(size: 11, weight: .regular))
-                        .foregroundStyle(Color(red: 1, green: 0.42, blue: 0.38))
-                }
-
-                HStack {
-                    Spacer()
-                    SettingsTextButton(title: "取消") {
-                        viewModel.cancelProviderConfiguration()
-                    }
-                    SettingsTextButton(title: viewModel.isSavingProvider ? "保存中..." : "保存") {
+                    ),
+                    selectedModelIDs: Binding(
+                        get: { viewModel.providerDraft?.selectedModelIDs ?? [] },
+                        set: { viewModel.updateProviderDraft(selectedModelIDs: $0) }
+                    ),
+                    errorMessage: viewModel.lastErrorMessage,
+                    isSaving: viewModel.isSavingProvider,
+                    isSubmitEnabled: viewModel.canSaveProvider,
+                    onSubmit: {
                         Task {
                             await viewModel.saveProviderConfiguration()
                         }
                     }
-                    .disabled((viewModel.providerDraft?.apiKey ?? "").isEmpty || viewModel.isSavingProvider)
-                    .opacity((viewModel.providerDraft?.apiKey ?? "").isEmpty ? 0.45 : 1)
-                }
+                )
             }
-            .padding(16)
-            .frame(width: 320)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Color(red: 31 / 255, green: 31 / 255, blue: 31 / 255))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(Color.white.opacity(0.2), lineWidth: 1)
-                    )
-            )
-            .shadow(color: .black.opacity(0.35), radius: 24, y: 8)
+        }
+    }
+}
+
+private struct SettingsWindowDragHandle: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        DragHandleNSView()
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    private final class DragHandleNSView: NSView {
+        override var mouseDownCanMoveWindow: Bool { false }
+
+        override func mouseDown(with event: NSEvent) {
+            window?.performDrag(with: event)
         }
     }
 }
@@ -759,10 +910,15 @@ private final class SettingsDropdownCoordinator: ObservableObject {
     @Published var activeDropdown: SettingsDropdownPresentation?
 
     func toggle(_ dropdown: SettingsDropdownPresentation) {
+        // Only the open is animated, and the animation is scoped to this state change
+        // via withAnimation. A whole-tree `.animation(value:)` modifier here caused the
+        // settings window to intermittently freeze input when toggled rapidly.
         if activeDropdown?.id == dropdown.id {
             activeDropdown = nil
         } else {
-            activeDropdown = dropdown
+            withAnimation(SettingsFloatingMenuMetrics.presentationAnimation) {
+                activeDropdown = dropdown
+            }
         }
     }
 
@@ -788,9 +944,9 @@ private struct SettingsDropdownAnchorPreferenceKey: PreferenceKey {
 private enum SettingsFloatingMenuMetrics {
     static let minWidth: CGFloat = 100
     static let maxWidth: CGFloat = 300
-    static let rowHeight: CGFloat = 32
-    static let rowSpacing: CGFloat = 4
-    static let contentPadding: CGFloat = 8
+    static let rowHeight: CGFloat = 30
+    static let rowSpacing: CGFloat = 0
+    static let contentPadding: CGFloat = 3.5
     static let horizontalChromeWidth: CGFloat = 36
     static let anchorGap: CGFloat = 8
     static let cornerRadius: CGFloat = 12
@@ -889,7 +1045,7 @@ private struct SettingsFloatingMenuBackground: View {
             .fill(Color(red: 46 / 255, green: 46 / 255, blue: 46 / 255))
             .overlay(
                 RoundedRectangle(cornerRadius: SettingsFloatingMenuMetrics.cornerRadius, style: .continuous)
-                    .stroke(AIChatTheme.overlayCardBorder, lineWidth: 1)
+                    .stroke(AIChatTheme.overlayCardBorder, lineWidth: 0.5)
             )
             .shadow(
                 color: AIChatTheme.panelShadow,
@@ -910,7 +1066,7 @@ private struct SettingsFloatingMenuOptionButton<Label: View>: View {
     var body: some View {
         Button(action: action) {
             label()
-                .padding(.horizontal, 10)
+                .padding(.horizontal, 12)
                 .frame(height: SettingsFloatingMenuMetrics.rowHeight)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
@@ -1013,15 +1169,26 @@ private struct SettingsTextButton: View {
     let title: String
     let action: () -> Void
 
+    @State private var isHovered = false
+
     var body: some View {
         Button(action: action) {
             Text(title)
                 .font(SettingsWindowTheme.bodyFont)
                 .foregroundStyle(.white)
-                .padding(.horizontal, 12)
+                .padding(.horizontal, 8)
                 .frame(height: 24)
+                // Weakened, text-first button: no persistent fill, just an 8%
+                // white hover highlight — matches the notch's settings-entry
+                // button pattern (design node 71:13745).
+                .background(
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(Color.white.opacity(isHovered ? 0.08 : 0))
+                )
         }
-        .settingsInteractionButtonStyle(cornerRadius: 4, baseColor: Color.white.opacity(0.08))
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .animation(.easeOut(duration: SettingsControlInteractionMetrics.animationDuration), value: isHovered)
     }
 }
 
@@ -1042,6 +1209,7 @@ private struct SettingsIconButton: View {
 
 private struct SettingsTrafficLight: View {
     let color: Color
+    let isRevealed: Bool
     let action: () -> Void
 
     var body: some View {
@@ -1049,6 +1217,12 @@ private struct SettingsTrafficLight: View {
             Circle()
                 .fill(color)
                 .overlay(Circle().stroke(Color.black.opacity(0.1), lineWidth: 0.5))
+                .overlay {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(Color.black.opacity(0.5))
+                        .opacity(isRevealed ? 1 : 0)
+                }
                 .frame(width: 14, height: 14)
         }
         .buttonStyle(.plain)
@@ -1265,7 +1439,7 @@ private extension NotchModuleID {
         case .music:
             return "音乐"
         case .fileStash:
-            return "文件暂存"
+            return "文件"
         case .aiChat:
             return "AI Chat"
         case .clipboard:

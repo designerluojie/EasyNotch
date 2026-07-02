@@ -10,12 +10,40 @@ final class PanelWindowController: OverlayPanelPresenting {
     let panel: NSPanel
 
     private let hostingView: NSHostingView<OverlayPanelRootView>
+    private let settingsController: SettingsWindowController
     private var localMouseMonitor: Any?
     private var globalMouseMonitor: Any?
     private var pendingIdleFrameResetTask: Task<Void, Never>?
     private var postExpandedCollapseRestLatch: PostExpandedCollapseRestLatch?
     private var postExpandedCollapseRestLatchReleaseTask: Task<Void, Never>?
     private var cancellables: Set<AnyCancellable> = []
+
+    // MARK: Render burst
+    // The overlay window's system display/vsync wake source gets throttled for
+    // this special notch panel, so after an expand or module switch the pending
+    // SwiftUI update can sit undrained for seconds while the main runloop sleeps
+    // — the content is ready, nothing wakes the runloop to flush it.
+    //
+    // Fix: for a short window after each expand/switch/collapse, run an
+    // independent (non-display-driven) timer that wakes the main runloop and
+    // drains SwiftUI. It only runs during that brief settle window and stops
+    // itself, so when nothing is changing there is zero ongoing cost.
+    private var renderBurstTimer: DispatchSourceTimer?
+    private var renderBurstDeadline: CFAbsoluteTime = 0
+
+    private static let renderBurstDuration: CFAbsoluteTime = 1.0
+    private static let renderBurstInterval: DispatchTimeInterval = .milliseconds(16) // ~60 Hz
+    // Only force a real re-render for the first few ticks after an expand/switch —
+    // just enough to un-stick the deferred content commit. The rest of the window
+    // is wake-only, so we don't re-render the heavy panel every frame (which drops
+    // frames during the expand animation). The animation itself stays smooth on
+    // its own — the A/B with the burst fully off proved that.
+    private static let renderBurstFlushPulseCount = 10
+    private var renderBurstPulsesRemaining = 0
+
+    var animationPolicy: NotchAnimationPolicy {
+        NotchAnimationPolicy(settings: compositionRoot.sharedServices.settingsStore.settings)
+    }
 
     init(
         compositionRoot: AppCompositionRoot,
@@ -31,11 +59,13 @@ final class PanelWindowController: OverlayPanelPresenting {
             backing: .buffered,
             defer: false
         )
+        self.settingsController = SettingsWindowController(compositionRoot: compositionRoot)
         self.hostingView = NSHostingView(
             rootView: OverlayPanelRootView(
                 compositionRoot: compositionRoot,
                 panelModel: self.panelModel,
-                interactions: self.interactions
+                interactions: self.interactions,
+                settingsPresenter: self.settingsController
             )
         )
 
@@ -47,6 +77,11 @@ final class PanelWindowController: OverlayPanelPresenting {
         let incomingState = state
         let previousState = panelModel.state
         updateExpandedCollapseTargetIfNeeded(
+            from: previousState,
+            to: incomingState,
+            geometry: geometry
+        )
+        updateExpandedCollapseTargetForExpandedCollapseIfNeeded(
             from: previousState,
             to: incomingState,
             geometry: geometry
@@ -213,6 +248,69 @@ final class PanelWindowController: OverlayPanelPresenting {
                 self?.refreshExpandedLayoutIfNeeded()
             }
             .store(in: &cancellables)
+
+        // Kick a short render burst whenever the panel enters/changes an
+        // expanded-like state — i.e. expand, module switch, and collapse. Each
+        // module switch re-sets `state` to a new `.expanded(module)` value, so
+        // this single hook covers all the moments a deferred flush can strand.
+        panelModel.$state
+            .sink { [weak self] nextState in
+                if nextState.isExpandedLike {
+                    self?.triggerRenderBurst()
+                }
+            }
+            .store(in: &cancellables)
+    }
+
+    private func triggerRenderBurst() {
+        // Extend the settle window; if a burst is already running this is all we
+        // need — the running timer will keep going until the new deadline.
+        renderBurstDeadline = CFAbsoluteTimeGetCurrent() + Self.renderBurstDuration
+        // Re-arm the flush pulses on every (re)trigger so a module *switch* also
+        // gets its new content un-stuck, even if a burst is already running.
+        renderBurstPulsesRemaining = Self.renderBurstFlushPulseCount
+        guard renderBurstTimer == nil else {
+            return
+        }
+
+        let timer = DispatchSource.makeTimerSource(
+            queue: DispatchQueue(label: "com.notch.render.burst")
+        )
+        timer.schedule(
+            deadline: .now(),
+            repeating: Self.renderBurstInterval,
+            leeway: .milliseconds(2)
+        )
+        timer.setEventHandler { [weak self] in
+            DispatchQueue.main.async {
+                guard let self else {
+                    return
+                }
+
+                guard self.panelModel.state.isExpandedLike,
+                      CFAbsoluteTimeGetCurrent() < self.renderBurstDeadline else {
+                    self.stopRenderBurst()
+                    return
+                }
+
+                if self.renderBurstPulsesRemaining > 0 {
+                    // First few ticks: force SwiftUI to drain the deferred content
+                    // commit so the new module actually appears.
+                    self.renderBurstPulsesRemaining -= 1
+                    self.panelModel.pulse()
+                }
+                // Remaining ticks are wake-only: scheduling this block already woke
+                // the runloop (keeping any late settle from stranding) without
+                // re-rendering the heavy panel every frame.
+            }
+        }
+        renderBurstTimer = timer
+        timer.resume()
+    }
+
+    private func stopRenderBurst() {
+        renderBurstTimer?.cancel()
+        renderBurstTimer = nil
     }
 
     private func refreshExpandedLayoutIfNeeded(activeModule: NotchModuleID? = nil) {
@@ -258,7 +356,7 @@ final class PanelWindowController: OverlayPanelPresenting {
         }
 
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = OverlayPanelChromeMetrics.transitionDuration
+            context.duration = animationPolicy.transitionDuration
             context.allowsImplicitAnimation = true
             panel.animator().setFrame(frame, display: true)
         }
@@ -331,10 +429,10 @@ final class PanelWindowController: OverlayPanelPresenting {
                     to: panelModel.state
            ),
            frame.width < panel.frame.width || frame.height < panel.frame.height {
-            delay = OverlayPanelChromeMetrics.transitionDuration
-                + OverlayPanelChromeMetrics.restVariantSettledContentRevealDuration
+            delay = animationPolicy.transitionDuration
+                + animationPolicy.restVariantSettledContentRevealDuration
         } else {
-            delay = OverlayPanelChromeMetrics.transitionDuration
+            delay = animationPolicy.transitionDuration
         }
 
         pendingIdleFrameResetTask = Task { [weak self] in
@@ -366,6 +464,22 @@ final class PanelWindowController: OverlayPanelPresenting {
         guard nextState.isExpandedLike,
               previousState.isRestLike,
               let target = expandedCollapseTarget(from: previousState, geometry: geometry) else {
+            return
+        }
+
+        panelModel.expandedCollapseTarget = target
+    }
+
+    private func updateExpandedCollapseTargetForExpandedCollapseIfNeeded(
+        from previousState: OverlayState,
+        to nextState: OverlayState,
+        geometry: TopAnchorGeometry
+    ) {
+        guard previousState.isExpandedLike,
+              nextState.isRestLike,
+              restPresentation(for: nextState) != .none,
+              panelModel.expandedCollapseTarget?.restState != nextState,
+              let target = expandedCollapseTarget(from: nextState, geometry: geometry) else {
             return
         }
 
@@ -587,6 +701,7 @@ final class PanelWindowController: OverlayPanelPresenting {
     deinit {
         pendingIdleFrameResetTask?.cancel()
         postExpandedCollapseRestLatchReleaseTask?.cancel()
+        renderBurstTimer?.cancel()
         if let localMouseMonitor {
             NSEvent.removeMonitor(localMouseMonitor)
         }

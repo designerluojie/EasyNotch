@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 
 @MainActor
 final class NotchShellRuntime: NSObject {
@@ -14,6 +15,7 @@ final class NotchShellRuntime: NSObject {
     private let aiChatHistoryPruneDelay: Duration
     private var isStarted = false
     private var aiChatHistoryPruneTask: Task<Void, Never>?
+    private var settingsCancellables: Set<AnyCancellable> = []
 
     init(
         compositionRoot: AppCompositionRoot,
@@ -30,7 +32,7 @@ final class NotchShellRuntime: NSObject {
     ) {
         self.compositionRoot = compositionRoot
         self.interactions = interactions
-        self.globalShortcutService = globalShortcutService ?? InMemoryGlobalShortcutService()
+        self.globalShortcutService = globalShortcutService ?? CarbonGlobalShortcutService()
         self.launchAtLoginService = launchAtLoginService ?? InMemoryLaunchAtLoginService()
         self.appLifecycleObserver = appLifecycleObserver ?? AppLifecycleObserver()
         self.aiChatHistoryPruner = aiChatHistoryPruner ?? AIChatHistoryPruner(
@@ -89,6 +91,9 @@ final class NotchShellRuntime: NSObject {
                 onScreenID: screenID
             )
         }
+        interactions.requestExpandModule = { [weak self] screenID, moduleID in
+            self?.coordinator.expand(moduleID: moduleID, onScreenID: screenID)
+        }
         interactions.requestCollapse = { [weak self] screenID in
             self?.coordinator.collapse(reason: .userDismiss, onScreenID: screenID)
         }
@@ -112,7 +117,7 @@ final class NotchShellRuntime: NSObject {
         interactions.requestFileDragExit = { [weak self] _ in
             self?.compositionRoot.fileStashViewModel.setDropTargeted(false)
         }
-        interactions.requestFileDrop = { [weak self] screenID, urls in
+        interactions.requestFileDrop = { [weak self] screenID, urls, location in
             guard let self else {
                 return
             }
@@ -121,19 +126,19 @@ final class NotchShellRuntime: NSObject {
             if urls.isEmpty {
                 compositionRoot.fileStashViewModel.setDropTargeted(false)
             } else {
-                compositionRoot.fileStashViewModel.addDroppedFileURLs(urls)
+                compositionRoot.fileStashViewModel.beginDroppedFileImport(
+                    urls: urls,
+                    startLocation: location
+                )
             }
         }
-        try? launchAtLoginService.setEnabled(compositionRoot.sharedServices.settingsStore.settings.launchAtLogin)
-        try? globalShortcutService.register(
-            compositionRoot.sharedServices.settingsStore.settings.globalShortcut
-        ) { [weak self] in
-            guard let self else {
-                return
+        applyRuntimeSettings(compositionRoot.sharedServices.settingsStore.settings)
+        compositionRoot.sharedServices.settingsStore.$settings
+            .dropFirst()
+            .sink { [weak self] settings in
+                self?.applyRuntimeSettings(settings)
             }
-
-            coordinator.expand(moduleID: collapsedExpansionModuleID(), onScreenID: nil)
-        }
+            .store(in: &settingsCancellables)
         lifecycleDispatcher.broadcast(.appDidLaunch)
         appLifecycleObserver.willSleep = { [weak self] in
             self?.lifecycleDispatcher.broadcast(.appWillSleep)
@@ -167,6 +172,34 @@ final class NotchShellRuntime: NSObject {
                 return
             }
             await pruner.pruneIfNeeded()
+        }
+    }
+
+    private func applyRuntimeSettings(_ settings: AppSettings) {
+        try? launchAtLoginService.setEnabled(settings.launchAtLogin)
+        coordinator.setSimulateNotchOnNonNotchScreen(settings.simulateNotchOnNonNotchScreen)
+        guard settings.isGlobalShortcutEnabled else {
+            globalShortcutService.unregister()
+            return
+        }
+
+        try? globalShortcutService.register(settings.globalShortcut) { [weak self] in
+            guard let self else {
+                return
+            }
+
+            togglePanelFromGlobalShortcut()
+        }
+    }
+
+    private func togglePanelFromGlobalShortcut() {
+        switch compositionRoot.overlayState {
+        case .expanded(let screenID, _), .hoverHint(let screenID, _):
+            coordinator.collapse(reason: .userDismiss, onScreenID: screenID)
+        case .collapsing:
+            break
+        case .idle(let screenID, _), .toast(let screenID, _):
+            coordinator.expand(moduleID: collapsedExpansionModuleID(), onScreenID: screenID)
         }
     }
 

@@ -11,6 +11,9 @@ final class FileStashCore: ObservableObject {
     init(store: FileStashStore, cleanupService: FileStashCleanupService? = nil) throws {
         self.store = store
         self.cleanupService = cleanupService
+        if let cleanupService {
+            _ = try? cleanupService.runIfNeeded()
+        }
         self.items = try store.loadItems()
     }
 
@@ -31,6 +34,9 @@ final class FileStashCore: ObservableObject {
     }
 
     func refresh() {
+        if let cleanupService {
+            _ = try? cleanupService.runIfNeeded()
+        }
         items = (try? store.loadItems()) ?? items
     }
 }

@@ -357,27 +357,7 @@ struct AIChatConfigurationView: View {
     }
 
     private func saveErrorMessage(_ error: Error, provider: AIProviderKind) -> String {
-        let nsError = error as NSError
-        if nsError.domain == NSURLErrorDomain {
-            return "网络异常，请重试"
-        }
-
-        guard let configurationError = error as? AIProviderConfigurationError else {
-            return "保存失败，请稍后重试。"
-        }
-
-        switch configurationError {
-        case .missingModelID:
-            return "请选择模型。"
-        case .unsupportedProvider:
-            return "\(AIChatConfigurationPresentation.providerTitle(for: provider)) 暂不支持在此处配置。"
-        case .invalidCredential:
-            return "API Key错误，请重试"
-        case .validationFailed:
-            return "校验失败，请重试"
-        case .invalidResponse:
-            return "网络异常，请重试"
-        }
+        AIChatConfigurationPresentation.saveErrorMessage(error, provider: provider)
     }
 
     private func overlaySize(for presentation: AIChatConfigurationOverlayPresentation) -> CGSize {

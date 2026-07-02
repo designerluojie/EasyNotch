@@ -236,9 +236,11 @@ struct TopAnchorGeometry: Equatable {
 struct AnchorGeometryCalculator {
     private let toastSize = CGSize(width: 320, height: 52)
     private let baseHotzoneSize = CGSize(width: 260, height: 32)
-    private let simulatedIdleWidth: CGFloat = 185
-    private let simulatedIdleHeight: CGFloat = 6
-    private let simulatedIdleVisibleHeight: CGFloat = 6
+    private let simulatedIdleWidth: CGFloat = OverlayPanelChromeMetrics.hoverBodySize.width
+    private let simulatedIdleHeight: CGFloat = 30
+    private let simulatedIdleVisibleHeight: CGFloat = 30
+    private let centerHandlerIdleWidth: CGFloat = 185
+    private let centerHandlerIdleHeight: CGFloat = 6
     private let wideNotchStripSize = CGSize(width: 248, height: 32)
     private let wideNotchStripHoverSize = CGSize(width: 248, height: 40)
     private let headerlessMiniPanelSize = CGSize(width: 320, height: 128)
@@ -358,7 +360,7 @@ struct AnchorGeometryCalculator {
         case .simulatedNotch:
             return CGSize(width: simulatedIdleWidth, height: simulatedIdleHeight)
         case .centerHandler:
-            return CGSize(width: 160, height: 32)
+            return CGSize(width: centerHandlerIdleWidth, height: centerHandlerIdleHeight)
         }
     }
 
@@ -387,7 +389,7 @@ struct AnchorGeometryCalculator {
         case .simulatedNotch:
             return simulatedIdleVisibleHeight
         case .centerHandler:
-            return 32
+            return centerHandlerIdleHeight
         }
     }
 

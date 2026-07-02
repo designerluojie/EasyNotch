@@ -115,6 +115,11 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
     private var launchObservationTask: Task<Void, Never>?
     private var remainingConfirmationRefreshes = 0
     private var canonicalTimeline: MusicCanonicalTimeline?
+    // Guards against overlapping snapshot probes. Multiple refresh entry points (polling,
+    // lifecycle appear, energy-mode changes) can each spawn external `nowplaying-cli` /
+    // `osascript` processes; overlapping probes pile up (especially if a probe hangs on an
+    // unresponsive player) and eventually stall the app. Only one probe runs at a time.
+    private var isRefreshingSnapshot = false
 
     init(
         initialState: MusicModuleState? = nil,
@@ -194,6 +199,12 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
     }
 
     func refreshSnapshot() async {
+        guard !isRefreshingSnapshot else {
+            return
+        }
+        isRefreshingSnapshot = true
+        defer { isRefreshingSnapshot = false }
+
         do {
             let snapshot = try await snapshotProvider.snapshot()
             let resolvedSnapshot = sessionResolver.resolve(snapshot)

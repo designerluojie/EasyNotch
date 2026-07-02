@@ -21,6 +21,7 @@ struct ContentHostView: View {
     @ObservedObject var compositionRoot: AppCompositionRoot
     var onClipboardPasteSuccess: (() -> Void)? = nil
     var onClipboardPreferredBodySizeChange: ((CGSize) -> Void)? = nil
+    var onFileStashInternalDragStart: (() -> Void)? = nil
 
     var body: some View {
         moduleContent
@@ -44,7 +45,8 @@ struct ContentHostView: View {
         case .fileStash:
             FileStashModuleView(
                 context: compositionRoot.context(for: .fileStash),
-                viewModel: compositionRoot.fileStashViewModel
+                viewModel: compositionRoot.fileStashViewModel,
+                onInternalDragStart: onFileStashInternalDragStart
             )
         case .aiChat:
             AIChatModuleView(
@@ -59,9 +61,12 @@ struct ContentHostView: View {
                 onPreferredBodySizeChange: onClipboardPreferredBodySizeChange
             )
         case .pomodoro:
-            PomodoroModuleView(context: compositionRoot.context(for: .pomodoro))
+            PomodoroModuleView(
+                context: compositionRoot.context(for: .pomodoro),
+                viewModel: compositionRoot.pomodoroViewModel
+            )
         case .settings:
-            SettingsModuleView(context: compositionRoot.context(for: .settings))
+            EmptyView()
         }
     }
 }

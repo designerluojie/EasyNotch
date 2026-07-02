@@ -43,17 +43,8 @@ struct ClipboardModuleView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ClipboardHorizontalWheelScrollView {
-                    HStack(alignment: .top, spacing: ClipboardCardLayout.cardSpacing) {
-                        ForEach(viewModel.cards) { card in
-                            ClipboardCardView(card: card) {
-                                viewModel.paste(itemID: card.id, onSuccess: onSuccessfulPaste)
-                            }
-                        }
-                    }
-                    .padding(.horizontal, ClipboardModuleLayout.listInsetHorizontal)
-                    .padding(.top, ClipboardModuleLayout.listInsetTop)
-                    .padding(.bottom, ClipboardModuleLayout.listInsetBottom)
+                ClipboardHistoryListSurface(cards: viewModel.cards) { cardID in
+                    viewModel.paste(itemID: cardID, onSuccess: onSuccessfulPaste)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
@@ -78,6 +69,12 @@ struct ClipboardModuleView: View {
             ),
             value: viewModel.phase
         )
+        .overlay(alignment: .topLeading) {
+            if ClipboardLayoutDiagnostics.isEnabled {
+                ClipboardPanelLayoutDebugOverlay()
+                .allowsHitTesting(false)
+            }
+        }
     }
 
     private func updatePreferredBodySize() {
@@ -117,3 +114,111 @@ struct ClipboardModuleView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
+
+struct ClipboardHistoryListSurface: View {
+    let cards: [ClipboardCardViewState]
+    let onSelectCard: (UUID) -> Void
+
+    var body: some View {
+        ClipboardHorizontalWheelScrollView {
+            HStack(alignment: .top, spacing: ClipboardCardLayout.cardSpacing) {
+                ForEach(cards) { card in
+                    ClipboardCardView(card: card) {
+                        onSelectCard(card.id)
+                    }
+                }
+            }
+            .padding(.horizontal, ClipboardModuleLayout.listInsetHorizontal)
+            .padding(.top, ClipboardModuleLayout.listInsetTop)
+            .frame(
+                minHeight: ClipboardModuleLayout.listSurfaceHeight,
+                alignment: .topLeading
+            )
+        }
+    }
+}
+
+#if DEBUG
+#Preview("Clipboard layout") {
+    ClipboardModuleLayoutPreview()
+}
+
+private struct ClipboardModuleLayoutPreview: View {
+    private let cards = ClipboardPreviewData.cards
+
+    var body: some View {
+        ZStack {
+            Color.black
+
+            VStack(alignment: .leading, spacing: 8) {
+                ClipboardHistoryListSurface(cards: cards) { _ in }
+                    .frame(
+                        maxWidth: .infinity,
+                        minHeight: ClipboardModuleLayout.listSurfaceHeight,
+                        maxHeight: ClipboardModuleLayout.listSurfaceHeight,
+                        alignment: .topLeading
+                    )
+                    .clipShape(
+                        RoundedRectangle(
+                            cornerRadius: ClipboardModuleLayout.contentCornerRadius,
+                            style: .continuous
+                        )
+                    )
+            }
+            .frame(
+                width: ClipboardModuleLayout.listPanelBodySize.width,
+                height: ClipboardModuleLayout.listPanelBodySize.height,
+                alignment: .topLeading
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .stroke(Color.white.opacity(0.1), lineWidth: 1)
+            }
+            .overlay(alignment: .topLeading) {
+                ClipboardPanelLayoutDebugOverlay()
+                .allowsHitTesting(false)
+            }
+        }
+        .frame(width: 680, height: 280)
+        .environment(\.colorScheme, .dark)
+    }
+}
+
+private enum ClipboardPreviewData {
+    static let cards: [ClipboardCardViewState] = [
+        ClipboardCardViewState(
+            id: UUID(),
+            sourceTitle: "WeChat",
+            sourceAppBundleID: nil,
+            sourceAppName: "WeChat",
+            relativeTimeText: "15 分钟前",
+            previewText: "Light:\nHover 叠加\n#31353B 8% 的\n不透明度...",
+            previewState: .textOnly,
+            contentType: .plainText,
+            isPastebackSupported: true
+        ),
+        ClipboardCardViewState(
+            id: UUID(),
+            sourceTitle: "Safari",
+            sourceAppBundleID: nil,
+            sourceAppName: "Safari",
+            relativeTimeText: "半小时前",
+            previewText: "外层列表：\nHStack 被放在\nscroll view 内",
+            previewState: .textOnly,
+            contentType: .plainText,
+            isPastebackSupported: true
+        ),
+        ClipboardCardViewState(
+            id: UUID(),
+            sourceTitle: "Notes",
+            sourceAppBundleID: nil,
+            sourceAppName: "Notes",
+            relativeTimeText: "1 小时前",
+            previewText: "input-bottom",
+            previewState: .textOnly,
+            contentType: .plainText,
+            isPastebackSupported: true
+        )
+    ]
+}
+#endif

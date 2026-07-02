@@ -1048,14 +1048,18 @@ struct ClipboardModuleTests {
         #expect(ClipboardModuleLayout.listSurfaceHeight == 116)
         #expect(ClipboardModuleLayout.emptySurfaceHeight == 56)
         #expect(ClipboardModuleLayout.successSurfaceHeight == 56)
-        #expect(ClipboardModuleLayout.panelBodySize(isEmpty: false) == CGSize(width: 580, height: 180))
+        #expect(ClipboardModuleLayout.panelBodySize(isEmpty: false) == CGSize(width: 580, height: 177))
         #expect(ClipboardModuleLayout.panelBodySize(isEmpty: true) == CGSize(width: 580, height: 120))
         #expect(ClipboardModuleLayout.successPanelBodySize == CGSize(width: 580, height: 120))
         #expect(ClipboardModuleLayout.surfaceFillOpacity == 0)
         #expect(ClipboardModuleLayout.usesHostSurfaceStroke == true)
+        #expect(ClipboardModuleLayout.listInsetHorizontal == 7)
+        #expect(ClipboardModuleLayout.listInsetTop == 4)
         #expect(ClipboardCardLayout.cardSize == CGSize(width: 96, height: 108))
-        #expect(ClipboardCardLayout.previewSize == CGSize(width: 80, height: 70))
+        #expect(ClipboardCardLayout.previewSize == CGSize(width: 76, height: 70))
         #expect(ClipboardCardLayout.cardSpacing == 4)
+        #expect(ClipboardCardLayout.cardPadding == CGSize(width: 10, height: 8))
+        #expect(ClipboardCardLayout.cardCornerRadius == 22)
     }
 
     @Test func verticalWheelScrollMapsIntoHorizontalOffset() {

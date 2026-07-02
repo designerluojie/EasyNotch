@@ -8,6 +8,11 @@ protocol SettingsPresenting: AnyObject {
 
 enum SettingsWindowMetrics {
     static let windowSize = CGSize(width: 600, height: 400)
+    static let shadowMargin: CGFloat = 48
+    static let outerSize = CGSize(
+        width: windowSize.width + shadowMargin * 2,
+        height: windowSize.height + shadowMargin * 2
+    )
 }
 
 @MainActor
@@ -33,7 +38,7 @@ final class SettingsWindowController: SettingsPresenting {
             metadataStore: metadataStore
         )
         self.panel = SettingsPanel(
-            contentRect: NSRect(origin: .zero, size: SettingsWindowMetrics.windowSize),
+            contentRect: NSRect(origin: .zero, size: SettingsWindowMetrics.outerSize),
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
@@ -52,7 +57,7 @@ final class SettingsWindowController: SettingsPresenting {
 
     func show(centeredOn screenFrame: CGRect?) {
         let targetScreenFrame = screenFrame ?? NSScreen.main?.visibleFrame ?? NSScreen.main?.frame ?? .zero
-        let size = SettingsWindowMetrics.windowSize
+        let size = SettingsWindowMetrics.outerSize
         let frame = NSRect(
             x: targetScreenFrame.midX - size.width / 2,
             y: targetScreenFrame.midY - size.height / 2,
@@ -78,7 +83,7 @@ final class SettingsWindowController: SettingsPresenting {
         ]
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
-        panel.isMovableByWindowBackground = true
+        panel.isMovableByWindowBackground = false
         panel.contentView = hostingView
     }
 }

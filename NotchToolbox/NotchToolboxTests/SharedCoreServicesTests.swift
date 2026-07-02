@@ -9,6 +9,7 @@ struct SharedCoreServicesTests {
         let settings = AppSettings.defaultValue
 
         #expect(settings.launchAtLogin == false)
+        #expect(settings.isGlobalShortcutEnabled == true)
         #expect(settings.globalShortcut == KeyboardShortcutDescriptor(
             keyEquivalent: "t",
             modifiers: [.command, .option]
@@ -24,17 +25,43 @@ struct SharedCoreServicesTests {
         #expect(settings.aiProviderConfigSummaries.allSatisfy { $0.status == .unconfigured })
     }
 
+    @Test func settingsDecodingBackfillsGlobalShortcutEnabled() throws {
+        let payload = """
+        {
+          "launchAtLogin": false,
+          "globalShortcut": {
+            "keyEquivalent": "t",
+            "modifiers": ["command", "option"]
+          },
+          "simulateNotchOnNonNotchScreen": true,
+          "animationMode": "natural",
+          "animationSpeed": "normal",
+          "moduleOrder": ["music", "fileStash", "aiChat", "clipboard", "pomodoro", "settings"],
+          "clipboardMaxItems": 20,
+          "clipboardAutoCleanupPolicy": "none",
+          "fileStashAutoCleanupPolicy": "none",
+          "aiProviderConfigSummaries": []
+        }
+        """
+
+        let settings = try JSONDecoder().decode(AppSettings.self, from: Data(payload.utf8))
+
+        #expect(settings.isGlobalShortcutEnabled)
+    }
+
     @Test func settingsStorePersistsNonSensitiveSettings() throws {
         let settingsURL = try Self.makeTemporaryDirectory().appending(path: "settings.json")
         let store = try SettingsStore(storageURL: settingsURL)
 
         try store.update { settings in
+            settings.isGlobalShortcutEnabled = false
             settings.clipboardMaxItems = 30
             settings.animationSpeed = .fast
             settings.moduleOrder = [.clipboard, .music, .fileStash, .aiChat, .pomodoro, .settings]
         }
 
         let reloadedStore = try SettingsStore(storageURL: settingsURL)
+        #expect(reloadedStore.settings.isGlobalShortcutEnabled == false)
         #expect(reloadedStore.settings.clipboardMaxItems == 30)
         #expect(reloadedStore.settings.animationSpeed == .fast)
         #expect(reloadedStore.settings.moduleOrder.first == .clipboard)

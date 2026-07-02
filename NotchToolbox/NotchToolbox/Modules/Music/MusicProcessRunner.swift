@@ -13,52 +13,75 @@ struct MusicProcessOutput: Equatable, Sendable {
 struct FoundationMusicProcessRunner: MusicProcessRunning {
     private let beforeLaunch: @Sendable () async throws -> Void
 
+    // Blocking process execution (`waitUntilExit`, pipe `group.wait()`) must never run on
+    // the Swift concurrency cooperative pool: that pool has ~core-count threads, and
+    // blocking several of them while probing music players starves the main actor and
+    // SwiftUI rendering, freezing the notch panel on expand/switch. Run it on a dedicated
+    // GCD queue instead so the cooperative pool stays free.
+    private static let processQueue = DispatchQueue(
+        label: "com.notch.music.process",
+        qos: .utility,
+        attributes: .concurrent
+    )
+
+    // Hard cap on how long a single probe may run. A hung `nowplaying-cli` / `osascript`
+    // (e.g. an unresponsive player) would otherwise linger indefinitely.
+    private static let processTimeout: TimeInterval = 5
+
     init(beforeLaunch: @escaping @Sendable () async throws -> Void = {}) {
         self.beforeLaunch = beforeLaunch
     }
 
     func run(_ launchPath: String, arguments: [String]) async throws -> MusicProcessOutput {
         let processBox = RunningProcessBox()
-        let beforeLaunch = self.beforeLaunch
-        let task = Task.detached(priority: nil) {
-            try Task.checkCancellation()
 
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: launchPath)
-            process.arguments = arguments
-            defer { processBox.clear() }
-
-            let stdoutPipe = Pipe()
-            let stderrPipe = Pipe()
-            process.standardOutput = stdoutPipe
-            process.standardError = stderrPipe
-
-            try await beforeLaunch()
-            try Task.checkCancellation()
-            try processBox.launch(process)
-
-            let outputReader = ProcessPipeReader(
-                stdout: stdoutPipe.fileHandleForReading,
-                stderr: stderrPipe.fileHandleForReading
-            )
-            outputReader.start()
-
-            process.waitUntilExit()
-            let outputData = outputReader.waitForData()
-            try Task.checkCancellation()
-
-            return MusicProcessOutput(
-                stdout: String(decoding: outputData.stdout, as: UTF8.self),
-                stderr: String(decoding: outputData.stderr, as: UTF8.self),
-                status: process.terminationStatus
-            )
-        }
+        try Task.checkCancellation()
+        try await beforeLaunch()
+        try Task.checkCancellation()
 
         return try await withTaskCancellationHandler {
-            try await task.value
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<MusicProcessOutput, Error>) in
+                Self.processQueue.async {
+                    do {
+                        let process = Process()
+                        process.executableURL = URL(fileURLWithPath: launchPath)
+                        process.arguments = arguments
+                        defer { processBox.clear() }
+
+                        let stdoutPipe = Pipe()
+                        let stderrPipe = Pipe()
+                        process.standardOutput = stdoutPipe
+                        process.standardError = stderrPipe
+
+                        let exited = DispatchSemaphore(value: 0)
+                        process.terminationHandler = { _ in exited.signal() }
+
+                        try processBox.launch(process)
+
+                        let outputReader = ProcessPipeReader(
+                            stdout: stdoutPipe.fileHandleForReading,
+                            stderr: stderrPipe.fileHandleForReading
+                        )
+                        outputReader.start()
+
+                        if exited.wait(timeout: .now() + Self.processTimeout) == .timedOut {
+                            process.terminate()
+                            _ = exited.wait(timeout: .now() + 1)
+                        }
+                        let outputData = outputReader.waitForData()
+
+                        continuation.resume(returning: MusicProcessOutput(
+                            stdout: String(decoding: outputData.stdout, as: UTF8.self),
+                            stderr: String(decoding: outputData.stderr, as: UTF8.self),
+                            status: process.terminationStatus
+                        ))
+                    } catch {
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
         } onCancel: {
             processBox.cancel()
-            task.cancel()
         }
     }
 

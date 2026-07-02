@@ -81,6 +81,7 @@ final class AIChatModuleModel: ObservableObject {
         self.currentSession = try? sessionStore.latest()
         self.selectedModel = Self.resolveSelectedModel(
             currentSession: self.currentSession,
+            summaries: providerSummaries,
             fallbackModel: selectedModel
         )
         self.runtime = runtime
@@ -247,8 +248,18 @@ final class AIChatModuleModel: ObservableObject {
         )
         selectedModel = Self.resolveSelectedModel(
             currentSession: currentSession,
+            summaries: summaries,
             fallbackModel: configuredFallback
         )
+
+        // A configuration change (from the config phase or the Settings window)
+        // should re-derive the screen — unlock when configured, lock when the
+        // last provider is removed. But never interrupt an in-flight send/stream;
+        // in that case just keep the refreshed data for the next idle transition.
+        guard !isConversationBusy else {
+            return
+        }
+
         transition(to: rootState())
     }
 
@@ -399,6 +410,7 @@ final class AIChatModuleModel: ObservableObject {
         currentSession = session
         selectedModel = Self.resolveSelectedModel(
             currentSession: session,
+            summaries: providerSummaries,
             fallbackModel: selectedModel
         )
         messages = (try? sessionStore.loadMessages(for: sessionID)) ?? []
@@ -511,10 +523,18 @@ private extension AIChatModuleModel {
 
     static func resolveSelectedModel(
         currentSession: AIChatSession?,
+        summaries: [AIProviderConfigSummary],
         fallbackModel: AIModelCapability
     ) -> AIModelCapability {
         guard
             let currentSession,
+            // Only honor the session's model if its provider is still configured;
+            // otherwise (e.g. it was just removed in Settings) fall back to a
+            // configured model so the current selection never dangles on a
+            // provider you can no longer use.
+            summaries.contains(where: {
+                $0.provider == currentSession.selectedProvider && $0.status == .configured
+            }),
             let sessionModel = AIProviderCatalog.model(
                 provider: currentSession.selectedProvider,
                 id: currentSession.selectedModelID
@@ -752,6 +772,14 @@ private extension AIChatModuleModel {
         }
 
         return .unconfigured(providerSummaries)
+    }
+
+    var isConversationBusy: Bool {
+        if case .sending = state {
+            return true
+        }
+
+        return state.isStreamingLike
     }
 
     func ensureStreamingStateIfNeeded(for context: ConversationContext) {
