@@ -129,7 +129,9 @@ struct QwenStreamingChatRuntimeTests {
         let components = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
 
         #expect(url.host == "generativelanguage.googleapis.com")
-        #expect(components.queryItems?.contains(URLQueryItem(name: "key", value: "gm-secret")) == true)
+        // Key travels in a header, not the URL, so it can't leak into request logs.
+        #expect(urlRequest.value(forHTTPHeaderField: "x-goog-api-key") == "gm-secret")
+        #expect(components.queryItems?.contains { $0.name == "key" } != true)
         #expect(events == [
             .started(requestID: request.id),
             .delta(requestID: request.id, textChunk: "Gemini reply"),
@@ -516,6 +518,86 @@ struct QwenStreamingChatRuntimeTests {
         )
         #expect(didStop)
     }
+
+    @Test func openAIRequestBodyIncludesHistoryThenCurrentTurn() throws {
+        let request = AIChatRequest(
+            id: UUID(),
+            sessionID: UUID(),
+            selectedModel: try #require(AIProviderCatalog.qwenModel(id: "qwen3.6-plus")),
+            prompt: "current question",
+            attachments: [],
+            history: [
+                AIChatRequestMessage(role: .user, text: "past user"),
+                AIChatRequestMessage(role: .assistant, text: "past assistant"),
+            ]
+        )
+
+        let data = try QwenStreamingChatRuntime.makeOpenAIRequestBody(for: request)
+        let decoded = try JSONDecoder().decode(DecodedChatBody.self, from: data)
+
+        #expect(decoded.messages.map(\.role) == ["user", "assistant", "user"])
+        #expect(decoded.messages.map(\.content) == ["past user", "past assistant", "current question"])
+    }
+
+    @Test func openAIRequestBodyWithoutHistorySendsOnlyCurrentTurn() throws {
+        let request = AIChatRequest(
+            id: UUID(),
+            sessionID: UUID(),
+            selectedModel: try #require(AIProviderCatalog.qwenModel(id: "qwen3.6-plus")),
+            prompt: "solo",
+            attachments: []
+        )
+
+        let data = try QwenStreamingChatRuntime.makeOpenAIRequestBody(for: request)
+        let decoded = try JSONDecoder().decode(DecodedChatBody.self, from: data)
+
+        #expect(decoded.messages.map(\.role) == ["user"])
+        #expect(decoded.messages.map(\.content) == ["solo"])
+    }
+
+    @Test func geminiRequestBodyIncludesHistoryWithModelRoleMapping() throws {
+        let request = AIChatRequest(
+            id: UUID(),
+            sessionID: UUID(),
+            selectedModel: try #require(AIProviderCatalog.model(provider: .gemini, id: "gemini-3.5-flash")),
+            prompt: "current question",
+            attachments: [],
+            history: [
+                AIChatRequestMessage(role: .user, text: "past user"),
+                AIChatRequestMessage(role: .assistant, text: "past assistant"),
+            ]
+        )
+
+        let data = try QwenStreamingChatRuntime.makeGeminiRequestBody(for: request)
+        let decoded = try JSONDecoder().decode(DecodedGeminiBody.self, from: data)
+
+        #expect(decoded.contents.map(\.role) == ["user", "model", "user"])
+        #expect(decoded.contents.map { $0.parts.first?.text } == ["past user", "past assistant", "current question"])
+    }
+}
+
+private struct DecodedChatBody: Decodable {
+    struct Message: Decodable {
+        let role: String
+        let content: String
+    }
+
+    let model: String
+    let messages: [Message]
+    let stream: Bool
+}
+
+private struct DecodedGeminiBody: Decodable {
+    struct Content: Decodable {
+        let role: String
+        let parts: [Part]
+    }
+
+    struct Part: Decodable {
+        let text: String?
+    }
+
+    let contents: [Content]
 }
 
 private func collectRuntimeEvents(

@@ -6,6 +6,26 @@ struct AIChatRequest: Equatable {
     let selectedModel: AIModelCapability
     let prompt: String
     let attachments: [ConversationAttachment]
+    // Prior turns of the same conversation, oldest first. Text-only: attachments
+    // are only re-sent for the current turn to avoid re-uploading images every
+    // request.
+    let history: [AIChatRequestMessage]
+
+    init(
+        id: UUID,
+        sessionID: UUID,
+        selectedModel: AIModelCapability,
+        prompt: String,
+        attachments: [ConversationAttachment],
+        history: [AIChatRequestMessage] = []
+    ) {
+        self.id = id
+        self.sessionID = sessionID
+        self.selectedModel = selectedModel
+        self.prompt = prompt
+        self.attachments = attachments
+        self.history = history
+    }
 }
 
 enum AIChatRuntimeEvent: Equatable {

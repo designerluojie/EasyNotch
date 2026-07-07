@@ -255,6 +255,19 @@ private struct SettingsFeaturesPane: View {
                     SettingsDivider()
 
                     SettingsSectionHeader("AI Chat")
+                    SettingsMenuRow(
+                        title: "对话历史保留时长",
+                        value: viewModel.settings.aiChatHistoryRetention.displayTitle,
+                        items: viewModel.supportedAIChatHistoryRetentions.map { retention in
+                            SettingsMenuItem(title: retention.displayTitle) {
+                                viewModel.setAIChatHistoryRetention(retention)
+                            }
+                        }
+                    )
+
+                    SettingsDivider()
+
+                    SettingsSectionHeader("AI 模型管理")
                     SettingsProviderRows(viewModel: viewModel)
                         .padding(.bottom, 20)
 
@@ -401,6 +414,21 @@ private struct SettingsAboutPane: View {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .stroke(Color.white.opacity(0.1), lineWidth: 1)
             )
+            .padding(.horizontal, 16)
+
+            SettingsSectionHeader("新手引导")
+            HStack {
+                Text("重新播放首次启动的欢迎动画")
+                    .font(SettingsWindowTheme.bodyFont)
+                    .foregroundStyle(.white.opacity(0.7))
+                Spacer()
+                SettingsTextButton(title: "重播引导") {
+                    NotificationCenter.default.post(
+                        name: OnboardingCoordinator.replayRequestedNotification,
+                        object: nil
+                    )
+                }
+            }
             .padding(.horizontal, 16)
             Spacer()
         }

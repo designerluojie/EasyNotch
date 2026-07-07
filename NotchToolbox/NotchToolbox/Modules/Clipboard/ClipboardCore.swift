@@ -82,11 +82,15 @@ final class ClipboardCore: ObservableObject, EnergyManagedTask {
         }
 
         isPolling = true
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+        let timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.pollOnceIgnoringErrors()
             }
         }
+        // Let the OS coalesce wake-ups; clipboard polling doesn't need sub-second
+        // precision, and a tolerance meaningfully lowers idle energy use.
+        timer.tolerance = 0.2
+        pollTimer = timer
     }
 
     private func stopPolling() {

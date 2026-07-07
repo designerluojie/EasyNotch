@@ -119,10 +119,19 @@ struct ClipboardHistoryListSurface: View {
     let cards: [ClipboardCardViewState]
     let onSelectCard: (UUID) -> Void
 
+    // Build only the first page of cards on open; scrolling to the right edge
+    // pages in more. Keeps opening a long clipboard history cheap.
+    @State private var displayedCount = ClipboardHistoryListSurface.pageSize
+    private static let pageSize = 10
+
+    private var windowedCards: [ClipboardCardViewState] {
+        Array(cards.prefix(displayedCount))
+    }
+
     var body: some View {
-        ClipboardHorizontalWheelScrollView {
+        ClipboardHorizontalWheelScrollView(onReachedEnd: loadMore) {
             HStack(alignment: .top, spacing: ClipboardCardLayout.cardSpacing) {
-                ForEach(cards) { card in
+                ForEach(windowedCards) { card in
                     ClipboardCardView(card: card) {
                         onSelectCard(card.id)
                     }
@@ -135,6 +144,14 @@ struct ClipboardHistoryListSurface: View {
                 alignment: .topLeading
             )
         }
+    }
+
+    private func loadMore() {
+        guard displayedCount < cards.count else {
+            return
+        }
+
+        displayedCount = min(displayedCount + Self.pageSize, cards.count)
     }
 }
 

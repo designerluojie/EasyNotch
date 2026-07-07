@@ -126,15 +126,14 @@ private struct GeminiCredentialValidator {
     nonisolated let session: URLSession
 
     nonisolated func validate(apiKey: String, modelID: String) async throws -> AIProviderMetadata {
-        var components = URLComponents(
+        let components = URLComponents(
             string: "https://generativelanguage.googleapis.com/v1beta/models/\(modelID):generateContent"
         )!
-        components.queryItems = [
-            URLQueryItem(name: "key", value: apiKey)
-        ]
         var request = URLRequest(url: components.url!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // Key in a header, not the URL, so it can't leak into request logs.
+        request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
         request.httpBody = try JSONEncoder().encode(
             GeminiValidationRequest(
                 contents: [

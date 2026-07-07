@@ -30,6 +30,34 @@ nonisolated enum CleanupPolicy: String, Codable, Equatable, CaseIterable {
     case monthly
 }
 
+nonisolated enum AIChatHistoryRetention: String, Codable, Equatable, CaseIterable {
+    case oneMonth
+    case threeMonths
+    case sixMonths
+
+    var months: Int {
+        switch self {
+        case .oneMonth:
+            return 1
+        case .threeMonths:
+            return 3
+        case .sixMonths:
+            return 6
+        }
+    }
+
+    var displayTitle: String {
+        switch self {
+        case .oneMonth:
+            return "1 个月"
+        case .threeMonths:
+            return "3 个月"
+        case .sixMonths:
+            return "半年"
+        }
+    }
+}
+
 nonisolated struct AppSettings: Codable, Equatable {
     var launchAtLogin: Bool
     var isGlobalShortcutEnabled: Bool
@@ -42,7 +70,9 @@ nonisolated struct AppSettings: Codable, Equatable {
     var clipboardAutoCleanupPolicy: CleanupPolicy
     var fileStashAutoCleanupPolicy: CleanupPolicy
     var aiProviderConfigSummaries: [AIProviderConfigSummary]
+    var aiChatHistoryRetention: AIChatHistoryRetention
     var lastAIChatHistoryPrunedAt: Date?
+    var hasCompletedOnboarding: Bool
 
     init(
         launchAtLogin: Bool,
@@ -56,7 +86,9 @@ nonisolated struct AppSettings: Codable, Equatable {
         clipboardAutoCleanupPolicy: CleanupPolicy,
         fileStashAutoCleanupPolicy: CleanupPolicy,
         aiProviderConfigSummaries: [AIProviderConfigSummary],
-        lastAIChatHistoryPrunedAt: Date? = nil
+        aiChatHistoryRetention: AIChatHistoryRetention = .threeMonths,
+        lastAIChatHistoryPrunedAt: Date? = nil,
+        hasCompletedOnboarding: Bool = false
     ) {
         self.launchAtLogin = launchAtLogin
         self.isGlobalShortcutEnabled = isGlobalShortcutEnabled
@@ -69,7 +101,9 @@ nonisolated struct AppSettings: Codable, Equatable {
         self.clipboardAutoCleanupPolicy = clipboardAutoCleanupPolicy
         self.fileStashAutoCleanupPolicy = fileStashAutoCleanupPolicy
         self.aiProviderConfigSummaries = aiProviderConfigSummaries
+        self.aiChatHistoryRetention = aiChatHistoryRetention
         self.lastAIChatHistoryPrunedAt = lastAIChatHistoryPrunedAt
+        self.hasCompletedOnboarding = hasCompletedOnboarding
     }
 
     static let defaultValue = AppSettings(
@@ -103,7 +137,9 @@ extension AppSettings {
         case clipboardAutoCleanupPolicy
         case fileStashAutoCleanupPolicy
         case aiProviderConfigSummaries
+        case aiChatHistoryRetention
         case lastAIChatHistoryPrunedAt
+        case hasCompletedOnboarding
     }
 
     nonisolated init(from decoder: Decoder) throws {
@@ -125,7 +161,9 @@ extension AppSettings {
                 try container.decodeIfPresent([AIProviderConfigSummary].self, forKey: .aiProviderConfigSummaries)
                     ?? defaults.aiProviderConfigSummaries
             ),
-            lastAIChatHistoryPrunedAt: try container.decodeIfPresent(Date.self, forKey: .lastAIChatHistoryPrunedAt)
+            aiChatHistoryRetention: try container.decodeIfPresent(AIChatHistoryRetention.self, forKey: .aiChatHistoryRetention) ?? defaults.aiChatHistoryRetention,
+            lastAIChatHistoryPrunedAt: try container.decodeIfPresent(Date.self, forKey: .lastAIChatHistoryPrunedAt),
+            hasCompletedOnboarding: try container.decodeIfPresent(Bool.self, forKey: .hasCompletedOnboarding) ?? defaults.hasCompletedOnboarding
         )
     }
 

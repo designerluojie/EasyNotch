@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import Foundation
 import UniformTypeIdentifiers
 
@@ -149,7 +150,11 @@ struct ClipboardNormalizer {
     }
 
     nonisolated private static func hash(data: Data, type: String) -> String {
-        "\(type)::\(data.base64EncodedString())"
+        "\(type)::\(sha256Hex(data))"
+    }
+
+    nonisolated private static func sha256Hex(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     nonisolated private static func hash(strings: [String]) -> String {
@@ -317,7 +322,7 @@ struct ClipboardNormalizer {
         representations: [ClipboardInlineRepresentation]
     ) -> String {
         representations
-            .map { "\($0.pasteboardType)::\($0.data.base64EncodedString())" }
+            .map { "\($0.pasteboardType)::\(sha256Hex($0.data))" }
             .joined(separator: "|")
     }
 

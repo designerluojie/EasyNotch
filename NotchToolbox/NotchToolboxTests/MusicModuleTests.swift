@@ -904,7 +904,7 @@ struct MusicModuleTests {
             {"kMRMediaRemoteNowPlayingInfoClientBundleIdentifier":"com.tencent.QQMusicMac","kMRMediaRemoteNowPlayingInfoTitle":"淘金小镇","kMRMediaRemoteNowPlayingInfoArtist":"周杰伦","kMRMediaRemoteNowPlayingInfoDuration":252,"kMRMediaRemoteNowPlayingInfoElapsedTime":35,"kMRMediaRemoteNowPlayingInfoPlaybackRate":1}
             """
         )
-        let provider = NowPlayingSnapshotProvider(processRunner: runner)
+        let provider = NowPlayingSnapshotProvider(processRunner: runner, fileExists: { _ in true })
 
         let snapshot = try await provider.fetchActiveSnapshot()
 
@@ -923,7 +923,7 @@ struct MusicModuleTests {
             {"kMRMediaRemoteNowPlayingInfoClientBundleIdentifier":"com.tencent.QQMusicMac","kMRMediaRemoteNowPlayingInfoTitle":"淘金小镇","kMRMediaRemoteNowPlayingInfoArtist":"周杰伦","kMRMediaRemoteNowPlayingInfoDuration":252,"kMRMediaRemoteNowPlayingInfoElapsedTime":35,"calculatedPlaybackPosition":42.5,"kMRMediaRemoteNowPlayingInfoPlaybackRate":1}
             """
         )
-        let provider = NowPlayingSnapshotProvider(processRunner: runner)
+        let provider = NowPlayingSnapshotProvider(processRunner: runner, fileExists: { _ in true })
 
         let snapshot = try await provider.fetchActiveSnapshot()
 
@@ -936,7 +936,7 @@ struct MusicModuleTests {
             {"kMRMediaRemoteNowPlayingInfoClientBundleIdentifier":"com.tencent.QQMusicMac","kMRMediaRemoteNowPlayingInfoTitle":"淘金小镇","kMRMediaRemoteNowPlayingInfoArtist":"周杰伦","kMRMediaRemoteNowPlayingInfoDuration":252,"kMRMediaRemoteNowPlayingInfoElapsedTime":35,"kMRMediaRemoteNowPlayingInfoPlaybackRate":0.5}
             """
         )
-        let provider = NowPlayingSnapshotProvider(processRunner: runner)
+        let provider = NowPlayingSnapshotProvider(processRunner: runner, fileExists: { _ in true })
 
         let snapshot = try await provider.fetchActiveSnapshot()
 
@@ -957,7 +957,7 @@ struct MusicModuleTests {
         let provider = NowPlayingSnapshotProvider(
             processRunner: runner,
             executableCandidates: ["/missing/nowplaying-cli"],
-            fileExists: { _ in false }
+            fileExists: { _ in true }
         )
 
         let snapshot = try #require(await provider.fetchActiveSnapshot())
@@ -993,7 +993,7 @@ struct MusicModuleTests {
         let provider = NowPlayingSnapshotProvider(
             processRunner: runner,
             executableCandidates: ["/missing/nowplaying-cli"],
-            fileExists: { _ in false }
+            fileExists: { _ in true }
         )
 
         let snapshot = try #require(await provider.fetchActiveSnapshot())
@@ -1021,7 +1021,7 @@ struct MusicModuleTests {
         let provider = NowPlayingSnapshotProvider(
             processRunner: runner,
             executableCandidates: ["/missing/nowplaying-cli"],
-            fileExists: { _ in false }
+            fileExists: { _ in true }
         )
 
         let snapshot = try #require(await provider.fetchActiveSnapshot())
@@ -1033,12 +1033,12 @@ struct MusicModuleTests {
         let menuProbeInvocation = try #require(invocations.dropFirst().first)
         let elapsedTimeInvocation = try #require(invocations.dropFirst(2).first)
         #expect(menuProbeInvocation.first == "/usr/bin/osascript")
-        #expect(elapsedTimeInvocation == ["/usr/bin/env", "nowplaying-cli", "get", "elapsedTime"])
+        #expect(elapsedTimeInvocation == ["/missing/nowplaying-cli", "get", "elapsedTime"])
     }
 
     @Test func nowPlayingProviderTreatsEmptyPayloadAsNoActiveSession() async throws {
         let runner = MusicProcessRunnerStub(stdout: "{}")
-        let provider = NowPlayingSnapshotProvider(processRunner: runner)
+        let provider = NowPlayingSnapshotProvider(processRunner: runner, fileExists: { _ in true })
 
         let snapshot = try await provider.fetchActiveSnapshot()
 
@@ -1047,7 +1047,7 @@ struct MusicModuleTests {
 
     @Test func nowPlayingProviderSnapshotPreservesCommandFailure() async {
         let runner = MusicProcessRunnerStub(stderr: "nowplaying-cli failed", status: 1)
-        let provider = NowPlayingSnapshotProvider(processRunner: runner)
+        let provider = NowPlayingSnapshotProvider(processRunner: runner, fileExists: { _ in true })
 
         do {
             _ = try await provider.snapshot()
@@ -1061,7 +1061,7 @@ struct MusicModuleTests {
 
     @Test func nowPlayingProviderSurfacesMetadataCommandFailure() async {
         let runner = MusicProcessRunnerStub(stderr: "nowplaying-cli failed", status: 1)
-        let provider = NowPlayingSnapshotProvider(processRunner: runner)
+        let provider = NowPlayingSnapshotProvider(processRunner: runner, fileExists: { _ in true })
 
         await #expect(throws: MusicProviderError.metadataCommandFailed(stderr: "nowplaying-cli failed")) {
             try await provider.fetchActiveSnapshot()
@@ -1070,7 +1070,7 @@ struct MusicModuleTests {
 
     @Test func nowPlayingProviderSurfacesMalformedJSONAsMetadataFailure() async {
         let runner = MusicProcessRunnerStub(stdout: "{not-json")
-        let provider = NowPlayingSnapshotProvider(processRunner: runner)
+        let provider = NowPlayingSnapshotProvider(processRunner: runner, fileExists: { _ in true })
 
         do {
             _ = try await provider.fetchActiveSnapshot()
@@ -1104,7 +1104,12 @@ struct MusicModuleTests {
         #expect(invocations == [["/opt/homebrew/bin/nowplaying-cli", "get-raw"]])
     }
 
-    @Test func nowPlayingProviderFallsBackToEnvWhenCandidatesAreMissing() async throws {
+    @Test func defaultExecutableCandidatesPreferBundledHelper() throws {
+        let first = try #require(NowPlayingSnapshotProvider.defaultExecutableCandidates.first)
+        #expect(first.hasSuffix("Contents/Helpers/nowplaying-cli"))
+    }
+
+    @Test func nowPlayingProviderReturnsNoSnapshotWhenNoExecutableIsAvailable() async throws {
         let runner = MusicProcessRunnerSpy(stdout: "{}")
         let provider = NowPlayingSnapshotProvider(
             processRunner: runner,
@@ -1115,10 +1120,13 @@ struct MusicModuleTests {
             fileExists: { _ in false }
         )
 
-        _ = try await provider.fetchActiveSnapshot()
+        let snapshot = try await provider.fetchActiveSnapshot()
 
+        // No PATH-search fallback: an absent helper yields no snapshot and never
+        // spawns a process.
+        #expect(snapshot == nil)
         let invocations = await runner.recordedInvocations()
-        #expect(invocations == [["/usr/bin/env", "nowplaying-cli", "get-raw"]])
+        #expect(invocations.isEmpty)
     }
 
     @Test func foundationMusicProcessRunnerCapturesStdoutStderrAndExitStatus() async throws {
@@ -1213,7 +1221,7 @@ struct MusicModuleTests {
 
     @Test func nowPlayingProviderSurfacesRunnerLaunchFailureAsMetadataFailure() async {
         let runner = MusicProcessRunnerStub(runError: MusicProcessRunnerStubError.launchFailed)
-        let provider = NowPlayingSnapshotProvider(processRunner: runner)
+        let provider = NowPlayingSnapshotProvider(processRunner: runner, fileExists: { _ in true })
 
         do {
             _ = try await provider.fetchActiveSnapshot()
@@ -1232,7 +1240,7 @@ struct MusicModuleTests {
 
     @Test func nowPlayingProviderPreservesCancellation() async {
         let runner = MusicProcessRunnerStub(runError: MusicProcessRunnerStubError.cancelled)
-        let provider = NowPlayingSnapshotProvider(processRunner: runner)
+        let provider = NowPlayingSnapshotProvider(processRunner: runner, fileExists: { _ in true })
 
         do {
             _ = try await provider.fetchActiveSnapshot()
@@ -1249,7 +1257,7 @@ struct MusicModuleTests {
             {"kMRMediaRemoteNowPlayingInfoClientBundleIdentifier":"com.tencent.QQMusicMac","kMRMediaRemoteNowPlayingInfoTitle":"P.S.I Love You (Live)","kMRMediaRemoteNowPlayingInfoArtist":"张敬轩","kMRMediaRemoteNowPlayingInfoAlbum":"The Brightest Darkness","kMRMediaRemoteNowPlayingInfoDuration":279,"kMRMediaRemoteNowPlayingInfoElapsedTime":0,"kMRMediaRemoteNowPlayingInfoPlaybackRate":1,"kMRMediaRemoteNowPlayingInfoArtworkData":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB"}
             """
         )
-        let provider = NowPlayingSnapshotProvider(processRunner: runner)
+        let provider = NowPlayingSnapshotProvider(processRunner: runner, fileExists: { _ in true })
         let expectedArtworkData = try #require(
             Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB")
         )

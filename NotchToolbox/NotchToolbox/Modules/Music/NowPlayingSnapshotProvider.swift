@@ -20,8 +20,11 @@ struct NowPlayingSnapshotProvider: MusicSnapshotProviding {
     }
 
     func fetchActiveSnapshot() async throws -> MusicPlayerSnapshot? {
+        guard let command = resolveCommand(arguments: ["get-raw"]) else {
+            return nil
+        }
+
         let output: MusicProcessOutput
-        let command = resolveCommand(arguments: ["get-raw"])
         do {
             output = try await processRunner.run(
                 command.launchPath,
@@ -60,12 +63,17 @@ struct NowPlayingSnapshotProvider: MusicSnapshotProviding {
         )
     }
 
-    private func resolveCommand(arguments: [String]) -> (launchPath: String, arguments: [String]) {
-        if let executablePath = executableCandidates.first(where: fileExists) {
-            return (executablePath, arguments)
+    // Resolves an absolute path to the helper, or nil when none of the known
+    // candidates exist. There is deliberately no `/usr/bin/env nowplaying-cli`
+    // PATH-search fallback: searching $PATH would run whatever binary of that
+    // name a user happens to have, and would also spawn a doomed process on
+    // every poll when the helper is absent. Absent helper => no snapshot.
+    private func resolveCommand(arguments: [String]) -> (launchPath: String, arguments: [String])? {
+        guard let executablePath = executableCandidates.first(where: fileExists) else {
+            return nil
         }
 
-        return ("/usr/bin/env", ["nowplaying-cli"] + arguments)
+        return (executablePath, arguments)
     }
 
     private func fetchCalculatedPlaybackPosition(
@@ -76,7 +84,10 @@ struct NowPlayingSnapshotProvider: MusicSnapshotProviding {
             return nil
         }
 
-        let command = resolveCommand(arguments: ["get", "elapsedTime"])
+        guard let command = resolveCommand(arguments: ["get", "elapsedTime"]) else {
+            return nil
+        }
+
         do {
             let output = try await processRunner.run(command.launchPath, arguments: command.arguments)
             guard output.status == 0 else {
@@ -124,10 +135,23 @@ struct NowPlayingSnapshotProvider: MusicSnapshotProviding {
         }
     }
 
-    private static let defaultExecutableCandidates: [String] = [
-        "/opt/homebrew/bin/nowplaying-cli",
-        "/usr/local/bin/nowplaying-cli"
-    ]
+    static let bundledHelperName = "nowplaying-cli"
+
+    // The helper ships inside the app bundle at Contents/Helpers, so the music
+    // module works without the user installing a copy. It's resolved first; the
+    // Homebrew paths and the PATH lookup in `resolveCommand` remain only as a
+    // dev/robustness fallback.
+    static let defaultExecutableCandidates: [String] = {
+        let bundledHelperPath = Bundle.main.bundleURL
+            .appending(path: "Contents/Helpers/\(bundledHelperName)")
+            .path(percentEncoded: false)
+
+        return [
+            bundledHelperPath,
+            "/opt/homebrew/bin/nowplaying-cli",
+            "/usr/local/bin/nowplaying-cli"
+        ]
+    }()
 
     private static let qqMusicPlaybackMenuStateScript = """
     tell application "System Events"

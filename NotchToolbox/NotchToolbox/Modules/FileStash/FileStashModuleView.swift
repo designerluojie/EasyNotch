@@ -184,10 +184,19 @@ private struct FileStashCardListSurface: View {
     let onInternalDragStart: () -> Void
     let onDeleteCard: (UUID) -> Void
 
+    // Build only the first page of cards on open; scrolling to the right edge
+    // pages in more.
+    @State private var displayedCount = FileStashCardListSurface.pageSize
+    private static let pageSize = 10
+
+    private var windowedCards: [FileStashCardViewState] {
+        Array(cards.prefix(displayedCount))
+    }
+
     var body: some View {
-        ClipboardHorizontalWheelScrollView {
+        ClipboardHorizontalWheelScrollView(onReachedEnd: loadMore) {
             LazyHStack(alignment: .center, spacing: FileStashModuleLayout.cardSpacing) {
-                ForEach(cards) { card in
+                ForEach(windowedCards) { card in
                     FileStashCardView(
                         card: card,
                         isPendingReveal: pendingRevealCardIDs.contains(card.id),
@@ -205,6 +214,14 @@ private struct FileStashCardListSurface: View {
                 alignment: .topLeading
             )
         }
+    }
+
+    private func loadMore() {
+        guard displayedCount < cards.count else {
+            return
+        }
+
+        displayedCount = min(displayedCount + Self.pageSize, cards.count)
     }
 }
 

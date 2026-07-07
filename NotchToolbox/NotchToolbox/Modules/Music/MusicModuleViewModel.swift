@@ -167,12 +167,15 @@ struct MusicModuleViewModel {
                     emphasis: .warning
                 )
             )
-        case .unsupportedActivePlayer(let displayName):
-            return .message(
-                MessagePresentation(
-                    title: "暂不支持当前播放器",
-                    body: "\(displayName) 还不在第一阶段支持范围内。",
-                    emphasis: .neutral
+        case .unsupportedActivePlayer:
+            // An unsupported player (e.g. a WebKit/web-based one) is treated as
+            // "nothing we can show" — fall back to the default empty state with
+            // launch buttons for supported players, instead of an "unsupported"
+            // card.
+            return .empty(
+                EmptyPresentation(
+                    message: "美好的一天，从音乐开始",
+                    launchTargets: Self.launchTargets(for: MusicPlayerCapability.v1Targets)
                 )
             )
         case .metadataUnavailable(let displayName):

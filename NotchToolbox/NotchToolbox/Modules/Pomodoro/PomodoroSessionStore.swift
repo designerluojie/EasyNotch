@@ -16,13 +16,12 @@ struct PomodoroSessionStore {
     }
 
     func loadSession() throws -> PomodoroSessionSnapshot? {
-        let url = sessionURL
-        guard fileManager.fileExists(atPath: url.path) else {
-            return nil
-        }
-
-        let data = try Data(contentsOf: url)
-        return try decoder.decode(PomodoroSessionSnapshot.self, from: data)
+        try ResilientStore.decodeQuarantiningCorruption(
+            PomodoroSessionSnapshot.self,
+            at: sessionURL,
+            decoder: decoder,
+            fileManager: fileManager
+        )
     }
 
     func saveSession(_ snapshot: PomodoroSessionSnapshot) throws {
@@ -40,14 +39,15 @@ struct PomodoroSessionStore {
     }
 
     func loadDailyStats(dayKey: String) throws -> PomodoroDailyStats {
-        let url = dailyStatsURL
-        guard fileManager.fileExists(atPath: url.path) else {
-            return PomodoroDailyStats(dayKey: dayKey, focusedSecondsCompleted: 0, lastSessionId: nil)
-        }
-
-        let data = try Data(contentsOf: url)
-        let stats = try decoder.decode(PomodoroDailyStats.self, from: data)
-        guard stats.dayKey == dayKey else {
+        guard
+            let stats = try ResilientStore.decodeQuarantiningCorruption(
+                PomodoroDailyStats.self,
+                at: dailyStatsURL,
+                decoder: decoder,
+                fileManager: fileManager
+            ),
+            stats.dayKey == dayKey
+        else {
             return PomodoroDailyStats(dayKey: dayKey, focusedSecondsCompleted: 0, lastSessionId: nil)
         }
 

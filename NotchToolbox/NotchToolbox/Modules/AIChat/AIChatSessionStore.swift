@@ -52,15 +52,20 @@ final class AIChatHistoryPruner: AIChatHistoryPruning {
     }
 
     func pruneIfNeeded(now: Date) async throws {
-        let lastPrunedAt = await MainActor.run {
-            settingsStore.settings.lastAIChatHistoryPrunedAt
+        let (lastPrunedAt, retention) = await MainActor.run {
+            (
+                settingsStore.settings.lastAIChatHistoryPrunedAt,
+                settingsStore.settings.aiChatHistoryRetention
+            )
         }
-        guard Self.shouldPrune(lastPrunedAt: lastPrunedAt, now: now) else {
+        guard shouldPrune(lastPrunedAt: lastPrunedAt, retentionMonths: retention.months, now: now) else {
             return
         }
 
         let sessionStore = try sessionStoreFactory()
-        try sessionStore.pruneHistory(olderThan: historyRetentionCutoff(now: now))
+        try sessionStore.pruneHistory(
+            olderThan: historyRetentionCutoff(now: now, months: retention.months)
+        )
         try await MainActor.run {
             try settingsStore.update { settings in
                 settings.lastAIChatHistoryPrunedAt = now
@@ -68,17 +73,26 @@ final class AIChatHistoryPruner: AIChatHistoryPruning {
         }
     }
 
-    nonisolated static func shouldPrune(lastPrunedAt: Date?, now: Date) -> Bool {
+    // Due one retention window after the last prune, counted from the last
+    // actual prune rather than from whenever the setting changed. So shortening
+    // the window (e.g. 3mo -> 1mo) can make a prune due immediately if that much
+    // time already elapsed since the last prune, while lengthening it (1mo ->
+    // 3mo) pushes the next run further out from where it already was.
+    private func shouldPrune(lastPrunedAt: Date?, retentionMonths: Int, now: Date) -> Bool {
         guard let lastPrunedAt else {
             return true
         }
 
-        return now.timeIntervalSince(lastPrunedAt) >= 24 * 60 * 60
+        guard let nextDueAt = calendar.date(byAdding: .month, value: retentionMonths, to: lastPrunedAt) else {
+            return true
+        }
+
+        return now >= nextDueAt
     }
 
-    private func historyRetentionCutoff(now: Date) -> Date {
-        calendar.date(byAdding: .month, value: -3, to: now)
-            ?? now.addingTimeInterval(-90 * 24 * 60 * 60)
+    private func historyRetentionCutoff(now: Date, months: Int) -> Date {
+        calendar.date(byAdding: .month, value: -months, to: now)
+            ?? now.addingTimeInterval(-Double(months) * 30 * 24 * 60 * 60)
     }
 }
 

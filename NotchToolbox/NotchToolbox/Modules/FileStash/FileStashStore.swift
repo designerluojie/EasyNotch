@@ -72,12 +72,12 @@ final class FileStashStore {
     }
 
     private func loadRecords() throws -> [FileStashRecord] {
-        guard fileManager.fileExists(atPath: itemsURL.path(percentEncoded: false)) else {
-            return []
-        }
-
-        let data = try Data(contentsOf: itemsURL)
-        return try decoder.decode([FileStashRecord].self, from: data)
+        try ResilientStore.decodeQuarantiningCorruption(
+            [FileStashRecord].self,
+            at: itemsURL,
+            decoder: decoder,
+            fileManager: fileManager
+        ) ?? []
     }
 
     private func persist(_ records: [FileStashRecord]) throws {

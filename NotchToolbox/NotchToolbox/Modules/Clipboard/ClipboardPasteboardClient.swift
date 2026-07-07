@@ -56,7 +56,13 @@ final class LiveClipboardPasteboardClient: ClipboardPasteboardClient {
             changeCount: pasteboard.changeCount,
             availableTypes: types,
             dataByType: dataByType,
-            fileURLs: pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL] ?? []
+            // fileURLsOnly keeps web URLs (http/https copied from a browser) out
+            // of the file path — otherwise they'd be treated as file references,
+            // fail bookmarking, and get silently dropped instead of saved as text.
+            fileURLs: pasteboard.readObjects(
+                forClasses: [NSURL.self],
+                options: [.urlReadingFileURLsOnly: true]
+            ) as? [URL] ?? []
         )
     }
 

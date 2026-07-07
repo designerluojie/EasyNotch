@@ -29,14 +29,10 @@ struct PomodoroModuleTests {
         #expect(harness.core.selectedFocusDurationSeconds == 2_700)
     }
 
-    @Test func selectingThirtySecondFocusDurationSupportsFastManualCompletionTesting() throws {
+    @Test func durationOptionsOnlyExposeProductSpecDurations() throws {
         let harness = try Self.makeHarness()
 
-        harness.core.setSelectedFocusDuration(seconds: 30)
-
-        #expect(harness.core.selectedFocusDurationSeconds == 30)
-        #expect(PomodoroPresentation(core: harness.core).durationOptions.contains(30))
-        #expect(PomodoroPresentation.durationOptionTitle(seconds: 30) == "0:30")
+        #expect(PomodoroPresentation(core: harness.core).durationOptions == [1_500, 2_700, 3_600])
     }
 
     @Test func startingFocusCreatesRunningSessionWithAbsoluteEndDate() throws {
@@ -218,7 +214,6 @@ struct PomodoroModuleTests {
         #expect(PomodoroPresentation.durationOptionTitle(seconds: 1_500) == "25:00")
         #expect(PomodoroPresentation.durationOptionTitle(seconds: 2_700) == "45:00")
         #expect(PomodoroPresentation.durationOptionTitle(seconds: 3_600) == "60:00")
-        #expect(PomodoroPresentation.durationOptionTitle(seconds: 30) == "0:30")
     }
 
     @Test func primaryButtonInteractionMetricsMatchAIChatConfigurationButton() {
@@ -296,17 +291,16 @@ struct PomodoroModuleTests {
         #expect(viewModel.presentation.progress == 0)
     }
 
-    @Test func thirtySecondFocusCanReachCompletionToastForManualTesting() throws {
+    @Test func focusReachesCompletionToastWhenDurationElapses() throws {
         let harness = try Self.makeHarness()
-        harness.core.setSelectedFocusDuration(seconds: 30)
         try harness.core.startFocus()
 
-        harness.now = harness.now.addingTimeInterval(31)
+        harness.now = harness.now.addingTimeInterval(1_501)
         try harness.core.advanceIfNeeded()
         let request = try #require(PomodoroRestVariantPresentation.request(for: harness.core))
 
         #expect(harness.core.status == .finishedToast)
-        #expect(harness.core.todayFocusedSeconds() == 30)
+        #expect(harness.core.todayFocusedSeconds() == 1_500)
         #expect(PomodoroPresentation(core: harness.core).timeText == "5:00")
         #expect(request.kind == .headerlessMiniPanel)
         #expect(request.moduleID == .pomodoro)

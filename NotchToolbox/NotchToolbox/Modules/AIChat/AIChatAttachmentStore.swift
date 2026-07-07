@@ -63,7 +63,9 @@ final class AIChatAttachmentStore {
             }
             NSGraphicsContext.saveGraphicsState()
             NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: previewBitmap)
-            previewImage.draw(in: NSRect(x: 0, y: 0, width: 256, height: 256))
+            // Aspect-fit (centered) instead of stretching to the square — a wide
+            // or tall image would otherwise be visibly distorted in the preview.
+            previewImage.draw(in: Self.aspectFitRect(imageSize: previewImage.size, in: 256))
             NSGraphicsContext.restoreGraphicsState()
             guard let previewData = previewBitmap.representation(using: .png, properties: [:]) else {
                 throw AIChatAttachmentStoreError.encodingFailed
@@ -87,6 +89,21 @@ final class AIChatAttachmentStore {
             cleanupFileIfPresent(at: previewURL)
             throw error
         }
+    }
+
+    // Centered aspect-fit rect for drawing an image of `imageSize` into a
+    // `side`×`side` box without distortion.
+    nonisolated static func aspectFitRect(imageSize: CGSize, in side: CGFloat) -> NSRect {
+        let width = max(imageSize.width, 1)
+        let height = max(imageSize.height, 1)
+        let scale = min(side / width, side / height)
+        let drawSize = CGSize(width: width * scale, height: height * scale)
+        return NSRect(
+            x: (side - drawSize.width) / 2,
+            y: (side - drawSize.height) / 2,
+            width: drawSize.width,
+            height: drawSize.height
+        )
     }
 
     private func cleanupFileIfPresent(at url: URL) {

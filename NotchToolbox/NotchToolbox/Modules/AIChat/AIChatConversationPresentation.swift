@@ -33,6 +33,9 @@ nonisolated struct AIChatMessageRowPresentation: Equatable {
     var alignment: AIChatMessageRowAlignment
     var displayText: String
     var reasoningText: String = ""
+    /// True while the assistant is still thinking; drives whether the reasoning
+    /// block defaults to expanded (live) or collapsed (done).
+    var isReasoningStreaming: Bool = false
 }
 
 nonisolated struct AIChatConversationPresentation {
@@ -69,7 +72,8 @@ nonisolated struct AIChatConversationPresentation {
                 visualStyle: .assistantContentBlock,
                 alignment: .leading,
                 displayText: displayText,
-                reasoningText: message.reasoningText
+                reasoningText: message.reasoningText,
+                isReasoningStreaming: message.status == .streaming
             )
         }
     }
