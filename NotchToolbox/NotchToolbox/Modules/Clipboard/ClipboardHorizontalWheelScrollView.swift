@@ -25,24 +25,34 @@ enum ClipboardWheelScrollMapper {
 
 struct ClipboardHorizontalWheelScrollView<Content: View>: NSViewRepresentable {
     let content: Content
+    var onReachedEnd: (() -> Void)?
 
-    init(@ViewBuilder content: () -> Content) {
+    init(onReachedEnd: (() -> Void)? = nil, @ViewBuilder content: () -> Content) {
         self.content = content()
+        self.onReachedEnd = onReachedEnd
     }
 
     func makeNSView(context: Context) -> ClipboardMappedHorizontalScrollView {
         let scrollView = ClipboardMappedHorizontalScrollView()
+        scrollView.onReachedEnd = onReachedEnd
         scrollView.update(rootView: content)
         return scrollView
     }
 
     func updateNSView(_ scrollView: ClipboardMappedHorizontalScrollView, context: Context) {
+        scrollView.onReachedEnd = onReachedEnd
         scrollView.update(rootView: content)
     }
 }
 
 final class ClipboardMappedHorizontalScrollView: NSScrollView {
     private let hostingView = NSHostingView(rootView: AnyView(EmptyView()))
+
+    /// Fired once each time horizontal scrolling reaches near the right edge, so
+    /// the owner can page in more items.
+    var onReachedEnd: (() -> Void)?
+    private var wasNearEnd = false
+    private let nearEndThreshold: CGFloat = 120
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -54,11 +64,39 @@ final class ClipboardMappedHorizontalScrollView: NSScrollView {
         horizontalScrollElasticity = .allowed
         verticalScrollElasticity = .none
         documentView = hostingView
+
+        contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(clipViewBoundsChanged),
+            name: NSView.boundsDidChangeNotification,
+            object: contentView
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    @objc private func clipViewBoundsChanged() {
+        guard let documentView else {
+            return
+        }
+
+        // Only meaningful when the content actually overflows the viewport.
+        let isScrollable = documentView.frame.width > contentSize.width + 1
+        let nearEnd = isScrollable
+            && contentView.bounds.maxX >= documentView.frame.width - nearEndThreshold
+
+        if nearEnd, !wasNearEnd {
+            onReachedEnd?()
+        }
+        wasNearEnd = nearEnd
     }
 
     override func layout() {

@@ -223,25 +223,27 @@ struct OverlayPanelRootView: View {
                 )
                 .allowsHitTesting(false)
 
-                Button {
-                    if let moduleID = currentRestVariantRequest?.moduleID {
-                        interactions.expand(screenID: panelModel.screenID, moduleID: moduleID)
-                    } else {
-                        interactions.expand(screenID: panelModel.screenID)
+                if currentRestVariantRequest?.isInteractive ?? true {
+                    Button {
+                        if let moduleID = currentRestVariantRequest?.moduleID {
+                            interactions.expand(screenID: panelModel.screenID, moduleID: moduleID)
+                        } else {
+                            interactions.expand(screenID: panelModel.screenID)
+                        }
+                    } label: {
+                        Rectangle()
+                            .fill(Color.black.opacity(OverlayPanelRootPresentation.restVariantHitTargetOpacity))
+                            .frame(width: bodyHitFrame.width, height: bodyHitFrame.height)
+                            .contentShape(Rectangle())
                     }
-                } label: {
-                    Rectangle()
-                        .fill(Color.black.opacity(OverlayPanelRootPresentation.restVariantHitTargetOpacity))
-                        .frame(width: bodyHitFrame.width, height: bodyHitFrame.height)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(ShellChromeButtonStyle())
-                .offset(x: bodyHitFrame.minX, y: bodyHitFrame.minY)
-                .onHover { isInside in
-                    if isInside {
-                        interactions.pointerEntered(screenID: panelModel.screenID)
-                    } else {
-                        interactions.pointerExited(screenID: panelModel.screenID)
+                    .buttonStyle(ShellChromeButtonStyle())
+                    .offset(x: bodyHitFrame.minX, y: bodyHitFrame.minY)
+                    .onHover { isInside in
+                        if isInside {
+                            interactions.pointerEntered(screenID: panelModel.screenID)
+                        } else {
+                            interactions.pointerExited(screenID: panelModel.screenID)
+                        }
                     }
                 }
             }
@@ -628,25 +630,27 @@ struct OverlayPanelRootView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .allowsHitTesting(false)
 
-                Button {
-                    if let moduleID = transition.targetRequest?.moduleID {
-                        interactions.expand(screenID: panelModel.screenID, moduleID: moduleID)
-                    } else {
-                        interactions.expand(screenID: panelModel.screenID)
+                if transition.targetRequest?.isInteractive ?? true {
+                    Button {
+                        if let moduleID = transition.targetRequest?.moduleID {
+                            interactions.expand(screenID: panelModel.screenID, moduleID: moduleID)
+                        } else {
+                            interactions.expand(screenID: panelModel.screenID)
+                        }
+                    } label: {
+                        Rectangle()
+                            .fill(Color.black.opacity(OverlayPanelRootPresentation.restVariantHitTargetOpacity))
+                            .frame(width: bodyHitFrame.width, height: bodyHitFrame.height)
+                            .contentShape(Rectangle())
                     }
-                } label: {
-                    Rectangle()
-                        .fill(Color.black.opacity(OverlayPanelRootPresentation.restVariantHitTargetOpacity))
-                        .frame(width: bodyHitFrame.width, height: bodyHitFrame.height)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(ShellChromeButtonStyle())
-                .offset(x: bodyHitFrame.minX, y: bodyHitFrame.minY)
-                .onHover { isInside in
-                    if isInside {
-                        interactions.pointerEntered(screenID: panelModel.screenID)
-                    } else {
-                        interactions.pointerExited(screenID: panelModel.screenID)
+                    .buttonStyle(ShellChromeButtonStyle())
+                    .offset(x: bodyHitFrame.minX, y: bodyHitFrame.minY)
+                    .onHover { isInside in
+                        if isInside {
+                            interactions.pointerEntered(screenID: panelModel.screenID)
+                        } else {
+                            interactions.pointerExited(screenID: panelModel.screenID)
+                        }
                     }
                 }
             }

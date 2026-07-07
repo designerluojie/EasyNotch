@@ -77,13 +77,12 @@ final class ClipboardStore {
     }
 
     func loadHistory() throws -> [ClipboardHistoryItem] {
-        let historyURL = self.historyURL
-        guard fileManager.fileExists(atPath: historyURL.path(percentEncoded: false)) else {
-            return []
-        }
-
-        let data = try Data(contentsOf: historyURL)
-        return try decoder.decode([ClipboardHistoryItem].self, from: data)
+        try ResilientStore.decodeQuarantiningCorruption(
+            [ClipboardHistoryItem].self,
+            at: historyURL,
+            decoder: decoder,
+            fileManager: fileManager
+        ) ?? []
     }
 
     func payloadData(for item: ClipboardHistoryItem) throws -> Data {

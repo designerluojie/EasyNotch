@@ -7,6 +7,7 @@ final class NotchShellRuntime: NSObject {
     let interactions: OverlayPanelInteractions
 
     private let coordinator: OverlayCoordinator
+    private let onboardingCoordinator: OnboardingCoordinator
     private let lifecycleDispatcher: ModuleLifecycleDispatcher
     private let globalShortcutService: any GlobalShortcutServicing
     private let launchAtLoginService: any LaunchAtLoginServicing
@@ -33,7 +34,7 @@ final class NotchShellRuntime: NSObject {
         self.compositionRoot = compositionRoot
         self.interactions = interactions
         self.globalShortcutService = globalShortcutService ?? CarbonGlobalShortcutService()
-        self.launchAtLoginService = launchAtLoginService ?? InMemoryLaunchAtLoginService()
+        self.launchAtLoginService = launchAtLoginService ?? SMAppServiceLaunchAtLoginService()
         self.appLifecycleObserver = appLifecycleObserver ?? AppLifecycleObserver()
         self.aiChatHistoryPruner = aiChatHistoryPruner ?? AIChatHistoryPruner(
             sharedServices: compositionRoot.sharedServices
@@ -49,6 +50,10 @@ final class NotchShellRuntime: NSObject {
             primaryScreenID: primaryScreenID,
             simulateNotchOnNonNotchScreen: simulateNotchOnNonNotchScreen,
             lifecycleDispatcher: lifecycleDispatcher
+        )
+        self.onboardingCoordinator = OnboardingCoordinator(
+            compositionRoot: compositionRoot,
+            topologyProvider: topologyProvider
         )
         super.init()
     }
@@ -156,6 +161,10 @@ final class NotchShellRuntime: NSObject {
             object: nil
         )
         coordinator.start()
+        onboardingCoordinator.activateScreen = { [weak self] screenID in
+            self?.coordinator.refreshScreens(primaryScreenID: screenID)
+        }
+        onboardingCoordinator.start()
     }
 
     deinit {
@@ -183,12 +192,22 @@ final class NotchShellRuntime: NSObject {
             return
         }
 
-        try? globalShortcutService.register(settings.globalShortcut) { [weak self] in
-            guard let self else {
-                return
-            }
+        do {
+            try globalShortcutService.register(settings.globalShortcut) { [weak self] in
+                guard let self else {
+                    return
+                }
 
-            togglePanelFromGlobalShortcut()
+                togglePanelFromGlobalShortcut()
+            }
+        } catch {
+            // Registration commonly fails when the chosen combo is already claimed
+            // by another app. Don't swallow it silently — record it so the failure
+            // is diagnosable instead of looking "enabled but dead".
+            compositionRoot.sharedServices.diagnosticsStore.record(
+                .error,
+                message: "Global shortcut registration failed for \(settings.globalShortcut.keyEquivalent): \(error)"
+            )
         }
     }
 

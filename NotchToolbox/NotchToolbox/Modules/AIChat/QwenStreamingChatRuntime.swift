@@ -52,6 +52,48 @@ final class QwenStreamingChatRuntime: AIChatRuntime {
     }
 }
 
+extension QwenStreamingChatRuntime {
+    // Exposed for testing so the request body's message ordering (prior history
+    // then the current turn) can be asserted without hitting the network.
+    nonisolated static func makeOpenAIRequestBody(for request: AIChatRequest) throws -> Data {
+        try JSONEncoder().encode(
+            ChatRequestBody(
+                model: request.selectedModel.modelID,
+                messages: messages(for: request),
+                stream: true
+            )
+        )
+    }
+
+    nonisolated static func makeGeminiRequestBody(for request: AIChatRequest) throws -> Data {
+        try JSONEncoder().encode(geminiRequestBody(for: request))
+    }
+}
+
+private extension AIChatMessageRole {
+    var openAIWireRole: String {
+        switch self {
+        case .user:
+            return "user"
+        case .assistant:
+            return "assistant"
+        case .system:
+            return "system"
+        }
+    }
+
+    // Gemini names the assistant role "model" and has no dedicated system role
+    // in this request shape, so system turns ride along as user context.
+    var geminiWireRole: String {
+        switch self {
+        case .user, .system:
+            return "user"
+        case .assistant:
+            return "model"
+        }
+    }
+}
+
 private extension QwenStreamingChatRuntime {
     struct ActiveStream {
         let continuation: AsyncThrowingStream<AIChatRuntimeEvent, Error>.Continuation
@@ -225,13 +267,7 @@ private extension QwenStreamingChatRuntime {
             urlRequest.httpMethod = "POST"
             urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
             urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            urlRequest.httpBody = try JSONEncoder().encode(
-                ChatRequestBody(
-                    model: request.selectedModel.modelID,
-                    messages: [.init(role: "user", content: messageContent(for: request))],
-                    stream: true
-                )
-            )
+            urlRequest.httpBody = try Self.makeOpenAIRequestBody(for: request)
 
             let (bytes, response) = try await session.bytes(for: urlRequest)
             guard let httpResponse = response as? HTTPURLResponse else {
@@ -362,7 +398,20 @@ private extension QwenStreamingChatRuntime {
         }
     }
 
-    func messageContent(for request: AIChatRequest) -> ChatRequestBody.MessageContent {
+    nonisolated static func messages(for request: AIChatRequest) -> [ChatRequestBody.Message] {
+        var messages = AIChatConversationPayload.history(for: request).map { turn in
+            ChatRequestBody.Message(
+                role: turn.role.openAIWireRole,
+                content: .text(turn.text)
+            )
+        }
+        messages.append(
+            ChatRequestBody.Message(role: "user", content: messageContent(for: request))
+        )
+        return messages
+    }
+
+    nonisolated static func messageContent(for request: AIChatRequest) -> ChatRequestBody.MessageContent {
         guard !request.attachments.isEmpty else {
             return .text(request.prompt)
         }
@@ -376,18 +425,23 @@ private extension QwenStreamingChatRuntime {
         return .multimodal(items)
     }
 
-    func geminiRequestBody(for request: AIChatRequest) -> GeminiRequestBody {
+    nonisolated static func geminiRequestBody(for request: AIChatRequest) -> GeminiRequestBody {
+        var contents = AIChatConversationPayload.history(for: request).map { turn in
+            GeminiRequestBody.Content(
+                role: turn.role.geminiWireRole,
+                parts: [.text(turn.text)]
+            )
+        }
+
         var parts: [GeminiRequestBody.Part] = []
         let prompt = request.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         if !prompt.isEmpty {
             parts.append(.text(prompt))
         }
         parts.append(contentsOf: request.attachments.map(GeminiRequestBody.Part.image))
-        return GeminiRequestBody(
-            contents: [
-                GeminiRequestBody.Content(role: "user", parts: parts)
-            ]
-        )
+        contents.append(GeminiRequestBody.Content(role: "user", parts: parts))
+
+        return GeminiRequestBody(contents: contents)
     }
 
     func consumeGeminiRemoteStream(
@@ -405,7 +459,8 @@ private extension QwenStreamingChatRuntime {
             )
             urlRequest.httpMethod = "POST"
             urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            urlRequest.httpBody = try JSONEncoder().encode(geminiRequestBody(for: request))
+            urlRequest.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
+            urlRequest.httpBody = try Self.makeGeminiRequestBody(for: request)
 
             let (bytes, response) = try await session.bytes(for: urlRequest)
             guard let httpResponse = response as? HTTPURLResponse else {
@@ -534,9 +589,9 @@ private extension QwenStreamingChatRuntime {
             var components = URLComponents(
                 string: "https://generativelanguage.googleapis.com/v1beta/models/\(modelID):streamGenerateContent"
             )!
+            // The API key is sent via the x-goog-api-key header, not the URL.
             components.queryItems = [
-                URLQueryItem(name: "alt", value: "sse"),
-                URLQueryItem(name: "key", value: apiKey)
+                URLQueryItem(name: "alt", value: "sse")
             ]
             return components.url!
         }

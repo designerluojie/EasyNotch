@@ -19,12 +19,14 @@ final class SettingsStore: ObservableObject {
         self.encoder = encoder
         self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
 
-        if FileManager.default.fileExists(atPath: storageURL.path(percentEncoded: false)) {
-            let data = try Data(contentsOf: storageURL)
-            settings = try decoder.decode(AppSettings.self, from: data)
-        } else {
-            settings = .defaultValue
-        }
+        // A corrupt settings file self-heals to defaults (and is quarantined)
+        // rather than throwing, which would otherwise drop the whole app into the
+        // temp-dir / in-memory fallback and lose Keychain access.
+        settings = try ResilientStore.decodeQuarantiningCorruption(
+            AppSettings.self,
+            at: storageURL,
+            decoder: decoder
+        ) ?? .defaultValue
     }
 
     func update(_ mutate: (inout AppSettings) -> Void) throws {

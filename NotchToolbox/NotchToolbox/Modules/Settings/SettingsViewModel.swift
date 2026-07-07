@@ -12,6 +12,7 @@ final class SettingsViewModel: ObservableObject {
 
     let supportedClipboardMaxItems = [5, 10, 15, 20, 30, 50]
     let supportedCleanupPolicies = CleanupPolicy.allCases
+    let supportedAIChatHistoryRetentions = AIChatHistoryRetention.allCases
     let supportedAnimationModes = AnimationMode.allCases
     let supportedAnimationSpeeds = AnimationSpeed.allCases
 
@@ -120,6 +121,10 @@ final class SettingsViewModel: ObservableObject {
 
     func setClipboardCleanupPolicy(_ value: CleanupPolicy) {
         update { $0.clipboardAutoCleanupPolicy = value }
+    }
+
+    func setAIChatHistoryRetention(_ value: AIChatHistoryRetention) {
+        update { $0.aiChatHistoryRetention = value }
     }
 
     func beginProviderConfiguration(_ provider: AIProviderKind) {

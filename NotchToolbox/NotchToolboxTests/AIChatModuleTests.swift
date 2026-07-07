@@ -878,6 +878,138 @@ struct AIChatModuleTests {
     }
 
     @MainActor
+    @Test func sendIncludesPriorConversationTurnsAsHistory() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        let sessionStore = try makeSQLiteSessionStore(rootURL: rootURL)
+        let session = AIChatSession.fixture(selectedModelID: "qwen3.6-flash")
+        try sessionStore.upsert(session)
+        try sessionStore.append(
+            AIChatMessage.fixture(
+                sessionID: session.id,
+                role: .user,
+                text: "hi",
+                createdAt: Date(timeIntervalSince1970: 1)
+            )
+        )
+        try sessionStore.append(
+            AIChatMessage.fixture(
+                sessionID: session.id,
+                role: .assistant,
+                text: "hello",
+                createdAt: Date(timeIntervalSince1970: 2)
+            )
+        )
+
+        let selectedModel = try #require(AIProviderCatalog.qwenModel(id: "qwen3.6-flash"))
+        let configuredSummary = AIProviderConfigSummary(
+            provider: .qwen,
+            status: .configured,
+            selectedModelID: selectedModel.modelID,
+            imageInputCapability: .target
+        )
+        let runtime = RequestCapturingRuntime()
+        let model = AIChatModuleModel(
+            providerSummaries: [configuredSummary],
+            sessionStore: sessionStore,
+            selectedModel: selectedModel,
+            runtime: runtime,
+            governor: EnergyGovernor()
+        )
+
+        model.updateDraft(text: "how are you")
+        await model.sendCurrentDraft()
+
+        let request = try #require(runtime.capturedRequests.last)
+        #expect(request.prompt == "how are you")
+        #expect(request.history == [
+            AIChatRequestMessage(role: .user, text: "hi"),
+            AIChatRequestMessage(role: .assistant, text: "hello"),
+        ])
+    }
+
+    @MainActor
+    @Test func sendExcludesFailedAndEmptyTurnsFromHistory() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        let sessionStore = try makeSQLiteSessionStore(rootURL: rootURL)
+        let session = AIChatSession.fixture(selectedModelID: "qwen3.6-flash")
+        try sessionStore.upsert(session)
+        try sessionStore.append(
+            AIChatMessage.fixture(
+                sessionID: session.id,
+                role: .user,
+                text: "earlier question",
+                status: .complete,
+                createdAt: Date(timeIntervalSince1970: 1)
+            )
+        )
+        try sessionStore.append(
+            AIChatMessage.fixture(
+                sessionID: session.id,
+                role: .assistant,
+                text: "",
+                status: .failed,
+                createdAt: Date(timeIntervalSince1970: 2)
+            )
+        )
+
+        let selectedModel = try #require(AIProviderCatalog.qwenModel(id: "qwen3.6-flash"))
+        let configuredSummary = AIProviderConfigSummary(
+            provider: .qwen,
+            status: .configured,
+            selectedModelID: selectedModel.modelID,
+            imageInputCapability: .target
+        )
+        let runtime = RequestCapturingRuntime()
+        let model = AIChatModuleModel(
+            providerSummaries: [configuredSummary],
+            sessionStore: sessionStore,
+            selectedModel: selectedModel,
+            runtime: runtime,
+            governor: EnergyGovernor()
+        )
+
+        model.updateDraft(text: "retry")
+        await model.sendCurrentDraft()
+
+        let request = try #require(runtime.capturedRequests.last)
+        #expect(request.history == [
+            AIChatRequestMessage(role: .user, text: "earlier question"),
+        ])
+    }
+
+    @MainActor
+    @Test func streamingPersistsOncePerReplyNotPerToken() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        let base = try makeSQLiteSessionStore(rootURL: rootURL)
+        let countingStore = UpdateCountingSessionStore(base: base)
+        let selectedModel = try #require(AIProviderCatalog.qwenModel(id: "qwen3.6-flash"))
+        let configuredSummary = AIProviderConfigSummary(
+            provider: .qwen,
+            status: .configured,
+            selectedModelID: selectedModel.modelID,
+            imageInputCapability: .target
+        )
+        let runtime = FakeStreamingChatRuntime(mode: .autoComplete)
+        let model = AIChatModuleModel(
+            providerSummaries: [configuredSummary],
+            sessionStore: countingStore,
+            selectedModel: selectedModel,
+            runtime: runtime,
+            governor: EnergyGovernor()
+        )
+
+        model.updateDraft(text: "hi")
+        await model.sendCurrentDraft()
+        await runtime.waitForDrain()
+
+        // autoComplete streams two deltas then completes; only the terminal
+        // status is persisted, so the DB is written once — not once per token.
+        #expect(countingStore.updateCount == 1)
+        let sessionID = try #require(model.currentSessionID)
+        #expect(try base.loadMessages(for: sessionID).last?.text.isEmpty == false)
+    }
+
+    @MainActor
     @Test func firstDeltaWithoutStartedStillLeavesSendingState() async throws {
         let selectedModel = try #require(AIProviderCatalog.qwenModel(id: "qwen3.6-flash"))
         let configuredSummary = AIProviderConfigSummary(
@@ -1197,7 +1329,7 @@ struct AIChatModuleTests {
     }
 
     @MainActor
-    @Test func historyPrunerRunsOncePerDayAndCleansExpiredAttachmentFiles() async throws {
+    @Test func historyPrunerDedupesWithinRetentionWindowAndCleansExpiredAttachmentFiles() async throws {
         let rootURL = try makeTemporaryDirectory()
         let sessionStore = try makeSQLiteSessionStore(rootURL: rootURL)
         let settingsStore = try SettingsStore(storageURL: rootURL.appending(path: "settings.json"))
@@ -1253,6 +1385,112 @@ struct AIChatModuleTests {
         try await pruner.pruneIfNeeded(now: now.addingTimeInterval(60))
 
         #expect(try sessionStore.loadAll().contains { $0.id == secondOldSession.id })
+    }
+
+    @MainActor
+    @Test func historyPrunerUsesConfiguredRetentionWindow() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        let base = try makeSQLiteSessionStore(rootURL: rootURL)
+        let spy = PruneCutoffCapturingStore(base: base)
+        let settingsStore = try SettingsStore(storageURL: rootURL.appending(path: "settings.json"))
+        try settingsStore.update { $0.aiChatHistoryRetention = .oneMonth }
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let pruner = AIChatHistoryPruner(
+            settingsStore: settingsStore,
+            sessionStoreFactory: { spy },
+            now: { now }
+        )
+
+        try await pruner.pruneIfNeeded(now: now)
+
+        let cutoff = try #require(spy.capturedCutoff)
+        let expected = try #require(Calendar.current.date(byAdding: .month, value: -1, to: now))
+        #expect(cutoff == expected)
+    }
+
+    @MainActor
+    @Test func pruneWaitsUntilFullRetentionWindowElapsedSinceLastPrune() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        let base = try makeSQLiteSessionStore(rootURL: rootURL)
+        let settingsStore = try SettingsStore(storageURL: rootURL.appending(path: "settings.json"))
+        try settingsStore.update { $0.aiChatHistoryRetention = .threeMonths }
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        // Last prune was only 10 days ago — more than the old fixed 24h cadence,
+        // but nowhere near the 3-month retention window, so a prune should not
+        // be due yet.
+        let lastPrunedAt = try #require(Calendar.current.date(byAdding: .day, value: -10, to: now))
+        try settingsStore.update { $0.lastAIChatHistoryPrunedAt = lastPrunedAt }
+        let oldSession = AIChatSession.fixture(
+            title: "Old",
+            createdAt: .distantPast,
+            updatedAt: .distantPast,
+            lastMessageAt: .distantPast
+        )
+        try base.upsert(oldSession)
+
+        let pruner = AIChatHistoryPruner(
+            settingsStore: settingsStore,
+            sessionStoreFactory: { base },
+            now: { now }
+        )
+        try await pruner.pruneIfNeeded(now: now)
+
+        #expect(try base.loadAll().contains { $0.id == oldSession.id })
+        #expect(settingsStore.settings.lastAIChatHistoryPrunedAt == lastPrunedAt)
+    }
+
+    @MainActor
+    @Test func shorteningRetentionCanMakePruneDueImmediately() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        let base = try makeSQLiteSessionStore(rootURL: rootURL)
+        let settingsStore = try SettingsStore(storageURL: rootURL.appending(path: "settings.json"))
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        // Last prune was 40 days ago; retention is changed down to 1 month
+        // (~30 days), so the new window has already elapsed since that prune —
+        // counted from the last prune, not from the moment the setting changed.
+        let lastPrunedAt = try #require(Calendar.current.date(byAdding: .day, value: -40, to: now))
+        try settingsStore.update {
+            $0.aiChatHistoryRetention = .oneMonth
+            $0.lastAIChatHistoryPrunedAt = lastPrunedAt
+        }
+        let oldSession = AIChatSession.fixture(
+            title: "Old",
+            createdAt: .distantPast,
+            updatedAt: .distantPast,
+            lastMessageAt: .distantPast
+        )
+        try base.upsert(oldSession)
+
+        let pruner = AIChatHistoryPruner(
+            settingsStore: settingsStore,
+            sessionStoreFactory: { base },
+            now: { now }
+        )
+        try await pruner.pruneIfNeeded(now: now)
+
+        #expect(try base.loadAll().contains { $0.id == oldSession.id } == false)
+        #expect(settingsStore.settings.lastAIChatHistoryPrunedAt == now)
+    }
+
+    @Test func attachmentPreviewAspectFitPreservesRatioForWideImage() {
+        let rect = AIChatAttachmentStore.aspectFitRect(
+            imageSize: CGSize(width: 512, height: 256),
+            in: 256
+        )
+
+        #expect(rect.width == 256)
+        #expect(rect.height == 128)
+        #expect(rect.origin.x == 0)
+        #expect(rect.origin.y == 64)
+    }
+
+    @Test func attachmentPreviewAspectFitFillsSquareImage() {
+        let rect = AIChatAttachmentStore.aspectFitRect(
+            imageSize: CGSize(width: 100, height: 100),
+            in: 256
+        )
+
+        #expect(rect == NSRect(x: 0, y: 0, width: 256, height: 256))
     }
 
     @Test func attachmentStoreWritesOriginalAndPreviewIntoAIAttachments() throws {
@@ -1463,6 +1701,77 @@ private func collectEvents(
         events.append(event)
     }
     return events
+}
+
+private final class PruneCutoffCapturingStore: AIChatSessionStore {
+    private let base: any AIChatSessionStore
+    private(set) var capturedCutoff: Date?
+
+    init(base: any AIChatSessionStore) {
+        self.base = base
+    }
+
+    func latest() throws -> AIChatSession? { try base.latest() }
+    func loadAll() throws -> [AIChatSession] { try base.loadAll() }
+    func loadMessages(for sessionID: UUID) throws -> [AIChatMessage] {
+        try base.loadMessages(for: sessionID)
+    }
+    func loadAttachments(for messageID: UUID) throws -> [AIChatAttachment] {
+        try base.loadAttachments(for: messageID)
+    }
+    func upsert(_ session: AIChatSession) throws { try base.upsert(session) }
+    func append(_ message: AIChatMessage) throws { try base.append(message) }
+    func append(_ attachment: AIChatAttachment) throws { try base.append(attachment) }
+    func update(_ message: AIChatMessage) throws { try base.update(message) }
+    func pruneHistory(olderThan cutoff: Date) throws {
+        capturedCutoff = cutoff
+        try base.pruneHistory(olderThan: cutoff)
+    }
+}
+
+private final class UpdateCountingSessionStore: AIChatSessionStore {
+    private let base: any AIChatSessionStore
+    private(set) var updateCount = 0
+
+    init(base: any AIChatSessionStore) {
+        self.base = base
+    }
+
+    func latest() throws -> AIChatSession? { try base.latest() }
+    func loadAll() throws -> [AIChatSession] { try base.loadAll() }
+    func loadMessages(for sessionID: UUID) throws -> [AIChatMessage] {
+        try base.loadMessages(for: sessionID)
+    }
+    func loadAttachments(for messageID: UUID) throws -> [AIChatAttachment] {
+        try base.loadAttachments(for: messageID)
+    }
+    func upsert(_ session: AIChatSession) throws { try base.upsert(session) }
+    func append(_ message: AIChatMessage) throws { try base.append(message) }
+    func append(_ attachment: AIChatAttachment) throws { try base.append(attachment) }
+    func update(_ message: AIChatMessage) throws {
+        updateCount += 1
+        try base.update(message)
+    }
+    func pruneHistory(olderThan cutoff: Date) throws { try base.pruneHistory(olderThan: cutoff) }
+}
+
+@MainActor
+private final class RequestCapturingRuntime: AIChatRuntime {
+    private(set) var capturedRequests: [AIChatRequest] = []
+
+    func streamReply(
+        for request: AIChatRequest
+    ) -> AsyncThrowingStream<AIChatRuntimeEvent, Error> {
+        capturedRequests.append(request)
+        return AsyncThrowingStream { continuation in
+            continuation.yield(.started(requestID: request.id))
+            continuation.yield(.delta(requestID: request.id, textChunk: "ok"))
+            continuation.yield(.completed(requestID: request.id))
+            continuation.finish()
+        }
+    }
+
+    func stopStreaming(requestID: UUID) {}
 }
 
 @MainActor

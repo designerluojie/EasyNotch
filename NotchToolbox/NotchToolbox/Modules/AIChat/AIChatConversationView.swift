@@ -14,6 +14,20 @@ struct AIChatConversationView: View {
     @State private var isFollowingLatestMessage = true
     @State private var isResumeLatestButtonHovered = false
     @State private var pendingImageAttachments: [AIChatPendingImageAttachment] = []
+    // Only build the latest N message rows on open (older ones are cheap to keep
+    // in the model but expensive to lay out all at once). "Load earlier" grows
+    // this window by a page. No LazyVStack — that fed the scroll-metrics loop.
+    @State private var displayedMessageCount = AIChatConversationView.messagePageSize
+
+    private static let messagePageSize = 10
+
+    private var windowedMessages: [AIChatMessage] {
+        Array(model.messages.suffix(displayedMessageCount))
+    }
+
+    private var hasEarlierMessages: Bool {
+        model.messages.count > displayedMessageCount
+    }
 
     var body: some View {
         let composerHeight = AIChatComposerLayout.composerHeight(
@@ -56,6 +70,11 @@ struct AIChatConversationView: View {
             if !model.selectedConversationModel.supportsImageInput {
                 pendingImageAttachments.removeAll()
             }
+        }
+        .onChange(of: model.currentSessionID) { _ in
+            // Switching conversations (or starting a new one) resets the window
+            // back to the latest page.
+            displayedMessageCount = Self.messagePageSize
         }
         .overlayPreferenceValue(AIChatComposerMenuAnchorPreferenceKey.self) { anchors in
             GeometryReader { proxy in
@@ -101,6 +120,23 @@ struct AIChatConversationView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .animation(AIChatComposerLayout.heightAnimation, value: composerHeight)
         .animation(.timingCurve(0.22, 1.0, 0.36, 1.0, duration: 0.16), value: activeComposerMenu)
+    }
+
+    private func loadEarlierMessages(using proxy: ScrollViewProxy) {
+        // Anchor to the current top row so growing the window upward keeps the
+        // viewport visually in place instead of jumping.
+        let anchorID = windowedMessages.first?.id
+        displayedMessageCount = min(
+            displayedMessageCount + Self.messagePageSize,
+            model.messages.count
+        )
+        guard let anchorID else {
+            return
+        }
+
+        DispatchQueue.main.async {
+            proxy.scrollTo(anchorID, anchor: .top)
+        }
     }
 
     private func composerMenuOverlay(_ activeMenu: AIChatComposerMenu) -> some View {
@@ -231,8 +267,17 @@ struct AIChatConversationView: View {
                         VStack(spacing: 0) {
                             scrollMetricMarker(.top)
 
+                            if hasEarlierMessages {
+                                // Scroll-to-top auto-loads the next page; this
+                                // spinner is the affordance while more remain.
+                                ProgressView()
+                                    .controlSize(.small)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 10)
+                            }
+
                             VStack(spacing: 10) {
-                                ForEach(model.messages) { message in
+                                ForEach(windowedMessages) { message in
                                     AIChatMessageRowView(
                                         presentation: AIChatConversationPresentation.messageRow(for: message),
                                         attachments: model.messageAttachments[message.id] ?? []
@@ -252,6 +297,16 @@ struct AIChatConversationView: View {
                     .aiChatDefaultBottomScrollAnchor()
                     .scrollDisabled(!conversationNeedsScrolling(viewportHeight: height))
                     .scrollIndicators(.never)
+                    // Auto-load the next earlier page when the user scrolls near the
+                    // top. Reads scroll offset directly (no GeometryReader/preference
+                    // feedback), edge-triggered, and guarded by `hasEarlierMessages`
+                    // so it terminates. loadEarlier repositions to the old top row,
+                    // moving us away from the top → natural debounce.
+                    .onScrollNearTop {
+                        if hasEarlierMessages {
+                            loadEarlierMessages(using: proxy)
+                        }
+                    }
                     .overlay(alignment: .trailing) {
                         conversationScrollIndicator(viewportHeight: height)
                     }
@@ -707,6 +762,14 @@ private struct AIChatMessageRowView: View {
     let presentation: AIChatMessageRowPresentation
     let attachments: [ConversationAttachment]
 
+    // nil = follow default (expanded while thinking, collapsed once done); a
+    // concrete value = the user's manual choice, which then sticks.
+    @State private var reasoningExpandedOverride: Bool?
+
+    private var isReasoningExpanded: Bool {
+        reasoningExpandedOverride ?? presentation.isReasoningStreaming
+    }
+
     var body: some View {
         Group {
             switch presentation.visualStyle {
@@ -722,15 +785,34 @@ private struct AIChatMessageRowView: View {
     private var assistantContentBlock: some View {
         VStack(alignment: .leading, spacing: 8) {
             if !presentation.reasoningText.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("思考过程")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(AIChatTheme.textSecondary)
-                    Text(presentation.reasoningText)
-                        .font(.system(size: 12, weight: .regular))
-                        .foregroundStyle(AIChatTheme.textSecondary)
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: isReasoningExpanded ? 4 : 0) {
+                    Button {
+                        reasoningExpandedOverride = !isReasoningExpanded
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text("思考过程")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(AIChatTheme.textSecondary)
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(AIChatTheme.textSecondary)
+                                .rotationEffect(.degrees(isReasoningExpanded ? 0 : -90))
+                            Spacer(minLength: 0)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+
+                    // Collapsed by default once thinking is done: the reasoning
+                    // text isn't in the view tree at all, so it costs nothing to
+                    // lay out — the big win for long "思考过程" blocks.
+                    if isReasoningExpanded {
+                        Text(presentation.reasoningText)
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundStyle(AIChatTheme.textSecondary)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
@@ -837,6 +919,26 @@ private enum AIChatUserBubbleLayout {
     static let contentMaxWidth: CGFloat = maxWidth - (horizontalPadding * 2)
     static let imageSize: CGFloat = 56
     static let attachmentSpacing: CGFloat = 6
+}
+
+private extension View {
+    /// Fires `perform` once each time the scroll offset crosses into the near-top
+    /// zone. Uses `onScrollGeometryChange` where available (macOS 15+); on older
+    /// systems it's a no-op (the deployment target is 13, but this runs on 26).
+    @ViewBuilder
+    func onScrollNearTop(_ perform: @escaping () -> Void) -> some View {
+        if #available(macOS 15.0, *) {
+            self.onScrollGeometryChange(for: Bool.self) { geometry in
+                geometry.contentOffset.y < 120
+            } action: { wasNearTop, isNearTop in
+                if isNearTop, !wasNearTop {
+                    perform()
+                }
+            }
+        } else {
+            self
+        }
+    }
 }
 
 private extension AIChatModuleState {

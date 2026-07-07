@@ -61,6 +61,7 @@ final class AIChatModuleModel: ObservableObject {
     private var currentRequestID: UUID?
     private var assistantMessage: AIChatMessage?
     private var streamTask: Task<Void, Never>?
+    private var sendingContinuation: CheckedContinuation<Void, Never>?
     private var streamGeneration = UUID()
     private var isVisible = true
     private var hasTemporaryContinuation = false
@@ -297,6 +298,11 @@ final class AIChatModuleModel: ObservableObject {
 
         stopStreamingIfNeeded(markStopped: false)
 
+        // Capture prior turns before the new user message + assistant placeholder
+        // are appended so the request carries the conversation up to (but not
+        // including) this turn.
+        let history = Self.requestHistory(from: messages)
+
         let sendingContext = ConversationContext(draft: draft, selectedModel: selectedModel)
         let session = makeOrUpdateSession(for: sendingContext)
         let userMessage = AIChatMessage(
@@ -351,7 +357,8 @@ final class AIChatModuleModel: ObservableObject {
             sessionID: session.id,
             selectedModel: selectedModel,
             prompt: sendingContext.draft.text,
-            attachments: sendingContext.draft.attachments
+            attachments: sendingContext.draft.attachments,
+            history: history
         )
         let stream = runtime.streamReply(for: request)
         let generation = UUID()
@@ -366,12 +373,18 @@ final class AIChatModuleModel: ObservableObject {
                 generation: generation
             )
         }
-        while true {
-            switch state {
-            case .sending:
-                await Task.yield()
-            default:
-                return
+
+        // Return once the stream leaves `.sending` (first token, completion, or
+        // failure) so callers observe a settled state — but suspend on a
+        // continuation instead of busy-waiting. An earlier version spun on
+        // `while state == .sending { await Task.yield() }`, pegging a core from
+        // send until the first token arrived; suspension costs nothing while the
+        // token is in flight and is resumed by `transition(to:)`.
+        if case .sending = state {
+            await withCheckedContinuation { continuation in
+                // Release any waiter from a superseded send before taking over.
+                sendingContinuation?.resume()
+                sendingContinuation = continuation
             }
         }
     }
@@ -447,6 +460,26 @@ final class AIChatModuleModel: ObservableObject {
 }
 
 private extension AIChatModuleModel {
+    // Maps completed conversation turns into provider-neutral history messages.
+    // Only finished user/assistant turns with real text carry context; empty
+    // assistant placeholders and failed turns are skipped so a failed reply
+    // never poisons the next request.
+    static func requestHistory(from messages: [AIChatMessage]) -> [AIChatRequestMessage] {
+        messages.compactMap { message in
+            guard message.role == .user || message.role == .assistant else {
+                return nil
+            }
+            guard message.status == .complete || message.status == .stopped else {
+                return nil
+            }
+            guard !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return nil
+            }
+
+            return AIChatRequestMessage(role: message.role, text: message.text)
+        }
+    }
+
     static func loadConversationAttachments(
         for messages: [AIChatMessage],
         from sessionStore: AIChatSessionStore
@@ -810,7 +843,21 @@ private extension AIChatModuleModel {
 
     func transition(to nextState: AIChatModuleState) {
         state = nextState
+        resumeSendingContinuationIfSettled()
         refreshActivityHint()
+    }
+
+    // Wakes a `sendCurrentDraft` call that is parked waiting for the stream to
+    // begin, as soon as the state has settled out of `.sending`.
+    func resumeSendingContinuationIfSettled() {
+        guard let continuation = sendingContinuation else {
+            return
+        }
+        if case .sending = state {
+            return
+        }
+        sendingContinuation = nil
+        continuation.resume()
     }
 
     func refreshActivityHint() {
@@ -833,7 +880,14 @@ private extension AIChatModuleModel {
         mutate?(&updatedMessage)
         messages[index] = updatedMessage
         assistantMessage = updatedMessage
-        try? sessionStore.update(updatedMessage)
+
+        // Persist only when the reply settles. Streaming deltas mutate the
+        // in-memory message (which drives the UI); writing every token would be
+        // hundreds of SQLite writes per reply. The terminal status carries the
+        // full accumulated text.
+        if status != .streaming {
+            try? sessionStore.update(updatedMessage)
+        }
     }
 }
 

@@ -6,6 +6,70 @@ import Testing
 @MainActor
 struct ClipboardModuleTests {
 
+    @Test func liveClientExcludesWebURLsFromFileURLs() {
+        let pasteboard = NSPasteboard.withUniqueName()
+        pasteboard.clearContents()
+        pasteboard.writeObjects([URL(string: "https://example.com/page")! as NSURL])
+
+        let client = LiveClipboardPasteboardClient(pasteboard: pasteboard)
+
+        #expect(client.snapshot().fileURLs.isEmpty)
+    }
+
+    @Test func liveClientKeepsRealFileURLs() throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appending(path: "\(UUID().uuidString).txt")
+        try Data("hello".utf8).write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let pasteboard = NSPasteboard.withUniqueName()
+        pasteboard.clearContents()
+        pasteboard.writeObjects([fileURL as NSURL])
+
+        let client = LiveClipboardPasteboardClient(pasteboard: pasteboard)
+
+        #expect(
+            client.snapshot().fileURLs.map(\.lastPathComponent)
+                .contains(fileURL.lastPathComponent)
+        )
+    }
+
+    @Test func imageCaptureContentHashIsCompactNotFullPayload() throws {
+        let bigData = Data(repeating: 0xAB, count: 100_000)
+        let snapshot = ClipboardPasteboardSnapshot(
+            changeCount: 1,
+            availableTypes: ["public.png"],
+            dataByType: ["public.png": bigData],
+            fileURLs: []
+        )
+
+        let capture = try #require(
+            try ClipboardNormalizer().normalize(snapshot: snapshot, sourceApp: nil)
+        )
+
+        #expect(capture.contentType == .image)
+        // A real hash is a fixed short fingerprint; the previous implementation
+        // embedded the entire base64 payload (~133 KB for this input).
+        #expect(capture.contentHash.count < 200)
+    }
+
+    @Test func imageContentHashIsStableAndDataDependent() throws {
+        func hash(for bytes: [UInt8]) throws -> String {
+            let snapshot = ClipboardPasteboardSnapshot(
+                changeCount: 1,
+                availableTypes: ["public.png"],
+                dataByType: ["public.png": Data(bytes)],
+                fileURLs: []
+            )
+            return try #require(
+                try ClipboardNormalizer().normalize(snapshot: snapshot, sourceApp: nil)
+            ).contentHash
+        }
+
+        #expect(try hash(for: [1, 2, 3, 4]) == hash(for: [1, 2, 3, 4]))
+        #expect(try hash(for: [1, 2, 3, 4]) != hash(for: [9, 9, 9, 9]))
+    }
+
     @Test func storePersistsHistoryAndPayloads() throws {
         let root = try Self.makeTemporaryRoot()
         let fileStore = LocalFileStore(baseURL: root)

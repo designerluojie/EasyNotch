@@ -33,7 +33,8 @@ final class RestVariantStore {
             moduleID: request.moduleID,
             kind: request.kind,
             preferredWidth: request.preferredWidth,
-            preferredHeight: request.preferredHeight
+            preferredHeight: request.preferredHeight,
+            isInteractive: request.isInteractive
         )
         publishResolvedPresentationIfNeeded(from: previousPresentation)
     }
@@ -67,7 +68,8 @@ final class RestVariantStore {
                 moduleID: request.moduleID,
                 kind: request.kind,
                 preferredWidth: request.preferredWidth,
-                preferredHeight: request.preferredHeight
+                preferredHeight: request.preferredHeight,
+                isInteractive: request.isInteractive
             )
             publishResolvedPresentationIfNeeded(from: previousPresentation)
             return

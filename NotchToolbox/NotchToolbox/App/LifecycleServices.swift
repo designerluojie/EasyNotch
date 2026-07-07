@@ -1,5 +1,6 @@
 import Carbon
 import Foundation
+import ServiceManagement
 
 @MainActor
 protocol GlobalShortcutServicing: AnyObject {
@@ -220,5 +221,65 @@ final class InMemoryLaunchAtLoginService: LaunchAtLoginServicing {
 
     func setEnabled(_ enabled: Bool) throws {
         isEnabled = enabled
+    }
+}
+
+// Thin seam over the single system call so the enable/disable branching in
+// SMAppServiceLaunchAtLoginService stays unit-testable without touching the
+// real login-item database.
+@MainActor
+protocol LoginItemRegistering: AnyObject {
+    var isRegistered: Bool { get }
+
+    func register() throws
+    func unregister() throws
+}
+
+@MainActor
+final class SMAppServiceLoginItemRegistrar: LoginItemRegistering {
+    private let service: SMAppService
+
+    init(service: SMAppService = .mainApp) {
+        self.service = service
+    }
+
+    var isRegistered: Bool {
+        service.status == .enabled
+    }
+
+    func register() throws {
+        try service.register()
+    }
+
+    func unregister() throws {
+        try service.unregister()
+    }
+}
+
+@MainActor
+final class SMAppServiceLaunchAtLoginService: LaunchAtLoginServicing {
+    private let registrar: any LoginItemRegistering
+
+    init(registrar: (any LoginItemRegistering)? = nil) {
+        self.registrar = registrar ?? SMAppServiceLoginItemRegistrar()
+    }
+
+    var isEnabled: Bool {
+        registrar.isRegistered
+    }
+
+    func setEnabled(_ enabled: Bool) throws {
+        // Registering an already-enabled item (or unregistering a disabled one)
+        // throws with SMAppService, so gate on current status to keep the
+        // operation idempotent.
+        guard registrar.isRegistered != enabled else {
+            return
+        }
+
+        if enabled {
+            try registrar.register()
+        } else {
+            try registrar.unregister()
+        }
     }
 }
