@@ -12,13 +12,4 @@ nonisolated enum ResolvedRestPresentation: Equatable, Sendable {
 
         return true
     }
-
-    var transientRequest: RestVariantRequest? {
-        guard case .request(let request) = self,
-              case .transient = request.lifetime else {
-            return nil
-        }
-
-        return request
-    }
 }

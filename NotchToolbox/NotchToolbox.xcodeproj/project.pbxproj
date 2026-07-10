@@ -23,7 +23,26 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXBuildFile section */
+		BDAA10022FAB000000EE7001 /* nowplaying-cli in Embed Helpers */ = {isa = PBXBuildFile; fileRef = BDAA10012FAB000000EE7001 /* nowplaying-cli */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		BDAA10032FAB000000EE7001 /* Embed Helpers */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = Contents/Helpers;
+			dstSubfolderSpec = 1;
+			files = (
+				BDAA10022FAB000000EE7001 /* nowplaying-cli in Embed Helpers */,
+			);
+			name = "Embed Helpers";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		BDAA10012FAB000000EE7001 /* nowplaying-cli */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = "nowplaying-cli"; path = "Vendor/nowplaying-cli"; sourceTree = "<group>"; };
 		BDDD72852FAB8896002EE7FF /* NotchToolbox.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NotchToolbox.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		BDDD72922FAB8898002EE7FF /* NotchToolboxTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NotchToolboxTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		BDDD729C2FAB8898002EE7FF /* NotchToolboxUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NotchToolboxUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -78,6 +97,7 @@
 				BDDD72872FAB8896002EE7FF /* NotchToolbox */,
 				BDDD72952FAB8898002EE7FF /* NotchToolboxTests */,
 				BDDD729F2FAB8898002EE7FF /* NotchToolboxUITests */,
+				BDAA10012FAB000000EE7001 /* nowplaying-cli */,
 				BDDD72862FAB8896002EE7FF /* Products */,
 			);
 			sourceTree = "<group>";
@@ -102,6 +122,7 @@
 				BDDD72812FAB8896002EE7FF /* Sources */,
 				BDDD72822FAB8896002EE7FF /* Frameworks */,
 				BDDD72832FAB8896002EE7FF /* Resources */,
+				BDAA10032FAB000000EE7001 /* Embed Helpers */,
 			);
 			buildRules = (
 			);
@@ -403,6 +424,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Notch 需要控制音乐播放器（如 QQ 音乐）以在灵动岛上为你显示和操作正在播放的音乐。";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -435,6 +457,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Notch 需要控制音乐播放器（如 QQ 音乐）以在灵动岛上为你显示和操作正在播放的音乐。";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

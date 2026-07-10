@@ -184,11 +184,25 @@ private extension SQLiteAIChatSessionStore {
         }
 
         db = connection
-        try enableForeignKeys()
+        try configureConnectionPragmas()
     }
 
-    func enableForeignKeys() throws {
+    func configureConnectionPragmas() throws {
         try execute(sql: "PRAGMA foreign_keys = ON;")
+
+        // WAL + synchronous=NORMAL: the default DELETE journal creates, fsyncs and
+        // deletes a rollback journal on every write, and chat history churns on
+        // each message append and stream settle. WAL removes that per-write journal
+        // churn and lets reads proceed without blocking the writer. NORMAL stays
+        // crash-safe under WAL (only a power loss can lose the last transaction,
+        // acceptable for local chat history). journal_mode returns a row, so it
+        // must go through sqlite3_exec rather than the DONE-expecting execute().
+        if sqlite3_exec(db, "PRAGMA journal_mode = WAL;", nil, nil, nil) != SQLITE_OK {
+            throw SQLiteAIChatSessionStoreError.statementExecutionFailed(
+                message: Self.lastErrorMessage(from: db)
+            )
+        }
+        try execute(sql: "PRAGMA synchronous = NORMAL;")
     }
 
     func migrate() throws {
@@ -238,6 +252,12 @@ private extension SQLiteAIChatSessionStore {
             FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE
         );
         """)
+
+        // Every message/attachment lookup and every ON DELETE CASCADE filters by
+        // these foreign keys; without indexes each is a full table scan.
+        try execute(sql: "CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id);")
+        try execute(sql: "CREATE INDEX IF NOT EXISTS idx_attachments_message_id ON attachments(message_id);")
+        try execute(sql: "CREATE INDEX IF NOT EXISTS idx_attachments_session_id ON attachments(session_id);")
     }
 
     func ensureColumnExists(table: String, column: String, definition: String) throws {

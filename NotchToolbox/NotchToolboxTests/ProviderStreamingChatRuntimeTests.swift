@@ -3,7 +3,7 @@ import Testing
 @testable import NotchToolbox
 
 @MainActor
-struct QwenStreamingChatRuntimeTests {
+struct ProviderStreamingChatRuntimeTests {
     @Test func sseChunksMapToStartedDeltaCompleted() async throws {
         let configured = await makeStreamingSession(lines: [
             #"data: {"choices":[{"delta":{"content":"Hello"},"finish_reason":null}]}"#,
@@ -11,7 +11,7 @@ struct QwenStreamingChatRuntimeTests {
             #"data: {"choices":[{"delta":{},"finish_reason":"stop"}]}"#,
             "data: [DONE]"
         ])
-        let runtime = QwenStreamingChatRuntime(
+        let runtime = ProviderStreamingChatRuntime(
             credentialStore: InMemorySecureCredentialStore(secrets: [
                 .init(providerID: "qwen", purpose: "apiKey"): "sk-secret"
             ]),
@@ -46,7 +46,7 @@ struct QwenStreamingChatRuntimeTests {
             #"data: {"choices":[{"delta":{"content":"最终答案"},"finish_reason":"stop"}]}"#,
             "data: [DONE]"
         ])
-        let runtime = QwenStreamingChatRuntime(
+        let runtime = ProviderStreamingChatRuntime(
             credentialStore: InMemorySecureCredentialStore(secrets: [
                 .init(providerID: "deepseek", purpose: "apiKey"): "ds-secret"
             ]),
@@ -79,7 +79,7 @@ struct QwenStreamingChatRuntimeTests {
             #"data: {"choices":[{"delta":{"content":"Seek"},"finish_reason":"stop"}]}"#,
             "data: [DONE]"
         ])
-        let runtime = QwenStreamingChatRuntime(
+        let runtime = ProviderStreamingChatRuntime(
             credentialStore: InMemorySecureCredentialStore(secrets: [
                 .init(providerID: "deepseek", purpose: "apiKey"): "ds-secret"
             ]),
@@ -107,7 +107,7 @@ struct QwenStreamingChatRuntimeTests {
         let configured = await makeStreamingSession(lines: [
             #"data: {"candidates":[{"content":{"parts":[{"text":"Gemini reply"}]},"finishReason":"STOP"}]}"#
         ])
-        let runtime = QwenStreamingChatRuntime(
+        let runtime = ProviderStreamingChatRuntime(
             credentialStore: InMemorySecureCredentialStore(secrets: [
                 .init(providerID: "gemini", purpose: "apiKey"): "gm-secret"
             ]),
@@ -144,7 +144,7 @@ struct QwenStreamingChatRuntimeTests {
             statusCode: 401,
             body: #"{"error":"Unauthorized"}"#
         )
-        let runtime = QwenStreamingChatRuntime(
+        let runtime = ProviderStreamingChatRuntime(
             credentialStore: InMemorySecureCredentialStore(secrets: [
                 .init(providerID: "qwen", purpose: "apiKey"): "sk-secret"
             ]),
@@ -173,7 +173,7 @@ struct QwenStreamingChatRuntimeTests {
             statusCode: 429,
             body: #"{"error":"Too Many Requests"}"#
         )
-        let runtime = QwenStreamingChatRuntime(
+        let runtime = ProviderStreamingChatRuntime(
             credentialStore: InMemorySecureCredentialStore(secrets: [
                 .init(providerID: "qwen", purpose: "apiKey"): "sk-secret"
             ]),
@@ -202,7 +202,7 @@ struct QwenStreamingChatRuntimeTests {
             statusCode: 503,
             body: #"{"error":"Service Unavailable"}"#
         )
-        let runtime = QwenStreamingChatRuntime(
+        let runtime = ProviderStreamingChatRuntime(
             credentialStore: InMemorySecureCredentialStore(secrets: [
                 .init(providerID: "qwen", purpose: "apiKey"): "sk-secret"
             ]),
@@ -231,7 +231,7 @@ struct QwenStreamingChatRuntimeTests {
             statusCode: 500,
             body: #"{"error":"Internal Server Error"}"#
         )
-        let runtime = QwenStreamingChatRuntime(
+        let runtime = ProviderStreamingChatRuntime(
             credentialStore: InMemorySecureCredentialStore(secrets: [
                 .init(providerID: "qwen", purpose: "apiKey"): "sk-secret"
             ]),
@@ -260,7 +260,7 @@ struct QwenStreamingChatRuntimeTests {
             "data: {not-json}",
             "data: [DONE]"
         ])
-        let runtime = QwenStreamingChatRuntime(
+        let runtime = ProviderStreamingChatRuntime(
             credentialStore: InMemorySecureCredentialStore(secrets: [
                 .init(providerID: "qwen", purpose: "apiKey"): "sk-secret"
             ]),
@@ -291,7 +291,7 @@ struct QwenStreamingChatRuntimeTests {
             #"data: {"object":"chat.completion.chunk"}"#,
             "data: [DONE]"
         ])
-        let runtime = QwenStreamingChatRuntime(
+        let runtime = ProviderStreamingChatRuntime(
             credentialStore: InMemorySecureCredentialStore(secrets: [
                 .init(providerID: "qwen", purpose: "apiKey"): "sk-secret"
             ]),
@@ -321,7 +321,7 @@ struct QwenStreamingChatRuntimeTests {
         let configured = await makeStreamingSession(lines: [
             #"data: {"choices":[{"delta":{"content":"partial"},"finish_reason":null}]}"#
         ])
-        let runtime = QwenStreamingChatRuntime(
+        let runtime = ProviderStreamingChatRuntime(
             credentialStore: InMemorySecureCredentialStore(secrets: [
                 .init(providerID: "qwen", purpose: "apiKey"): "sk-secret"
             ]),
@@ -354,7 +354,7 @@ struct QwenStreamingChatRuntimeTests {
             #"data: {"choices":[{"delta":{},"finish_reason":"stop"}]}"#,
             "data: [DONE]"
         ])
-        let runtime = QwenStreamingChatRuntime(
+        let runtime = ProviderStreamingChatRuntime(
             credentialStore: InMemorySecureCredentialStore(secrets: [
                 .init(providerID: "qwen", purpose: "apiKey"): "sk-secret"
             ]),
@@ -380,9 +380,111 @@ struct QwenStreamingChatRuntimeTests {
         #expect(events == expected)
     }
 
+    @Test func usageChunkWithEmptyChoicesDoesNotAbortStreaming() async throws {
+        // DeepSeek (and other OpenAI-compatible providers) end the stream with a
+        // usage-bearing chunk whose `choices` array is empty. That chunk is legal
+        // and must not fail an otherwise successful reply.
+        let configured = await makeStreamingSession(lines: [
+            #"data: {"choices":[{"delta":{"content":"Hello"},"finish_reason":null}]}"#,
+            #"data: {"choices":[],"usage":{"prompt_tokens":3,"completion_tokens":1,"total_tokens":4}}"#,
+            "data: [DONE]"
+        ])
+        let runtime = ProviderStreamingChatRuntime(
+            credentialStore: InMemorySecureCredentialStore(secrets: [
+                .init(providerID: "deepseek", purpose: "apiKey"): "ds-secret"
+            ]),
+            session: configured.session
+        )
+        let request = AIChatRequest(
+            id: UUID(),
+            sessionID: UUID(),
+            selectedModel: try #require(AIProviderCatalog.model(provider: .deepseek, id: "deepseek-v4-pro")),
+            prompt: "Hello",
+            attachments: []
+        )
+
+        let events = try await collectRuntimeEvents(
+            from: runtime.streamReply(for: request)
+        )
+
+        let expected: [AIChatRuntimeEvent] = [
+            .started(requestID: request.id),
+            .delta(requestID: request.id, textChunk: "Hello"),
+            .completed(requestID: request.id)
+        ]
+        #expect(events == expected)
+    }
+
+    @Test func deltaLessChunkWithoutFinishReasonDoesNotAbortStreaming() async throws {
+        let configured = await makeStreamingSession(lines: [
+            #"data: {"choices":[{"delta":{"content":"Hello"},"finish_reason":null}]}"#,
+            #"data: {"choices":[{"finish_reason":null}]}"#,
+            #"data: {"choices":[{"delta":{},"finish_reason":"stop"}]}"#,
+            "data: [DONE]"
+        ])
+        let runtime = ProviderStreamingChatRuntime(
+            credentialStore: InMemorySecureCredentialStore(secrets: [
+                .init(providerID: "qwen", purpose: "apiKey"): "sk-secret"
+            ]),
+            session: configured.session
+        )
+        let request = AIChatRequest(
+            id: UUID(),
+            sessionID: UUID(),
+            selectedModel: try #require(AIProviderCatalog.qwenModel(id: "qwen3.6-plus")),
+            prompt: "Hello",
+            attachments: []
+        )
+
+        let events = try await collectRuntimeEvents(
+            from: runtime.streamReply(for: request)
+        )
+
+        let expected: [AIChatRuntimeEvent] = [
+            .started(requestID: request.id),
+            .delta(requestID: request.id, textChunk: "Hello"),
+            .completed(requestID: request.id)
+        ]
+        #expect(events == expected)
+    }
+
+    @Test func nonStopFinishReasonCompletesStream() async throws {
+        // finish_reason values like "length" / "content_filter" still terminate
+        // the reply; whatever text already streamed is a valid (truncated) answer.
+        let configured = await makeStreamingSession(lines: [
+            #"data: {"choices":[{"delta":{"content":"Partial answer"},"finish_reason":null}]}"#,
+            #"data: {"choices":[{"delta":{},"finish_reason":"length"}]}"#,
+            "data: [DONE]"
+        ])
+        let runtime = ProviderStreamingChatRuntime(
+            credentialStore: InMemorySecureCredentialStore(secrets: [
+                .init(providerID: "qwen", purpose: "apiKey"): "sk-secret"
+            ]),
+            session: configured.session
+        )
+        let request = AIChatRequest(
+            id: UUID(),
+            sessionID: UUID(),
+            selectedModel: try #require(AIProviderCatalog.qwenModel(id: "qwen3.6-plus")),
+            prompt: "Hello",
+            attachments: []
+        )
+
+        let events = try await collectRuntimeEvents(
+            from: runtime.streamReply(for: request)
+        )
+
+        let expected: [AIChatRuntimeEvent] = [
+            .started(requestID: request.id),
+            .delta(requestID: request.id, textChunk: "Partial answer"),
+            .completed(requestID: request.id)
+        ]
+        #expect(events == expected)
+    }
+
     @Test func timeoutTransportErrorMapsToTimeoutFailure() async throws {
         let configured = await makeTransportFailureSession(error: URLError(.timedOut))
-        let runtime = QwenStreamingChatRuntime(
+        let runtime = ProviderStreamingChatRuntime(
             credentialStore: InMemorySecureCredentialStore(secrets: [
                 .init(providerID: "qwen", purpose: "apiKey"): "sk-secret"
             ]),
@@ -408,7 +510,7 @@ struct QwenStreamingChatRuntimeTests {
 
     @Test func genericTransportErrorMapsToNetworkFailure() async throws {
         let configured = await makeTransportFailureSession(error: URLError(.notConnectedToInternet))
-        let runtime = QwenStreamingChatRuntime(
+        let runtime = ProviderStreamingChatRuntime(
             credentialStore: InMemorySecureCredentialStore(secrets: [
                 .init(providerID: "qwen", purpose: "apiKey"): "sk-secret"
             ]),
@@ -434,7 +536,7 @@ struct QwenStreamingChatRuntimeTests {
 
     @Test func cancelledTransportErrorMapsToInterruptedFailure() async throws {
         let configured = await makeTransportFailureSession(error: URLError(.cancelled))
-        let runtime = QwenStreamingChatRuntime(
+        let runtime = ProviderStreamingChatRuntime(
             credentialStore: InMemorySecureCredentialStore(secrets: [
                 .init(providerID: "qwen", purpose: "apiKey"): "sk-secret"
             ]),
@@ -460,7 +562,7 @@ struct QwenStreamingChatRuntimeTests {
 
     @Test func stopStreamingCancelsActiveRequestAndYieldsStopped() async throws {
         let configured = await makeHangingStreamingSession()
-        let runtime = QwenStreamingChatRuntime(
+        let runtime = ProviderStreamingChatRuntime(
             credentialStore: InMemorySecureCredentialStore(secrets: [
                 .init(providerID: "qwen", purpose: "apiKey"): "sk-secret"
             ]),
@@ -487,7 +589,7 @@ struct QwenStreamingChatRuntimeTests {
 
     @Test func consumerCancellationCancelsUnderlyingRequest() async throws {
         let configured = await makeHangingStreamingSession()
-        let runtime = QwenStreamingChatRuntime(
+        let runtime = ProviderStreamingChatRuntime(
             credentialStore: InMemorySecureCredentialStore(secrets: [
                 .init(providerID: "qwen", purpose: "apiKey"): "sk-secret"
             ]),
@@ -532,7 +634,7 @@ struct QwenStreamingChatRuntimeTests {
             ]
         )
 
-        let data = try QwenStreamingChatRuntime.makeOpenAIRequestBody(for: request)
+        let data = try ProviderStreamingChatRuntime.makeOpenAIRequestBody(for: request)
         let decoded = try JSONDecoder().decode(DecodedChatBody.self, from: data)
 
         #expect(decoded.messages.map(\.role) == ["user", "assistant", "user"])
@@ -548,7 +650,7 @@ struct QwenStreamingChatRuntimeTests {
             attachments: []
         )
 
-        let data = try QwenStreamingChatRuntime.makeOpenAIRequestBody(for: request)
+        let data = try ProviderStreamingChatRuntime.makeOpenAIRequestBody(for: request)
         let decoded = try JSONDecoder().decode(DecodedChatBody.self, from: data)
 
         #expect(decoded.messages.map(\.role) == ["user"])
@@ -568,7 +670,7 @@ struct QwenStreamingChatRuntimeTests {
             ]
         )
 
-        let data = try QwenStreamingChatRuntime.makeGeminiRequestBody(for: request)
+        let data = try ProviderStreamingChatRuntime.makeGeminiRequestBody(for: request)
         let decoded = try JSONDecoder().decode(DecodedGeminiBody.self, from: data)
 
         #expect(decoded.contents.map(\.role) == ["user", "model", "user"])

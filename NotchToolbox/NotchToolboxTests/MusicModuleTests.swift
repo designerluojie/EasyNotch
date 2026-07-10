@@ -734,8 +734,10 @@ struct MusicModuleTests {
 
         await runtime.launchPlayer(bundleID: MusicPlayerCapability.qqMusic.bundleID)
 
+        // -g launches the player in the background so focus stays on the notch panel.
         #expect(await runner.lastInvocation() == [
             "/usr/bin/open",
+            "-g",
             "-b",
             MusicPlayerCapability.qqMusic.bundleID
         ])
@@ -1107,6 +1109,19 @@ struct MusicModuleTests {
     @Test func defaultExecutableCandidatesPreferBundledHelper() throws {
         let first = try #require(NowPlayingSnapshotProvider.defaultExecutableCandidates.first)
         #expect(first.hasSuffix("Contents/Helpers/nowplaying-cli"))
+    }
+
+    @Test func defaultExecutableCandidatesExcludeUserWritablePathsInReleaseBuilds() {
+        let candidates = NowPlayingSnapshotProvider.defaultExecutableCandidates
+        #if DEBUG
+        // Homebrew fallbacks are a dev convenience only.
+        #expect(candidates.contains("/opt/homebrew/bin/nowplaying-cli"))
+        #else
+        // Release ships only the bundled helper; no user-writable directory is
+        // ever probed for an executable to run.
+        #expect(candidates == candidates.filter { $0.contains("Contents/Helpers/") })
+        #expect(!candidates.contains { $0.hasPrefix("/opt/homebrew") || $0.hasPrefix("/usr/local") })
+        #endif
     }
 
     @Test func nowPlayingProviderReturnsNoSnapshotWhenNoExecutableIsAvailable() async throws {

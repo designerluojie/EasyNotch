@@ -167,7 +167,7 @@ final class AIChatModuleModel: ObservableObject {
     static func defaultRuntime(
         sharedServices: SharedCoreServices
     ) -> any AIChatRuntime {
-        QwenStreamingChatRuntime(
+        ProviderStreamingChatRuntime(
             credentialStore: sharedServices.credentialStore
         )
     }
@@ -184,7 +184,7 @@ final class AIChatModuleModel: ObservableObject {
     func updateDraft(text: String) {
         draft.text = text
         setComposerDisplayText(text)
-        transition(to: idleState())
+        transitionToComposingUnlessBusy()
     }
 
     func appendDraftAttachments(_ attachments: [ConversationAttachment]) {
@@ -209,11 +209,23 @@ final class AIChatModuleModel: ObservableObject {
         }
 
         draft.attachments.append(contentsOf: normalizedAttachments)
-        transition(to: idleState())
+        transitionToComposingUnlessBusy()
     }
 
     func removeDraftAttachment(_ attachmentID: ConversationAttachment.ID) {
         draft.attachments.removeAll { $0.id == attachmentID }
+        transitionToComposingUnlessBusy()
+    }
+
+    // Draft edits made while a reply is in flight must not clobber the
+    // sending/streaming state — the stop control and streaming presentation
+    // stay up until the stream settles; the refreshed draft is picked up by
+    // the next idle transition.
+    private func transitionToComposingUnlessBusy() {
+        guard !isConversationBusy else {
+            return
+        }
+
         transition(to: idleState())
     }
 
@@ -265,7 +277,7 @@ final class AIChatModuleModel: ObservableObject {
     }
 
     func startNewConversation() {
-        stopStreamingIfNeeded(markStopped: true)
+        stopStreamingIfNeeded(transitionsToStopped: true)
         currentSession = nil
         currentContext = nil
         currentRequestID = nil
@@ -296,7 +308,7 @@ final class AIChatModuleModel: ObservableObject {
             return
         }
 
-        stopStreamingIfNeeded(markStopped: false)
+        stopStreamingIfNeeded(transitionsToStopped: false)
 
         // Capture prior turns before the new user message + assistant placeholder
         // are appended so the request carries the conversation up to (but not
@@ -335,6 +347,7 @@ final class AIChatModuleModel: ObservableObject {
         }
 
         currentSession = session
+        replaceSession(session)
         currentContext = sendingContext
         self.assistantMessage = assistantMessage
         messages.append(userMessage)
@@ -390,7 +403,7 @@ final class AIChatModuleModel: ObservableObject {
     }
 
     func stopStreaming() {
-        stopStreamingIfNeeded(markStopped: true)
+        stopStreamingIfNeeded(transitionsToStopped: true)
     }
 
     func selectConversationModel(_ model: AIModelCapability) {
@@ -414,7 +427,7 @@ final class AIChatModuleModel: ObservableObject {
     }
 
     func selectSession(_ sessionID: UUID) {
-        stopStreamingIfNeeded(markStopped: true)
+        stopStreamingIfNeeded(transitionsToStopped: true)
 
         guard let session = sessions.first(where: { $0.id == sessionID }) else {
             return
@@ -664,7 +677,12 @@ private extension AIChatModuleModel {
         }
     }
 
-    func stopStreamingIfNeeded(markStopped: Bool) {
+    // `transitionsToStopped` distinguishes a user-initiated stop (show the
+    // stopped state) from a stream superseded by a new send (the caller moves
+    // straight to .sending). Either way the interrupted reply persists as
+    // .stopped — it was cut short, not broken — so it stays part of the
+    // conversation history sent to the provider.
+    func stopStreamingIfNeeded(transitionsToStopped: Bool) {
         let isSending: Bool
         if case .sending = state {
             isSending = true
@@ -684,13 +702,10 @@ private extension AIChatModuleModel {
         }
 
         if let assistantMessage {
-            updateAssistantMessage(
-                id: assistantMessage.id,
-                status: markStopped ? .stopped : .failed
-            )
+            updateAssistantMessage(id: assistantMessage.id, status: .stopped)
         }
 
-        if markStopped, let context = currentContext {
+        if transitionsToStopped, let context = currentContext {
             transition(to: .stopped(context))
         }
 
@@ -715,6 +730,9 @@ private extension AIChatModuleModel {
         refreshActivityHint()
     }
 
+    // Builds the would-be session without touching `sessions` — the list is
+    // only updated after the store accepts the write, so a failed persist
+    // can't leave an in-memory ghost session that exists nowhere in storage.
     func makeOrUpdateSession(for context: ConversationContext) -> AIChatSession {
         let now = Date.now
         let title = context.draft.text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -727,11 +745,10 @@ private extension AIChatModuleModel {
             if currentSession.title?.isEmpty ?? true {
                 currentSession.title = title.prefix(40).nilIfEmpty
             }
-            replaceSession(currentSession)
             return currentSession
         }
 
-        let newSession = AIChatSession(
+        return AIChatSession(
             id: UUID(),
             title: title.prefix(40).nilIfEmpty,
             selectedProvider: context.selectedModel.provider,
@@ -740,8 +757,6 @@ private extension AIChatModuleModel {
             updatedAt: now,
             lastMessageAt: now
         )
-        sessions.insert(newSession, at: 0)
-        return newSession
     }
 
     func replaceSession(_ session: AIChatSession) {

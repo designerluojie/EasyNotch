@@ -3,20 +3,17 @@ import Foundation
 @MainActor
 final class ClipboardStore {
     private let fileStore: LocalFileStore
-    private let settingsStore: SettingsStore
     private let fileManager: FileManager
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
     init(
         fileStore: LocalFileStore,
-        settingsStore: SettingsStore,
         fileManager: FileManager = .default,
         encoder: JSONEncoder = JSONEncoder(),
         decoder: JSONDecoder = JSONDecoder()
     ) throws {
         self.fileStore = fileStore
-        self.settingsStore = settingsStore
         self.fileManager = fileManager
         self.encoder = encoder
         self.decoder = decoder
@@ -244,14 +241,6 @@ final class ClipboardStore {
         }
 
         return "\(baseName).\(suggestedFileExtension)"
-    }
-
-    private func removePayloadIfNeeded(for item: ClipboardHistoryItem) throws {
-        try removeStoredFiles(at: payloadsDirectoryURL, named: item.payloadFileNames)
-
-        if let thumbnailFileName = item.thumbnailFileName {
-            try removeStoredFiles(at: thumbnailsDirectoryURL, named: [thumbnailFileName])
-        }
     }
 
     private func removeDetachedFiles(

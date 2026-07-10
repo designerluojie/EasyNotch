@@ -18,8 +18,7 @@ nonisolated enum ResilientStore {
         let data = try Data(contentsOf: url)
         do {
             return try decoder.decode(type, from: data)
-        } catch let error as DecodingError {
-            _ = error
+        } catch is DecodingError {
             quarantine(url, fileManager: fileManager)
             return nil
         }

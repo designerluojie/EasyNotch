@@ -172,6 +172,84 @@ struct MusicModuleViewModelTests {
         #expect(playback.progressFraction(at: capturedAt) == playback.progressFraction(at: laterDate))
     }
 
+    @Test func elapsedSecondsAtTickInstantsAdvanceByExactlyOneWithoutSkips() throws {
+        // Reproduces the "变快一秒" skip: the poll-supplied elapsed carries a
+        // fractional part and polls land >1s apart. Sampling at the stable tick
+        // anchor's 1s boundaries must still yield consecutive integers.
+        let playback = try Self.makePlayingPresentation(
+            elapsedTime: 42.95,
+            capturedAt: Date(timeIntervalSince1970: 1_000_042.95),
+            duration: 240
+        )
+
+        let anchor = playback.tickAnchor
+        let shown = (43...48).map { n in
+            playback.elapsedText(at: anchor.addingTimeInterval(Double(n)))
+        }
+
+        // Consecutive, crisp, no skipped and no lagged second.
+        #expect(shown == ["0:43", "0:44", "0:45", "0:46", "0:47", "0:48"])
+    }
+
+    @Test func tickAnchorIsStableAcrossContinuousPlaybackPolls() throws {
+        // Two consecutive polls of the same continuously-playing track: capturedAt
+        // and elapsedTime both advance by the (jittery) wall gap, so the derived
+        // tick anchor — the track's wall-clock origin — must stay put.
+        let base = Date(timeIntervalSince1970: 1_000_000)
+        let pollA = try Self.makePlayingPresentation(
+            elapsedTime: 42.95,
+            capturedAt: base.addingTimeInterval(42.95),
+            duration: 240
+        )
+        let pollB = try Self.makePlayingPresentation(
+            elapsedTime: 44.41,
+            capturedAt: base.addingTimeInterval(44.41),
+            duration: 240
+        )
+
+        #expect(abs(pollA.tickAnchor.timeIntervalSince(pollB.tickAnchor)) < 0.001)
+    }
+
+    private static func makePlayingPresentation(
+        elapsedTime: TimeInterval,
+        capturedAt: Date,
+        duration: TimeInterval
+    ) throws -> MusicModuleViewModel.PlaybackPresentation {
+        let runtime = MusicModuleRuntime(
+            initialState: .playing(
+                MusicPlaybackSession(
+                    snapshot: MusicPlayerSnapshot(
+                        bundleID: MusicPlayerCapability.qqMusic.bundleID,
+                        displayName: MusicPlayerCapability.qqMusic.displayName,
+                        isRunning: true,
+                        playbackState: .playing,
+                        trackKey: "qq-track",
+                        title: "皮下",
+                        artist: "许嵩",
+                        artworkData: nil,
+                        duration: duration,
+                        elapsedTime: elapsedTime,
+                        capability: .qqMusic,
+                        permissionRequirement: nil,
+                        source: .nowPlayingCLI,
+                        capturedAt: capturedAt
+                    )
+                )
+            )
+        )
+
+        let viewModel = MusicModuleViewModel(runtime: runtime)
+        guard case .playback(let playback) = viewModel.presentation else {
+            Issue.record("Expected playback presentation")
+            throw MusicTestError.unexpectedPresentation
+        }
+        return playback
+    }
+
+    private enum MusicTestError: Error {
+        case unexpectedPresentation
+    }
+
     @Test func launchingPlayerStaysOnSilentEmptyPresentation() throws {
         let runtime = MusicModuleRuntime(
             initialState: .launchingPlayer(bundleID: MusicPlayerCapability.qqMusic.bundleID)

@@ -79,7 +79,9 @@ final class AIProviderConfigurationService {
             }
             try metadataStore.save(metadata)
         } catch {
-            try restoreConfiguration(
+            // Rollback is best-effort; even if it fails the caller must see
+            // the original save failure, not the rollback's.
+            try? restoreConfiguration(
                 for: provider,
                 account: account,
                 previousSecret: previousSecret,

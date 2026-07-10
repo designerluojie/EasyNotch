@@ -1,4 +1,5 @@
 import Foundation
+@testable import NotchToolbox
 
 enum FakeRuntimeMode: Equatable {
     case manual

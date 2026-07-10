@@ -1220,21 +1220,6 @@ private struct SettingsTextButton: View {
     }
 }
 
-private struct SettingsIconButton: View {
-    let systemName: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: systemName)
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.82))
-                .frame(width: 18, height: 18)
-        }
-        .settingsInteractionButtonStyle(cornerRadius: 4, baseColor: .clear)
-    }
-}
-
 private struct SettingsTrafficLight: View {
     let color: Color
     let isRevealed: Bool
@@ -1322,14 +1307,6 @@ enum SettingsControlInteractionMetrics {
 private extension View {
     func settingsInteractionButtonStyle(cornerRadius: CGFloat, baseColor: Color) -> some View {
         buttonStyle(SettingsInteractionButtonStyle(cornerRadius: cornerRadius, baseColor: baseColor))
-    }
-
-    func pressEvents(onPress: @escaping () -> Void, onRelease: @escaping () -> Void) -> some View {
-        simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in onPress() }
-                .onEnded { _ in onRelease() }
-        )
     }
 }
 
@@ -1477,13 +1454,6 @@ private extension NotchModuleID {
         case .settings:
             return "设置"
         }
-    }
-}
-
-private extension String {
-    var widthForSettingsPopover: CGFloat {
-        let font = NSFont.systemFont(ofSize: 13, weight: .medium)
-        return ceil((self as NSString).size(withAttributes: [.font: font]).width)
     }
 }
 

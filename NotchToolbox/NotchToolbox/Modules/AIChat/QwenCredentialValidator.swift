@@ -28,17 +28,13 @@ struct AIProviderCredentialValidator: AIProviderCredentialValidating {
         case .qwen:
             return try await QwenCredentialValidator(session: session)
                 .validate(apiKey: apiKey, modelID: modelID)
-        case .deepseek:
+        case .deepseek, .chatgpt:
             return try await OpenAICompatibleCredentialValidator(
                 provider: provider,
-                endpoint: URL(string: "https://api.deepseek.com/chat/completions")!,
-                session: session
-            )
-            .validate(apiKey: apiKey, modelID: modelID)
-        case .chatgpt:
-            return try await OpenAICompatibleCredentialValidator(
-                provider: provider,
-                endpoint: URL(string: "https://api.openai.com/v1/chat/completions")!,
+                endpoint: AIProviderCatalog.credentialValidationEndpoint(
+                    for: provider,
+                    modelID: modelID
+                ),
                 session: session
             )
             .validate(apiKey: apiKey, modelID: modelID)
@@ -51,19 +47,20 @@ struct AIProviderCredentialValidator: AIProviderCredentialValidating {
 
 struct QwenCredentialValidator: QwenCredentialValidating {
     nonisolated let session: URLSession
-    nonisolated let endpoint = URL(string: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions")!
 
     nonisolated init(session: URLSession = .shared) {
         self.session = session
     }
 
     nonisolated func validate(apiKey: String, modelID: String) async throws -> AIProviderMetadata {
-        var request = URLRequest(url: endpoint)
+        var request = URLRequest(
+            url: AIProviderCatalog.credentialValidationEndpoint(for: .qwen, modelID: modelID)
+        )
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(
-            QwenValidationRequest(
+            OpenAICompatibleValidationRequest(
                 model: modelID,
                 messages: [.init(role: "user", content: "ping")],
                 maxTokens: 1
@@ -107,7 +104,7 @@ private struct OpenAICompatibleCredentialValidator {
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(
-            QwenValidationRequest(
+            OpenAICompatibleValidationRequest(
                 model: modelID,
                 messages: [.init(role: "user", content: "ping")],
                 maxTokens: 1
@@ -126,10 +123,9 @@ private struct GeminiCredentialValidator {
     nonisolated let session: URLSession
 
     nonisolated func validate(apiKey: String, modelID: String) async throws -> AIProviderMetadata {
-        let components = URLComponents(
-            string: "https://generativelanguage.googleapis.com/v1beta/models/\(modelID):generateContent"
-        )!
-        var request = URLRequest(url: components.url!)
+        var request = URLRequest(
+            url: AIProviderCatalog.credentialValidationEndpoint(for: .gemini, modelID: modelID)
+        )
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         // Key in a header, not the URL, so it can't leak into request logs.
@@ -183,7 +179,7 @@ private enum ProviderValidationResponseMapper {
     }
 }
 
-private nonisolated struct QwenValidationRequest: Encodable {
+private nonisolated struct OpenAICompatibleValidationRequest: Encodable {
     nonisolated struct Message: Encodable {
         var role: String
         var content: String

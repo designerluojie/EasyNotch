@@ -7,6 +7,25 @@ import Testing
 @Suite(.serialized)
 struct PanelWindowControllerTests {
 
+    @Test func multiScreenPresenterSharesOneSettingsPresenterAcrossScreens() throws {
+        let compositionRoot = Self.makeCompositionRoot()
+        let presenter = MultiScreenPanelPresenter(
+            compositionRoot: compositionRoot,
+            interactions: OverlayPanelInteractions()
+        )
+
+        let builtInController = presenter.controller(for: "built-in")
+        let externalController = presenter.controller(for: "external")
+
+        // One settings window for the whole app: opening Settings from either
+        // screen must target the same window (and the same view model), never
+        // spawn a second copy per display.
+        let builtInPresenter = try #require(builtInController.settingsPresenter)
+        let externalPresenter = try #require(externalController.settingsPresenter)
+        #expect(builtInPresenter === externalPresenter)
+        #expect(builtInPresenter is SettingsWindowController)
+    }
+
     @Test func panelUsesTopOverlayWindowConfiguration() {
         let controller = PanelWindowController(compositionRoot: Self.makeCompositionRoot())
         let panel = controller.panel

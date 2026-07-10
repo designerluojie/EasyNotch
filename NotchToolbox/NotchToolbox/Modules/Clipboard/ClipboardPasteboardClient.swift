@@ -35,9 +35,14 @@ struct LiveClipboardSourceApplicationProvider: ClipboardSourceApplicationProvidi
 
 final class LiveClipboardPasteboardClient: ClipboardPasteboardClient {
     private let pasteboard: NSPasteboard
+    private let maxInlinePayloadBytes: Int
 
-    init(pasteboard: NSPasteboard = .general) {
+    init(
+        pasteboard: NSPasteboard = .general,
+        maxInlinePayloadBytes: Int = ClipboardNormalizer.defaultMaxInlinePayloadBytes
+    ) {
         self.pasteboard = pasteboard
+        self.maxInlinePayloadBytes = maxInlinePayloadBytes
     }
 
     var changeCount: Int {
@@ -48,8 +53,17 @@ final class LiveClipboardPasteboardClient: ClipboardPasteboardClient {
         let types = pasteboard.types?.map(\.rawValue) ?? []
         var dataByType: [String: Data] = [:]
 
+        // A large copy (e.g. a big image) often carries several huge
+        // representations (TIFF + PNG + PDF) at once; retaining them all here
+        // spikes memory on the main thread. Oversized representations are read
+        // transiently and dropped — the normalizer never persists them anyway.
         for type in pasteboard.types ?? [] {
-            dataByType[type.rawValue] = pasteboard.data(forType: type)
+            guard let data = pasteboard.data(forType: type),
+                  data.count <= maxInlinePayloadBytes else {
+                continue
+            }
+
+            dataByType[type.rawValue] = data
         }
 
         return ClipboardPasteboardSnapshot(

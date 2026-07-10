@@ -301,6 +301,83 @@ struct AppCompositionRootTests {
         withExtendedLifetime(cancellable) {}
     }
 
+    @Test func musicProgressOnlyTickDoesNotRepublishCompositionRoot() {
+        let runtime = MusicModuleRuntime(initialState: .empty(players: MusicPlayerCapability.v1Targets))
+        let compositionRoot = AppCompositionRoot(musicRuntime: runtime)
+
+        func playingState(elapsed: TimeInterval, capturedAt: TimeInterval) -> MusicModuleState {
+            .playing(
+                MusicPlaybackSession(
+                    snapshot: MusicPlayerSnapshot(
+                        bundleID: MusicPlayerCapability.neteaseMusic.bundleID,
+                        displayName: MusicPlayerCapability.neteaseMusic.displayName,
+                        isRunning: true,
+                        playbackState: .playing,
+                        trackKey: "netease-track",
+                        title: "遗忘",
+                        artist: "庆庆",
+                        artworkData: nil,
+                        duration: 266,
+                        elapsedTime: elapsed,
+                        capability: .neteaseMusic,
+                        permissionRequirement: nil,
+                        source: .nowPlayingCLI,
+                        capturedAt: Date(timeIntervalSince1970: capturedAt)
+                    )
+                )
+            )
+        }
+
+        runtime.updateModuleState(playingState(elapsed: 0, capturedAt: 1_700_000_000))
+
+        var republishCount = 0
+        let cancellable = compositionRoot.objectWillChange.sink { republishCount += 1 }
+
+        // Same track still playing — only the progress advanced. The panel's
+        // progress bar interpolates locally, so this poll must not fan a global
+        // invalidation out to the whole shell.
+        runtime.updateModuleState(playingState(elapsed: 3, capturedAt: 1_700_000_003))
+
+        #expect(republishCount == 0)
+        withExtendedLifetime(cancellable) {}
+    }
+
+    @Test func musicPlayPauseTransitionStillRepublishesCompositionRoot() {
+        func session(isPlaying: Bool) -> MusicPlaybackSession {
+            MusicPlaybackSession(
+                snapshot: MusicPlayerSnapshot(
+                    bundleID: MusicPlayerCapability.neteaseMusic.bundleID,
+                    displayName: MusicPlayerCapability.neteaseMusic.displayName,
+                    isRunning: true,
+                    playbackState: isPlaying ? .playing : .paused,
+                    trackKey: "netease-track",
+                    title: "遗忘",
+                    artist: "庆庆",
+                    artworkData: nil,
+                    duration: 266,
+                    elapsedTime: 30,
+                    capability: .neteaseMusic,
+                    permissionRequirement: nil,
+                    source: .nowPlayingCLI,
+                    capturedAt: Date(timeIntervalSince1970: 1_700_000_000)
+                )
+            )
+        }
+
+        let runtime = MusicModuleRuntime(initialState: .playing(session(isPlaying: true)))
+        let compositionRoot = AppCompositionRoot(musicRuntime: runtime)
+
+        var republishCount = 0
+        let cancellable = compositionRoot.objectWillChange.sink { republishCount += 1 }
+
+        // Play → pause on the same track: the collapsed wide-notch-strip switches
+        // between animating/still, so the shell must still be refreshed.
+        runtime.updateModuleState(.paused(session(isPlaying: false)))
+
+        #expect(republishCount > 0)
+        withExtendedLifetime(cancellable) {}
+    }
+
     @Test func restVariantContentRegistryResolvesModuleProviderWithRequestContext() {
         let compositionRoot = AppCompositionRoot()
         let request = RestVariantRequest(

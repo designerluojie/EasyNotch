@@ -138,19 +138,27 @@ struct NowPlayingSnapshotProvider: MusicSnapshotProviding {
     static let bundledHelperName = "nowplaying-cli"
 
     // The helper ships inside the app bundle at Contents/Helpers, so the music
-    // module works without the user installing a copy. It's resolved first; the
-    // Homebrew paths and the PATH lookup in `resolveCommand` remain only as a
-    // dev/robustness fallback.
+    // module works without the user installing a copy. It's resolved first; there
+    // is deliberately no $PATH search — see `resolveCommand`.
+    //
+    // Release builds resolve ONLY the bundled helper. The Homebrew paths are a
+    // debug-only convenience for running from Xcode before the Copy Files phase
+    // is in place; shipping them would let the app execute a `nowplaying-cli`
+    // that a user (or malware) dropped into a user-writable directory.
     static let defaultExecutableCandidates: [String] = {
         let bundledHelperPath = Bundle.main.bundleURL
             .appending(path: "Contents/Helpers/\(bundledHelperName)")
             .path(percentEncoded: false)
 
+        #if DEBUG
         return [
             bundledHelperPath,
             "/opt/homebrew/bin/nowplaying-cli",
             "/usr/local/bin/nowplaying-cli"
         ]
+        #else
+        return [bundledHelperPath]
+        #endif
     }()
 
     private static let qqMusicPlaybackMenuStateScript = """

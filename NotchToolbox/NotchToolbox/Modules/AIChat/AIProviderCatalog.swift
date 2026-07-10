@@ -117,4 +117,40 @@ enum AIProviderCatalog {
     static func qwenModel(id: String) -> AIModelCapability? {
         model(provider: .qwen, id: id)
     }
+
+    // MARK: Endpoints
+    // Single source of truth for provider HTTP endpoints. The streaming
+    // runtime and the credential validators both resolve URLs here so the
+    // two can never drift apart ("validation passes but chat fails").
+
+    static func chatCompletionsEndpoint(for provider: AIProviderKind, modelID: String) -> URL {
+        switch provider {
+        case .deepseek:
+            return URL(string: "https://api.deepseek.com/chat/completions")!
+        case .qwen:
+            return URL(string: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions")!
+        case .chatgpt:
+            return URL(string: "https://api.openai.com/v1/chat/completions")!
+        case .gemini:
+            // The API key travels in the x-goog-api-key header, never the URL.
+            var components = URLComponents(
+                string: "https://generativelanguage.googleapis.com/v1beta/models/\(modelID):streamGenerateContent"
+            )!
+            components.queryItems = [
+                URLQueryItem(name: "alt", value: "sse")
+            ]
+            return components.url!
+        }
+    }
+
+    static func credentialValidationEndpoint(for provider: AIProviderKind, modelID: String) -> URL {
+        switch provider {
+        case .deepseek, .qwen, .chatgpt:
+            return chatCompletionsEndpoint(for: provider, modelID: modelID)
+        case .gemini:
+            return URL(
+                string: "https://generativelanguage.googleapis.com/v1beta/models/\(modelID):generateContent"
+            )!
+        }
+    }
 }

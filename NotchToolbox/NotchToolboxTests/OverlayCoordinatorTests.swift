@@ -335,7 +335,7 @@ struct OverlayCoordinatorTests {
         #expect(presenter.presentations.isEmpty)
     }
 
-    @Test func transientRestVariantForDifferentModulePresentsHeaderlessMiniPanelImmediately() throws {
+    @Test func transientRestVariantForDifferentModuleDoesNotPreemptExpandedPanel() throws {
         let store = RestVariantStore(transientBridgeDelay: .zero)
         let compositionRoot = try Self.makeCompositionRoot(
             restVariantStore: store,
@@ -363,19 +363,18 @@ struct OverlayCoordinatorTests {
                 declaredAt: Date()
             )
         )
-        let expectedState = OverlayState.idle(
-            screenID: "built-in",
-            presentation: .request(request)
-        )
 
         coordinator.start()
         coordinator.expand(moduleID: .music)
         presenter.presentations.removeAll()
 
+        // A toast (e.g. pomodoro finished) must never yank a panel the user is
+        // actively using. It stays in the RestVariantStore and shows if the
+        // panel returns to a rest state while it is still alive.
         compositionRoot.restVariantStore.enqueueTransientRequest(request)
 
-        #expect(compositionRoot.overlayState == expectedState)
-        #expect(try #require(presenter.presentations.last).state == expectedState)
+        #expect(compositionRoot.overlayState == .expanded(screenID: "built-in", moduleID: .music))
+        #expect(presenter.presentations.isEmpty)
     }
 
     @Test func collapsingRunningPomodoroExpandedPanelRestoresPomodoroWideNotchStrip() async throws {
