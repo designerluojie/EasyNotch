@@ -3,6 +3,7 @@ import SwiftUI
 
 struct AIChatConversationView: View {
     @ObservedObject var model: AIChatModuleModel
+    @StateObject private var toast = PanelToastPresenter()
     @State private var activeComposerMenu: AIChatComposerMenu?
     @State private var scrollMetricsState = AIChatConversationScrollMetricsState()
     @State private var pendingScrollMetricsSnapshot: AIChatConversationResolvedScrollMetrics?
@@ -118,8 +119,15 @@ struct AIChatConversationView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay(alignment: .bottom) {
+            PanelToastView(presenter: toast)
+                .padding(.bottom, composerHeight)
+        }
         .animation(AIChatComposerLayout.heightAnimation, value: composerHeight)
         .animation(.timingCurve(0.22, 1.0, 0.36, 1.0, duration: 0.16), value: activeComposerMenu)
+        .onChange(of: AIChatConversationNotice.from(state: model.state)) { notice in
+            toast.present(notice: notice, emphasis: .error)
+        }
     }
 
     private func loadEarlierMessages(using proxy: ScrollViewProxy) {
@@ -382,16 +390,6 @@ struct AIChatConversationView: View {
                     }
                 }
             }
-
-            VStack(alignment: .leading, spacing: 6) {
-                if let notice = AIChatConversationNotice.from(state: model.state) {
-                    Text(notice)
-                        .font(AIChatTheme.captionFont)
-                        .foregroundStyle(AIChatTheme.textSecondary)
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 12)
         }
         .frame(maxWidth: .infinity)
         .frame(height: max(0, height), alignment: .top)
