@@ -17,6 +17,13 @@ final class NotchShellRuntime: NSObject {
     private var isStarted = false
     private var aiChatHistoryPruneTask: Task<Void, Never>?
     private var settingsCancellables: Set<AnyCancellable> = []
+    private var lastAppliedLaunchAtLogin: Bool?
+    private var lastAppliedShortcutConfiguration: ShortcutConfiguration?
+
+    private struct ShortcutConfiguration: Equatable {
+        let shortcut: KeyboardShortcutDescriptor
+        let isEnabled: Bool
+    }
 
     init(
         compositionRoot: AppCompositionRoot,
@@ -184,16 +191,51 @@ final class NotchShellRuntime: NSObject {
         }
     }
 
+    // Settings publish as a whole struct, so each system registration only
+    // re-applies when its own fields actually changed — toggling an unrelated
+    // setting must not churn the login item or the Carbon hotkey.
     private func applyRuntimeSettings(_ settings: AppSettings) {
-        try? launchAtLoginService.setEnabled(settings.launchAtLogin)
+        applyLaunchAtLoginSetting(settings)
         coordinator.setSimulateNotchOnNonNotchScreen(settings.simulateNotchOnNonNotchScreen)
-        guard settings.isGlobalShortcutEnabled else {
+        applyGlobalShortcutSetting(settings)
+    }
+
+    private func applyLaunchAtLoginSetting(_ settings: AppSettings) {
+        guard lastAppliedLaunchAtLogin != settings.launchAtLogin else {
+            return
+        }
+
+        lastAppliedLaunchAtLogin = settings.launchAtLogin
+        do {
+            try launchAtLoginService.setEnabled(settings.launchAtLogin)
+        } catch {
+            // A silent failure here leaves the Settings checkbox saying "on"
+            // while nothing is registered — record it so the mismatch is
+            // diagnosable.
+            compositionRoot.sharedServices.diagnosticsStore.record(
+                .error,
+                message: "Launch-at-login setEnabled(\(settings.launchAtLogin)) failed: \(error)"
+            )
+        }
+    }
+
+    private func applyGlobalShortcutSetting(_ settings: AppSettings) {
+        let configuration = ShortcutConfiguration(
+            shortcut: settings.globalShortcut,
+            isEnabled: settings.isGlobalShortcutEnabled
+        )
+        guard configuration != lastAppliedShortcutConfiguration else {
+            return
+        }
+
+        lastAppliedShortcutConfiguration = configuration
+        guard configuration.isEnabled else {
             globalShortcutService.unregister()
             return
         }
 
         do {
-            try globalShortcutService.register(settings.globalShortcut) { [weak self] in
+            try globalShortcutService.register(configuration.shortcut) { [weak self] in
                 guard let self else {
                     return
                 }
@@ -206,7 +248,7 @@ final class NotchShellRuntime: NSObject {
             // is diagnosable instead of looking "enabled but dead".
             compositionRoot.sharedServices.diagnosticsStore.record(
                 .error,
-                message: "Global shortcut registration failed for \(settings.globalShortcut.keyEquivalent): \(error)"
+                message: "Global shortcut registration failed for \(configuration.shortcut.keyEquivalent): \(error)"
             )
         }
     }

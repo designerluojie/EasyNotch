@@ -3,7 +3,7 @@ import Testing
 @testable import NotchToolbox
 
 @Suite(.serialized)
-struct QwenRuntimeIntegrationTests {
+struct ProviderRuntimeIntegrationTests {
     @MainActor
     @Test func realQwenRuntimeChunksStillDriveAssistantMessageUpdates() async throws {
         let rootURL = try makeTemporaryDirectory()
@@ -29,7 +29,7 @@ struct QwenRuntimeIntegrationTests {
             sharedServices: services,
             governor: EnergyGovernor(),
             runtimeFactory: { sharedServices in
-                QwenStreamingChatRuntime(
+                ProviderStreamingChatRuntime(
                     credentialStore: sharedServices.credentialStore,
                     session: configured.session,
                     endpoint: expectation.endpoint
@@ -86,7 +86,7 @@ struct QwenRuntimeIntegrationTests {
             sharedServices: services,
             governor: EnergyGovernor(),
             runtimeFactory: { sharedServices in
-                QwenStreamingChatRuntime(
+                ProviderStreamingChatRuntime(
                     credentialStore: sharedServices.credentialStore,
                     session: configured.session,
                     endpoint: expectation.endpoint
@@ -139,7 +139,7 @@ struct QwenRuntimeIntegrationTests {
             sharedServices: services,
             governor: EnergyGovernor(),
             runtimeFactory: { sharedServices in
-                QwenStreamingChatRuntime(
+                ProviderStreamingChatRuntime(
                     credentialStore: sharedServices.credentialStore,
                     session: configured.session,
                     endpoint: expectation.endpoint

@@ -280,6 +280,76 @@ struct NotchShellRuntimeTests {
         #expect(shortcutService.registeredShortcut == AppSettings.defaultValue.globalShortcut)
     }
 
+    @Test func unrelatedSettingsChangeDoesNotReapplyShortcutOrLoginRegistration() async throws {
+        let compositionRoot = try Self.makeCompositionRoot(activeModule: .music, initialScreenID: "built-in")
+        let interactions = OverlayPanelInteractions()
+        let presenter = RuntimeSpyOverlayPanelPresenter()
+        let shortcutService = CountingGlobalShortcutService()
+        let launchAtLoginService = CountingLaunchAtLoginService()
+        let runtime = NotchShellRuntime(
+            compositionRoot: compositionRoot,
+            interactions: interactions,
+            topologyProvider: RuntimeStubDisplayTopologyProvider(snapshots: [
+                Self.notchSnapshot(id: "built-in")
+            ]),
+            panelPresenter: presenter,
+            primaryScreenID: "built-in",
+            simulateNotchOnNonNotchScreen: true,
+            globalShortcutService: shortcutService,
+            launchAtLoginService: launchAtLoginService
+        )
+
+        runtime.start()
+        #expect(shortcutService.registerCallCount == 1)
+        #expect(launchAtLoginService.setEnabledCallCount == 1)
+
+        // Touch a setting unrelated to either registration.
+        try compositionRoot.sharedServices.settingsStore.update { settings in
+            settings.animationSpeed = .fast
+        }
+        await Task.yield()
+
+        #expect(shortcutService.registerCallCount == 1)
+        #expect(launchAtLoginService.setEnabledCallCount == 1)
+
+        // Changing the shortcut itself must still re-register.
+        try compositionRoot.sharedServices.settingsStore.update { settings in
+            settings.globalShortcut = KeyboardShortcutDescriptor(
+                keyEquivalent: "k",
+                modifiers: [.command, .shift]
+            )
+        }
+        await Task.yield()
+
+        #expect(shortcutService.registerCallCount == 2)
+    }
+
+    @Test func launchAtLoginFailureIsRecordedInDiagnostics() async throws {
+        let compositionRoot = try Self.makeCompositionRoot(activeModule: .music, initialScreenID: "built-in")
+        let interactions = OverlayPanelInteractions()
+        let presenter = RuntimeSpyOverlayPanelPresenter()
+        let launchAtLoginService = ThrowingLaunchAtLoginService()
+        let runtime = NotchShellRuntime(
+            compositionRoot: compositionRoot,
+            interactions: interactions,
+            topologyProvider: RuntimeStubDisplayTopologyProvider(snapshots: [
+                Self.notchSnapshot(id: "built-in")
+            ]),
+            panelPresenter: presenter,
+            primaryScreenID: "built-in",
+            simulateNotchOnNonNotchScreen: true,
+            launchAtLoginService: launchAtLoginService
+        )
+
+        runtime.start()
+
+        // The toggle silently failing would leave the checkbox saying "on"
+        // while nothing is registered — the failure must at least be diagnosable.
+        #expect(compositionRoot.sharedServices.diagnosticsStore.messages.contains { message in
+            message.severity == .error && message.message.contains("Launch-at-login")
+        })
+    }
+
     @Test func simulateNotchSettingChangeRefreshesRuntimeGeometry() async throws {
         let compositionRoot = try Self.makeCompositionRoot(activeModule: .music, initialScreenID: "external")
         try compositionRoot.sharedServices.settingsStore.update { settings in
@@ -432,6 +502,46 @@ struct NotchShellRuntimeTests {
             preferredWidth: PomodoroRestVariantPresentation.collapsedWidth,
             preferredHeight: PomodoroRestVariantPresentation.collapsedHeight
         )
+    }
+}
+
+@MainActor
+private final class CountingGlobalShortcutService: GlobalShortcutServicing {
+    private(set) var registeredShortcut: KeyboardShortcutDescriptor?
+    private(set) var registerCallCount = 0
+
+    func register(
+        _ shortcut: KeyboardShortcutDescriptor,
+        handler: @escaping @MainActor () -> Void
+    ) throws {
+        registerCallCount += 1
+        registeredShortcut = shortcut
+    }
+
+    func unregister() {
+        registeredShortcut = nil
+    }
+}
+
+@MainActor
+private final class CountingLaunchAtLoginService: LaunchAtLoginServicing {
+    private(set) var isEnabled = false
+    private(set) var setEnabledCallCount = 0
+
+    func setEnabled(_ enabled: Bool) throws {
+        setEnabledCallCount += 1
+        isEnabled = enabled
+    }
+}
+
+@MainActor
+private final class ThrowingLaunchAtLoginService: LaunchAtLoginServicing {
+    struct Failure: Error {}
+
+    private(set) var isEnabled = false
+
+    func setEnabled(_ enabled: Bool) throws {
+        throw Failure()
     }
 }
 

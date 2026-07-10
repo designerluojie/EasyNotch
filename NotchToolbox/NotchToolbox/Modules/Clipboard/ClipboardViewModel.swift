@@ -32,7 +32,6 @@ final class ClipboardViewModel: ObservableObject {
         core: ClipboardCore,
         localFileStore: LocalFileStore? = nil,
         referenceValidator: ClipboardReferenceValidator? = nil,
-        restVariantStore: RestVariantStore? = nil,
         successPhaseDuration: Duration = .seconds(2),
         postCollapseResetDelay: Duration = .milliseconds(250),
         delayScheduler: DelayScheduler? = nil
@@ -40,7 +39,6 @@ final class ClipboardViewModel: ObservableObject {
         self.core = core
         self.thumbnailsDirectoryURL = localFileStore?.url(for: .clipboardThumbnails)
         self.referenceValidator = referenceValidator ?? ClipboardReferenceValidator()
-        _ = restVariantStore
         self.successPhaseDuration = successPhaseDuration
         self.postCollapseResetDelay = postCollapseResetDelay
         self.delayScheduler = delayScheduler ?? Self.defaultDelayScheduler
@@ -149,6 +147,8 @@ final class ClipboardViewModel: ObservableObject {
         return genericPasteErrorMessage
     }
 
+    // Deliberately coarse buckets: cards show a vague age, not a precise
+    // timestamp (e.g. anything from 11 to 30 minutes reads as "15 分钟前").
     static func relativeTimeText(for date: Date, relativeTo now: Date) -> String {
         let seconds = max(0, now.timeIntervalSince(date))
         let minute = 60.0
@@ -157,75 +157,28 @@ final class ClipboardViewModel: ObservableObject {
         let week = 7.0 * day
         let month = 30.0 * day
 
-        if seconds < minute {
-            return "现在"
-        }
+        let buckets: [(upperBound: Double, text: (Double) -> String)] = [
+            (minute, { _ in "现在" }),
+            (11 * minute, { "\(Int($0 / minute)) 分钟前" }),
+            (30 * minute, { _ in "15 分钟前" }),
+            (hour, { _ in "半小时前" }),
+            (12 * hour, { "\(Int($0 / hour)) 小时前" }),
+            (day, { _ in "半天前" }),
+            (week, { "\(Int($0 / day)) 天前" }),
+            (2 * week, { _ in "一周前" }),
+            (3 * week, { _ in "两周前" }),
+            (4 * week, { _ in "三周前" }),
+            (2 * month, { _ in "一个月前" }),
+            (3 * month, { _ in "两个月前" }),
+            (4 * month, { _ in "三个月前" }),
+            (5 * month, { _ in "四个月前" }),
+            (6 * month, { _ in "五个月前" }),
+            (12 * month, { _ in "半年前" }),
+            (24 * month, { _ in "一年前" }),
+        ]
 
-        if seconds < 11 * minute {
-            let minutes = Int(seconds / minute)
-            return "\(minutes) 分钟前"
-        }
-
-        if seconds < 30 * minute {
-            return "15 分钟前"
-        }
-
-        if seconds < hour {
-            return "半小时前"
-        }
-
-        if seconds < 12 * hour {
-            let hours = Int(seconds / hour)
-            return "\(hours) 小时前"
-        }
-
-        if seconds < day {
-            return "半天前"
-        }
-
-        if seconds < week {
-            let days = Int(seconds / day)
-            return "\(days) 天前"
-        }
-
-        if seconds < 2 * week {
-            return "一周前"
-        }
-
-        if seconds < 3 * week {
-            return "两周前"
-        }
-
-        if seconds < 4 * week {
-            return "三周前"
-        }
-
-        if seconds < 2 * month {
-            return "一个月前"
-        }
-
-        if seconds < 3 * month {
-            return "两个月前"
-        }
-
-        if seconds < 4 * month {
-            return "三个月前"
-        }
-
-        if seconds < 5 * month {
-            return "四个月前"
-        }
-
-        if seconds < 6 * month {
-            return "五个月前"
-        }
-
-        if seconds < 12 * month {
-            return "半年前"
-        }
-
-        if seconds < 24 * month {
-            return "一年前"
+        for bucket in buckets where seconds < bucket.upperBound {
+            return bucket.text(seconds)
         }
 
         return "更久"

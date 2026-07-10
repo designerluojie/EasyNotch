@@ -14,7 +14,7 @@ struct ResilientStoreTests {
         let historyURL = directory.appending(path: "history.json")
         try Data("{ not valid json".utf8).write(to: historyURL)
 
-        let store = try ClipboardStore(fileStore: fileStore, settingsStore: settingsStore)
+        let store = try ClipboardStore(fileStore: fileStore)
         let history = try store.loadHistory()
 
         #expect(history.isEmpty)

@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import SQLite3
 import SwiftUI
 import Testing
 @testable import NotchToolbox
@@ -476,7 +477,7 @@ struct AIChatModuleTests {
 
         let runtime = AIChatModuleModel.defaultRuntime(sharedServices: services)
 
-        #expect(runtime is QwenStreamingChatRuntime)
+        #expect(runtime is ProviderStreamingChatRuntime)
     }
 
     @MainActor
@@ -1100,6 +1101,56 @@ struct AIChatModuleTests {
         #expect(loadedAssistant.text == "最终答案")
     }
 
+    @Test func sqliteSessionStoreEnablesWALAndLookupIndexes() throws {
+        let rootURL = try makeTemporaryDirectory()
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        let dbURL = rootURL.appending(path: "AIChat.sqlite")
+
+        // Instantiate and let it deinit (closing its connection) so a fresh raw
+        // connection reads the persisted database configuration.
+        _ = try SQLiteAIChatSessionStore(databaseURL: dbURL)
+
+        var db: OpaquePointer?
+        #expect(sqlite3_open(dbURL.path, &db) == SQLITE_OK)
+        defer { sqlite3_close(db) }
+
+        #expect(Self.sqliteScalarText(db, "PRAGMA journal_mode;")?.lowercased() == "wal")
+
+        let indexNames = Self.sqliteTextColumn(
+            db,
+            "SELECT name FROM sqlite_master WHERE type = 'index';"
+        )
+        #expect(indexNames.contains("idx_messages_session_id"))
+        #expect(indexNames.contains("idx_attachments_message_id"))
+    }
+
+    private static func sqliteScalarText(_ db: OpaquePointer?, _ sql: String) -> String? {
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            return nil
+        }
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_step(statement) == SQLITE_ROW, let value = sqlite3_column_text(statement, 0) else {
+            return nil
+        }
+        return String(cString: value)
+    }
+
+    private static func sqliteTextColumn(_ db: OpaquePointer?, _ sql: String) -> [String] {
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            return []
+        }
+        defer { sqlite3_finalize(statement) }
+        var results: [String] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            if let value = sqlite3_column_text(statement, 0) {
+                results.append(String(cString: value))
+            }
+        }
+        return results
+    }
+
     @MainActor
     @Test func stopAfterFirstChunkRuntimeEmitsStoppedEvent() async throws {
         let runtime = FakeStreamingChatRuntime(mode: .stopAfterFirstChunk)
@@ -1129,6 +1180,68 @@ struct AIChatModuleTests {
         #expect(harness.model.state.isStopped)
         #expect(harness.model.messages.last?.status == .stopped)
         #expect(harness.governor.currentMode(for: .aiChat) == .suspended)
+    }
+
+    @MainActor
+    @Test func failedSessionPersistLeavesNoGhostSessionInList() async throws {
+        let selectedModel = try #require(AIProviderCatalog.qwenModel(id: "qwen3.6-flash"))
+        let model = AIChatModuleModel(
+            providerSummaries: [
+                AIProviderConfigSummary(
+                    provider: .qwen,
+                    status: .configured,
+                    selectedModelID: selectedModel.modelID,
+                    imageInputCapability: .target
+                )
+            ],
+            sessionStore: UpsertFailingSessionStore(),
+            selectedModel: selectedModel,
+            runtime: FakeStreamingChatRuntime(),
+            governor: EnergyGovernor()
+        )
+
+        model.updateDraft(text: "hello")
+        await model.sendCurrentDraft()
+
+        // The send failed before anything was persisted; the session list must
+        // not keep an in-memory ghost that exists nowhere in storage.
+        #expect(model.state.isFailed)
+        #expect(model.availableSessions.isEmpty)
+    }
+
+    @MainActor
+    @Test func editingDraftWhileStreamingKeepsStreamingState() async throws {
+        let harness = try AIChatModuleHarness.make(runtimeMode: .manual)
+
+        harness.model.updateDraft(text: "first question")
+        await harness.model.sendCurrentDraft()
+        #expect(harness.model.state.isStreamingVisible)
+
+        // Typing while a reply streams must not clobber the streaming state —
+        // otherwise the stop control disappears mid-stream and the in-flight
+        // reply gets stranded. The draft itself still updates.
+        harness.model.updateDraft(text: "typed while streaming")
+
+        #expect(harness.model.state.isStreamingVisible)
+        #expect(harness.model.currentDraftText == "typed while streaming")
+    }
+
+    @MainActor
+    @Test func sendingNewMessageMarksSupersededReplyAsStoppedNotFailed() async throws {
+        let harness = try AIChatModuleHarness.make(runtimeMode: .manual)
+
+        harness.model.updateDraft(text: "first question")
+        await harness.model.sendCurrentDraft()
+
+        // The first reply is still streaming; sending again supersedes it. The
+        // partial reply was cut short, not broken — it must persist as .stopped
+        // so it stays part of the conversation history sent to the provider.
+        harness.model.updateDraft(text: "second question")
+        await harness.model.sendCurrentDraft()
+
+        let firstAssistant = harness.model.messages[1]
+        #expect(firstAssistant.role == .assistant)
+        #expect(firstAssistant.status == .stopped)
     }
 
     @MainActor
@@ -1815,6 +1928,20 @@ private final class NoStartedRuntime: AIChatRuntime {
         continuation?.finish()
         continuation = nil
     }
+}
+
+private final class UpsertFailingSessionStore: AIChatSessionStore {
+    struct Failure: Error {}
+
+    func latest() throws -> AIChatSession? { nil }
+    func loadAll() throws -> [AIChatSession] { [] }
+    func loadMessages(for sessionID: UUID) throws -> [AIChatMessage] { [] }
+    func loadAttachments(for messageID: UUID) throws -> [AIChatAttachment] { [] }
+    func upsert(_ session: AIChatSession) throws { throw Failure() }
+    func append(_ message: AIChatMessage) throws {}
+    func append(_ attachment: AIChatAttachment) throws {}
+    func update(_ message: AIChatMessage) throws {}
+    func pruneHistory(olderThan cutoff: Date) throws {}
 }
 
 @MainActor

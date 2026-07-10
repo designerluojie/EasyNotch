@@ -8,9 +8,12 @@ final class PanelWindowController: OverlayPanelPresenting {
     let interactions: OverlayPanelInteractions
     let panelModel: OverlayPanelModel
     let panel: NSPanel
+    // Injected by the presenter so every screen's panel opens the same
+    // settings window; a per-screen copy would let multi-display setups show
+    // two independent settings windows at once.
+    let settingsPresenter: (any SettingsPresenting)?
 
     private let hostingView: NSHostingView<OverlayPanelRootView>
-    private let settingsController: SettingsWindowController
     private var localMouseMonitor: Any?
     private var globalMouseMonitor: Any?
     private var pendingIdleFrameResetTask: Task<Void, Never>?
@@ -48,7 +51,8 @@ final class PanelWindowController: OverlayPanelPresenting {
     init(
         compositionRoot: AppCompositionRoot,
         interactions: OverlayPanelInteractions? = nil,
-        screenID: String = "main"
+        screenID: String = "main",
+        settingsPresenter: (any SettingsPresenting)? = nil
     ) {
         self.compositionRoot = compositionRoot
         self.interactions = interactions ?? OverlayPanelInteractions()
@@ -59,13 +63,13 @@ final class PanelWindowController: OverlayPanelPresenting {
             backing: .buffered,
             defer: false
         )
-        self.settingsController = SettingsWindowController(compositionRoot: compositionRoot)
+        self.settingsPresenter = settingsPresenter
         self.hostingView = NSHostingView(
             rootView: OverlayPanelRootView(
                 compositionRoot: compositionRoot,
                 panelModel: self.panelModel,
                 interactions: self.interactions,
-                settingsPresenter: self.settingsController
+                settingsPresenter: settingsPresenter
             )
         )
 

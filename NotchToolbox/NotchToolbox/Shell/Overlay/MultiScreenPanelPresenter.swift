@@ -5,6 +5,11 @@ final class MultiScreenPanelPresenter: OverlayPanelPresenting {
     private let compositionRoot: AppCompositionRoot
     private let interactions: OverlayPanelInteractions
     private var controllers: [String: PanelWindowController] = [:]
+    // App-wide singleton shared by every screen's panel, so opening Settings
+    // from any display targets the same window and view model.
+    private lazy var settingsController = SettingsWindowController(
+        compositionRoot: compositionRoot
+    )
 
     init(
         compositionRoot: AppCompositionRoot,
@@ -27,7 +32,7 @@ final class MultiScreenPanelPresenter: OverlayPanelPresenting {
         }
     }
 
-    private func controller(for screenID: String) -> PanelWindowController {
+    func controller(for screenID: String) -> PanelWindowController {
         if let controller = controllers[screenID] {
             return controller
         }
@@ -35,7 +40,8 @@ final class MultiScreenPanelPresenter: OverlayPanelPresenting {
         let controller = PanelWindowController(
             compositionRoot: compositionRoot,
             interactions: interactions,
-            screenID: screenID
+            screenID: screenID,
+            settingsPresenter: settingsController
         )
         controllers[screenID] = controller
         return controller

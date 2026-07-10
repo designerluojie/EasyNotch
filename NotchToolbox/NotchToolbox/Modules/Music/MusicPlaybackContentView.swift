@@ -45,7 +45,7 @@ struct MusicPlaybackContentView: View {
     private var artwork: some View {
         if
             let artworkData = playback.artworkData,
-            let artworkImage = NSImage(data: artworkData)
+            let artworkImage = MusicArtworkImageCache.shared.image(for: artworkData)
         {
             Image(nsImage: artworkImage)
                 .resizable()

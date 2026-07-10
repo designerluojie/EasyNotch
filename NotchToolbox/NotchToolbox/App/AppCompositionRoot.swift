@@ -16,8 +16,7 @@ final class AppCompositionRoot: ObservableObject {
     lazy var fileStashViewModel = FileStashViewModel(core: fileStashCore)
     lazy var clipboardViewModel = ClipboardViewModel(
         core: clipboardCore,
-        localFileStore: sharedServices.localFileStore,
-        restVariantStore: restVariantStore
+        localFileStore: sharedServices.localFileStore
     )
     let pomodoroViewModel: PomodoroViewModel
     let restVariantStore: RestVariantStore
@@ -35,6 +34,7 @@ final class AppCompositionRoot: ObservableObject {
     private var activePomodoroToastSessionID: UUID?
     private var pomodoroToastDismissTask: Task<Void, Never>?
     private var isNavigationPopoverPresented = false
+    private var lastAppliedMusicPresentationSignature: MusicPresentationSignature?
 
     init(
         sharedServices: SharedCoreServices? = nil,
@@ -68,8 +68,7 @@ final class AppCompositionRoot: ObservableObject {
                 cleanupService: fileStashCleanupService
             )
             let clipboardStore = try ClipboardStore(
-                fileStore: resolvedSharedServices.localFileStore,
-                settingsStore: resolvedSharedServices.settingsStore
+                fileStore: resolvedSharedServices.localFileStore
             )
             let cleanupService = ClipboardCleanupService(
                 store: clipboardStore,
@@ -88,7 +87,8 @@ final class AppCompositionRoot: ObservableObject {
                 store: clipboardStore,
                 settingsStore: resolvedSharedServices.settingsStore,
                 cleanupService: cleanupService,
-                pasteExecutor: pasteExecutor
+                pasteExecutor: pasteExecutor,
+                diagnosticsStore: resolvedSharedServices.diagnosticsStore
             )
             let clipboardRuntime = ClipboardModuleRuntime(core: clipboardCore)
             let pomodoroStore = try PomodoroSessionStore(
@@ -193,12 +193,7 @@ final class AppCompositionRoot: ObservableObject {
             resolvedMusicRuntime.moduleStatePublisher
                 .dropFirst()
                 .sink { [weak self] state in
-                    guard let self else {
-                        return
-                    }
-
-                    self.syncMusicPresentationState(for: state)
-                    self.objectWillChange.send()
+                    self?.applyMusicPresentationIfChanged(for: state)
                 }
                 .store(in: &cancellables)
             pomodoroCore.$sessionSnapshot
@@ -207,7 +202,7 @@ final class AppCompositionRoot: ObservableObject {
                 }
                 .store(in: &cancellables)
 
-            syncMusicPresentationState(for: resolvedMusicRuntime.moduleState)
+            applyMusicPresentationIfChanged(for: resolvedMusicRuntime.moduleState)
             syncClipboardRestVariantForActiveModule()
             syncPomodoroRestVariant(sessionSnapshot: pomodoroCore.sessionSnapshot)
         } catch {
@@ -286,6 +281,27 @@ final class AppCompositionRoot: ObservableObject {
             $0.id != .music && $0.id != .clipboard
         } + [musicRuntime, clipboardRuntime]
         return ModuleRuntimeRegistry(runtimes: runtimes)
+    }
+
+    // Music polls every few seconds even while collapsed, but most polls only
+    // advance elapsed time — and the progress bar / animated strip interpolate
+    // that locally. Re-running the presentation sync and fanning objectWillChange
+    // out to the whole shell on those ticks is pure waste. Gate on a signature
+    // that captures what the collapsed presentation actually depends on (player,
+    // play/pause, track, strip visibility) and deliberately excludes elapsed time.
+    private func applyMusicPresentationIfChanged(for state: MusicModuleState) {
+        let signature = MusicPresentationSignature(
+            summary: state.collapsedSummary,
+            showsWideNotchStrip: MusicWideNotchStripPresentation(moduleState: state) != nil
+        )
+
+        guard signature != lastAppliedMusicPresentationSignature else {
+            return
+        }
+
+        lastAppliedMusicPresentationSignature = signature
+        syncMusicPresentationState(for: state)
+        objectWillChange.send()
     }
 
     private func syncMusicPresentationState(for state: MusicModuleState) {
@@ -385,4 +401,9 @@ final class AppCompositionRoot: ObservableObject {
             suppressesOutsideClickCollapse = nextOutsideClickValue
         }
     }
+}
+
+private struct MusicPresentationSignature: Equatable {
+    let summary: CollapsedMusicSummary?
+    let showsWideNotchStrip: Bool
 }

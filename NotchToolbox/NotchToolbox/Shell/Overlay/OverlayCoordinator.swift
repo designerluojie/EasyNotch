@@ -231,16 +231,13 @@ final class OverlayCoordinator {
             applyState(.idle(screenID: screenID))
         case .hoverHint(let screenID, _):
             applyState(.hoverHint(screenID: screenID))
-        case .expanded(let screenID, let moduleID):
-            guard let transientRequest = resolvedPresentation().transientRequest else {
-                return
-            }
-
-            guard transientRequest.moduleID != moduleID else {
-                return
-            }
-
-            applyState(.idle(screenID: screenID))
+        case .expanded:
+            // A transient rest variant (e.g. the pomodoro toast) never preempts
+            // a panel the user has open — collapsing it would interrupt active
+            // work and would also skip the panelWillCollapse/moduleWillDisappear
+            // lifecycle events. The request stays in the RestVariantStore and
+            // shows if the panel returns to a rest state while it is still alive.
+            return
         case .collapsing(let screenID, _):
             guard resolvedPresentation().isTransientRequest else {
                 return

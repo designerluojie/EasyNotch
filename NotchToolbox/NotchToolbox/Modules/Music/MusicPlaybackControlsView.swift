@@ -5,7 +5,7 @@ struct MusicPlaybackControlsView: View {
     let performControl: @MainActor (MusicControlAction) async -> Void
 
     var body: some View {
-        TimelineView(.periodic(from: playback.capturedAt, by: 1.0)) { context in
+        TimelineView(.periodic(from: playback.tickAnchor, by: 1.0)) { context in
             let elapsedText = playback.elapsedText(at: context.date)
             let progressFraction = playback.progressFraction(at: context.date)
 

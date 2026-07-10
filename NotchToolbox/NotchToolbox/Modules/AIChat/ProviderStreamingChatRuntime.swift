@@ -1,7 +1,7 @@
 import Foundation
 
 @MainActor
-final class QwenStreamingChatRuntime: AIChatRuntime {
+final class ProviderStreamingChatRuntime: AIChatRuntime {
     private let credentialStore: any SecureCredentialStore
     private let session: URLSession
     private let endpointOverride: URL?
@@ -52,7 +52,7 @@ final class QwenStreamingChatRuntime: AIChatRuntime {
     }
 }
 
-extension QwenStreamingChatRuntime {
+extension ProviderStreamingChatRuntime {
     // Exposed for testing so the request body's message ordering (prior history
     // then the current turn) can be asserted without hitting the network.
     nonisolated static func makeOpenAIRequestBody(for request: AIChatRequest) throws -> Data {
@@ -94,7 +94,7 @@ private extension AIChatMessageRole {
     }
 }
 
-private extension QwenStreamingChatRuntime {
+private extension ProviderStreamingChatRuntime {
     struct ActiveStream {
         let continuation: AsyncThrowingStream<AIChatRuntimeEvent, Error>.Continuation
         let task: Task<Void, Never>
@@ -251,134 +251,33 @@ private extension QwenStreamingChatRuntime {
         continuation: AsyncThrowingStream<AIChatRuntimeEvent, Error>.Continuation
     ) async {
         do {
-            let apiKey = try loadAPIKey(for: request.selectedModel.provider)
-            if request.selectedModel.provider == .gemini {
-                await consumeGeminiRemoteStream(
-                    for: request,
-                    apiKey: apiKey,
-                    continuation: continuation
-                )
-                return
-            }
-
+            let provider = request.selectedModel.provider
+            let apiKey = try loadAPIKey(for: provider)
             var urlRequest = URLRequest(
-                url: endpoint(for: request.selectedModel.provider, modelID: request.selectedModel.modelID, apiKey: apiKey)
+                url: endpoint(for: provider, modelID: request.selectedModel.modelID)
             )
             urlRequest.httpMethod = "POST"
-            urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
             urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            urlRequest.httpBody = try Self.makeOpenAIRequestBody(for: request)
 
-            let (bytes, response) = try await session.bytes(for: urlRequest)
-            guard let httpResponse = response as? HTTPURLResponse else {
-                emitFailure(
-                    requestID: request.id,
-                    continuation: continuation,
-                    summary: "请求失败，请稍后重试"
-                )
-                return
+            let dialect: SSEStreamDialect
+            if provider == .gemini {
+                // The API key travels in a header, not the URL, so it can't
+                // leak into request logs.
+                urlRequest.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
+                urlRequest.httpBody = try Self.makeGeminiRequestBody(for: request)
+                dialect = .gemini
+            } else {
+                urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+                urlRequest.httpBody = try Self.makeOpenAIRequestBody(for: request)
+                dialect = .openAICompatible
             }
 
-            guard httpResponse.statusCode == 200 else {
-                emitFailure(
-                    requestID: request.id,
-                    continuation: continuation,
-                    summary: errorSummary(statusCode: httpResponse.statusCode)
-                )
-                return
-            }
-
-            var didStart = false
-            var didComplete = false
-
-            for try await rawLine in bytes.lines {
-                let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !line.isEmpty, line.hasPrefix("data:") else {
-                    continue
-                }
-
-                let payload = line.dropFirst(5).trimmingCharacters(in: .whitespacesAndNewlines)
-                if payload == "[DONE]" {
-                    if !didComplete {
-                        continuation.yield(.completed(requestID: request.id))
-                        didComplete = true
-                    }
-                    continuation.finish()
-                    cleanup(requestID: request.id)
-                    return
-                }
-
-                let envelope: StreamEnvelope
-                do {
-                    envelope = try decoder.decode(StreamEnvelope.self, from: Data(payload.utf8))
-                } catch {
-                    emitFailure(
-                        requestID: request.id,
-                        continuation: continuation,
-                        summary: "响应解析失败，请稍后重试"
-                    )
-                    return
-                }
-
-                guard let choice = envelope.choices.first else {
-                    emitFailure(
-                        requestID: request.id,
-                        continuation: continuation,
-                        summary: "响应解析失败，请稍后重试"
-                    )
-                    return
-                }
-
-                if let reasoningContent = choice.delta?.reasoningContent, !reasoningContent.isEmpty {
-                    if !didStart {
-                        continuation.yield(.started(requestID: request.id))
-                        didStart = true
-                    }
-                    continuation.yield(.reasoningDelta(requestID: request.id, textChunk: reasoningContent))
-                    continue
-                }
-
-                if let content = choice.delta?.content, !content.isEmpty {
-                    if !didStart {
-                        continuation.yield(.started(requestID: request.id))
-                        didStart = true
-                    }
-                    continuation.yield(.delta(requestID: request.id, textChunk: content))
-                    continue
-                }
-
-                if choice.finishReason == "stop" {
-                    if !didStart {
-                        continuation.yield(.started(requestID: request.id))
-                        didStart = true
-                    }
-                    continuation.yield(.completed(requestID: request.id))
-                    didComplete = true
-                    continuation.finish()
-                    cleanup(requestID: request.id)
-                    return
-                }
-
-                if choice.delta != nil {
-                    continue
-                }
-
-                emitFailure(
-                    requestID: request.id,
-                    continuation: continuation,
-                    summary: "响应解析失败，请稍后重试"
-                )
-                return
-            }
-
-            if !didComplete {
-                emitFailure(
-                    requestID: request.id,
-                    continuation: continuation,
-                    summary: "响应解析失败，请稍后重试"
-                )
-                return
-            }
+            try await consumeSSE(
+                urlRequest: urlRequest,
+                dialect: dialect,
+                requestID: request.id,
+                continuation: continuation
+            )
         } catch is CancellationError {
             if activeStreams[request.id] != nil {
                 emitFailure(
@@ -394,6 +293,102 @@ private extension QwenStreamingChatRuntime {
                 requestID: request.id,
                 continuation: continuation,
                 summary: errorSummary(for: error)
+            )
+        }
+    }
+
+    // Shared SSE loop for every provider. The per-provider differences live in
+    // `SSEStreamDialect` (chunk decoding, `[DONE]` semantics, end-of-stream
+    // semantics); transport, HTTP-status mapping, and failure emission are
+    // identical and must stay in one place.
+    private func consumeSSE(
+        urlRequest: URLRequest,
+        dialect: SSEStreamDialect,
+        requestID: UUID,
+        continuation: AsyncThrowingStream<AIChatRuntimeEvent, Error>.Continuation
+    ) async throws {
+        let (bytes, response) = try await session.bytes(for: urlRequest)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            emitFailure(
+                requestID: requestID,
+                continuation: continuation,
+                summary: "请求失败，请稍后重试"
+            )
+            return
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            emitFailure(
+                requestID: requestID,
+                continuation: continuation,
+                summary: errorSummary(statusCode: httpResponse.statusCode)
+            )
+            return
+        }
+
+        var didStart = false
+        func emitStartedIfNeeded() {
+            if !didStart {
+                continuation.yield(.started(requestID: requestID))
+                didStart = true
+            }
+        }
+        func emitCompletedAndFinish() {
+            continuation.yield(.completed(requestID: requestID))
+            continuation.finish()
+            cleanup(requestID: requestID)
+        }
+
+        for try await rawLine in bytes.lines {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty, line.hasPrefix("data:") else {
+                continue
+            }
+
+            let payload = line.dropFirst(5).trimmingCharacters(in: .whitespacesAndNewlines)
+            if payload == "[DONE]" {
+                if didStart || dialect.completesAtDoneWithoutStart {
+                    continuation.yield(.completed(requestID: requestID))
+                }
+                continuation.finish()
+                cleanup(requestID: requestID)
+                return
+            }
+
+            let outcome: SSEStreamDialect.ChunkOutcome
+            do {
+                outcome = try dialect.outcome(fromPayload: payload, decoder: decoder)
+            } catch {
+                emitFailure(
+                    requestID: requestID,
+                    continuation: continuation,
+                    summary: "响应解析失败，请稍后重试"
+                )
+                return
+            }
+
+            if let reasoningDelta = outcome.reasoningDelta {
+                emitStartedIfNeeded()
+                continuation.yield(.reasoningDelta(requestID: requestID, textChunk: reasoningDelta))
+            }
+            if let textDelta = outcome.textDelta {
+                emitStartedIfNeeded()
+                continuation.yield(.delta(requestID: requestID, textChunk: textDelta))
+            }
+            if outcome.isFinished {
+                emitStartedIfNeeded()
+                emitCompletedAndFinish()
+                return
+            }
+        }
+
+        if didStart, dialect.completesAtEndOfStreamAfterStart {
+            emitCompletedAndFinish()
+        } else {
+            emitFailure(
+                requestID: requestID,
+                continuation: continuation,
+                summary: "响应解析失败，请稍后重试"
             )
         }
     }
@@ -444,124 +439,75 @@ private extension QwenStreamingChatRuntime {
         return GeminiRequestBody(contents: contents)
     }
 
-    func consumeGeminiRemoteStream(
-        for request: AIChatRequest,
-        apiKey: String,
-        continuation: AsyncThrowingStream<AIChatRuntimeEvent, Error>.Continuation
-    ) async {
-        do {
-            var urlRequest = URLRequest(
-                url: endpoint(
-                    for: .gemini,
-                    modelID: request.selectedModel.modelID,
-                    apiKey: apiKey
-                )
-            )
-            urlRequest.httpMethod = "POST"
-            urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            urlRequest.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
-            urlRequest.httpBody = try Self.makeGeminiRequestBody(for: request)
+    // Per-provider SSE differences: how a chunk decodes into events, whether
+    // `[DONE]` alone counts as completion, and whether a bare end-of-stream
+    // after content counts as completion (Gemini's alt=sse sends no [DONE]).
+    enum SSEStreamDialect {
+        case openAICompatible
+        case gemini
 
-            let (bytes, response) = try await session.bytes(for: urlRequest)
-            guard let httpResponse = response as? HTTPURLResponse else {
-                emitFailure(
-                    requestID: request.id,
-                    continuation: continuation,
-                    summary: "请求失败，请稍后重试"
-                )
-                return
+        struct ChunkOutcome {
+            var reasoningDelta: String?
+            var textDelta: String?
+            var isFinished = false
+
+            static let ignored = ChunkOutcome()
+        }
+
+        var completesAtDoneWithoutStart: Bool {
+            switch self {
+            case .openAICompatible:
+                return true
+            case .gemini:
+                return false
             }
+        }
 
-            guard httpResponse.statusCode == 200 else {
-                emitFailure(
-                    requestID: request.id,
-                    continuation: continuation,
-                    summary: errorSummary(statusCode: httpResponse.statusCode)
-                )
-                return
+        var completesAtEndOfStreamAfterStart: Bool {
+            switch self {
+            case .openAICompatible:
+                return false
+            case .gemini:
+                return true
             }
+        }
 
-            var didStart = false
-            for try await rawLine in bytes.lines {
-                let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !line.isEmpty, line.hasPrefix("data:") else {
-                    continue
+        func outcome(fromPayload payload: String, decoder: JSONDecoder) throws -> ChunkOutcome {
+            switch self {
+            case .openAICompatible:
+                let envelope = try decoder.decode(StreamEnvelope.self, from: Data(payload.utf8))
+                // Chunks with an empty `choices` array are legal keep-alive /
+                // usage-accounting frames (DeepSeek ends every stream with one).
+                // Skip them instead of failing an otherwise successful reply.
+                guard let choice = envelope.choices.first else {
+                    return .ignored
                 }
 
-                let payload = line.dropFirst(5).trimmingCharacters(in: .whitespacesAndNewlines)
-                if payload == "[DONE]" {
-                    if didStart {
-                        continuation.yield(.completed(requestID: request.id))
-                    }
-                    continuation.finish()
-                    cleanup(requestID: request.id)
-                    return
+                if let reasoningContent = choice.delta?.reasoningContent, !reasoningContent.isEmpty {
+                    return ChunkOutcome(reasoningDelta: reasoningContent)
                 }
-
-                let envelope: GeminiStreamEnvelope
-                do {
-                    envelope = try decoder.decode(GeminiStreamEnvelope.self, from: Data(payload.utf8))
-                } catch {
-                    emitFailure(
-                        requestID: request.id,
-                        continuation: continuation,
-                        summary: "响应解析失败，请稍后重试"
-                    )
-                    return
+                if let content = choice.delta?.content, !content.isEmpty {
+                    return ChunkOutcome(textDelta: content)
                 }
-
+                if choice.finishReason == "stop" {
+                    return ChunkOutcome(isFinished: true)
+                }
+                // A decodable chunk carrying neither text nor a finish reason is
+                // metadata we don't consume — tolerate it. Real failures are
+                // caught by the HTTP status check and the JSON decode above.
+                return .ignored
+            case .gemini:
+                let envelope = try decoder.decode(GeminiStreamEnvelope.self, from: Data(payload.utf8))
                 let text = envelope.candidates
                     .flatMap { $0.content?.parts ?? [] }
                     .compactMap(\.text)
                     .joined()
 
-                if !text.isEmpty {
-                    if !didStart {
-                        continuation.yield(.started(requestID: request.id))
-                        didStart = true
-                    }
-                    continuation.yield(.delta(requestID: request.id, textChunk: text))
-                }
-
-                if envelope.candidates.contains(where: { $0.finishReason != nil }) {
-                    if !didStart {
-                        continuation.yield(.started(requestID: request.id))
-                        didStart = true
-                    }
-                    continuation.yield(.completed(requestID: request.id))
-                    continuation.finish()
-                    cleanup(requestID: request.id)
-                    return
-                }
-            }
-
-            if didStart {
-                continuation.yield(.completed(requestID: request.id))
-                continuation.finish()
-                cleanup(requestID: request.id)
-            } else {
-                emitFailure(
-                    requestID: request.id,
-                    continuation: continuation,
-                    summary: "响应解析失败，请稍后重试"
+                return ChunkOutcome(
+                    textDelta: text.isEmpty ? nil : text,
+                    isFinished: envelope.candidates.contains { $0.finishReason != nil }
                 )
             }
-        } catch is CancellationError {
-            if activeStreams[request.id] != nil {
-                emitFailure(
-                    requestID: request.id,
-                    continuation: continuation,
-                    summary: "请求已中断"
-                )
-            } else {
-                cleanup(requestID: request.id)
-            }
-        } catch {
-            emitFailure(
-                requestID: request.id,
-                continuation: continuation,
-                summary: errorSummary(for: error)
-            )
         }
     }
 
@@ -573,28 +519,11 @@ private extension QwenStreamingChatRuntime {
         return apiKey
     }
 
-    func endpoint(for provider: AIProviderKind, modelID: String, apiKey: String) -> URL {
-        if let endpointOverride {
-            return endpointOverride
-        }
-
-        switch provider {
-        case .deepseek:
-            return URL(string: "https://api.deepseek.com/chat/completions")!
-        case .qwen:
-            return URL(string: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions")!
-        case .chatgpt:
-            return URL(string: "https://api.openai.com/v1/chat/completions")!
-        case .gemini:
-            var components = URLComponents(
-                string: "https://generativelanguage.googleapis.com/v1beta/models/\(modelID):streamGenerateContent"
-            )!
-            // The API key is sent via the x-goog-api-key header, not the URL.
-            components.queryItems = [
-                URLQueryItem(name: "alt", value: "sse")
-            ]
-            return components.url!
-        }
+    func endpoint(for provider: AIProviderKind, modelID: String) -> URL {
+        endpointOverride ?? AIProviderCatalog.chatCompletionsEndpoint(
+            for: provider,
+            modelID: modelID
+        )
     }
 
     func cleanup(requestID: UUID) {

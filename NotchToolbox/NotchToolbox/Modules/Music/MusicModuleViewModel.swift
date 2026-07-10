@@ -36,6 +36,17 @@ struct MusicModuleViewModel {
         let playPauseSymbol: String
         let isPlaying: Bool
 
+        // Stable per-track phase for the elapsed display's 1s TimelineView.
+        // `capturedAt` jumps forward by a jittery >1s on every poll, so anchoring
+        // the periodic schedule to it makes each poll re-anchor the ticks — the
+        // display then only updates at poll cadence and skips a second whenever a
+        // poll gap exceeds 1s ("变快一秒"). `capturedAt - elapsedTime` is the
+        // track's wall-clock origin: constant across continuous playback, so ticks
+        // fire on a steady 1s cadence aligned to integer-second boundaries.
+        var tickAnchor: Date {
+            capturedAt.addingTimeInterval(-elapsedTime)
+        }
+
         func effectiveElapsedTime(at date: Date) -> TimeInterval {
             let baseElapsed = min(max(elapsedTime, 0), duration)
             guard isPlaying else {
@@ -60,7 +71,13 @@ struct MusicModuleViewModel {
         }
 
         private static func format(duration: TimeInterval) -> String {
-            let totalSeconds = max(0, Int(duration.rounded(.towardZero)))
+            // `tickAnchor` fires ticks exactly on integer-second boundaries, where
+            // subtracting two real (~1.7e9) Dates leaves ~1e-7 of floating-point
+            // cancellation error — enough to drag a true 43.0 down to 42.9999 and
+            // truncate to 42, showing the whole timer a second behind. A 1ms bias
+            // (far above that error, far below human perception) snaps boundary
+            // samples to the correct second.
+            let totalSeconds = max(0, Int((duration + 0.001).rounded(.towardZero)))
             let minutes = totalSeconds / 60
             let seconds = totalSeconds % 60
             return "\(minutes):" + String(format: "%02d", seconds)

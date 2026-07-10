@@ -43,7 +43,16 @@ final class SharedCoreServices {
         self.credentialStore = credentialStore
         self.permissionCoordinator = permissionCoordinator
         self.cleanupScheduler = cleanupScheduler
-        self.diagnosticsStore = diagnosticsStore ?? DiagnosticsStore()
+        self.diagnosticsStore = diagnosticsStore
+            ?? Self.makeDefaultDiagnosticsStore(localFileStore: localFileStore)
+    }
+
+    private static func makeDefaultDiagnosticsStore(
+        localFileStore: LocalFileStore
+    ) -> DiagnosticsStore {
+        let logFileURL = (try? localFileStore.prepareDirectory(.logs))?
+            .appending(path: "diagnostics.log")
+        return DiagnosticsStore(logFileURL: logFileURL)
     }
 
     static func live() -> SharedCoreServices {

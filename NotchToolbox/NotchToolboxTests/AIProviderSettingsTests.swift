@@ -19,6 +19,37 @@ struct AIProviderSettingsTests {
         #expect(AIProviderCatalog.model(provider: .qwen, id: "qwen3.6-flash")?.supportsImageInput == true)
     }
 
+    @Test func catalogIsSingleSourceOfTruthForProviderEndpoints() {
+        #expect(
+            AIProviderCatalog.chatCompletionsEndpoint(for: .deepseek, modelID: "deepseek-v4-pro").absoluteString
+                == "https://api.deepseek.com/chat/completions"
+        )
+        #expect(
+            AIProviderCatalog.chatCompletionsEndpoint(for: .qwen, modelID: "qwen3.6-plus").absoluteString
+                == "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+        )
+        #expect(
+            AIProviderCatalog.chatCompletionsEndpoint(for: .chatgpt, modelID: "gpt-5.5").absoluteString
+                == "https://api.openai.com/v1/chat/completions"
+        )
+        #expect(
+            AIProviderCatalog.chatCompletionsEndpoint(for: .gemini, modelID: "gemini-3.5-flash").absoluteString
+                == "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:streamGenerateContent?alt=sse"
+        )
+
+        // Validation hits the same host; only Gemini needs the non-streaming call.
+        for provider in [AIProviderKind.deepseek, .qwen, .chatgpt] {
+            #expect(
+                AIProviderCatalog.credentialValidationEndpoint(for: provider, modelID: "any")
+                    == AIProviderCatalog.chatCompletionsEndpoint(for: provider, modelID: "any")
+            )
+        }
+        #expect(
+            AIProviderCatalog.credentialValidationEndpoint(for: .gemini, modelID: "gemini-3.5-flash").absoluteString
+                == "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent"
+        )
+    }
+
     @Test func qwenConfigurationWritesSecretOnlyToKeychain() async throws {
         let settingsURL = try temporarySettingsURL()
         let settingsStore = try SettingsStore(storageURL: settingsURL)
@@ -47,6 +78,42 @@ struct AIProviderSettingsTests {
         #expect(String(decoding: try Data(contentsOf: settingsURL), as: UTF8.self).contains("sk-secret") == false)
         #expect(try metadataStore.metadata(for: .qwen)?.maskedKeyPreview == "sk-****1234")
         #expect(service.summaries().first { $0.provider == .qwen }?.status == .configured)
+    }
+
+    @Test func saveFailureSurfacesOriginalErrorEvenWhenRollbackAlsoFails() async throws {
+        // Persisting settings will fail: the settings directory path is
+        // occupied by a plain file.
+        let root = try temporaryDirectory()
+        try Data().write(to: root.appending(path: "blocked"))
+        let settingsStore = try SettingsStore(
+            storageURL: root.appending(path: "blocked/settings.json")
+        )
+        let credentialStore = DeleteFailingCredentialStore()
+        let validator = StubQwenCredentialValidator(result: .success(.init(
+            provider: .qwen,
+            maskedKeyPreview: "sk-****1234",
+            configuredAt: Date(timeIntervalSince1970: 1_700_000_000),
+            lastValidatedAt: Date(timeIntervalSince1970: 1_700_000_001),
+            lastValidationErrorSummary: nil
+        )))
+        let service = AIProviderConfigurationService(
+            settingsStore: settingsStore,
+            credentialStore: credentialStore,
+            metadataStore: InMemoryAIProviderMetadataStore(),
+            qwenValidator: validator
+        )
+
+        do {
+            try await service.saveConfiguration(
+                for: .qwen,
+                draft: ProviderDraftConfig(apiKey: "sk-secret", selectedModelID: "qwen3.6-plus")
+            )
+            Issue.record("Expected saveConfiguration to throw")
+        } catch {
+            // The rollback (credential delete) also failed, but the caller must
+            // see the original save failure, not the rollback's.
+            #expect(!(error is DeleteFailingCredentialStore.RollbackFailure))
+        }
     }
 
     @Test func nonQwenConfigurationWritesProviderScopedSecretAndSummary() async throws {
@@ -372,6 +439,24 @@ struct AIProviderSettingsTests {
             Data(body.utf8)
         )
         return URLSession(configuration: configuration)
+    }
+}
+
+private final class DeleteFailingCredentialStore: SecureCredentialStore {
+    struct RollbackFailure: Error {}
+
+    private var secrets: [CredentialAccount: String] = [:]
+
+    func save(_ secret: String, for account: CredentialAccount) throws {
+        secrets[account] = secret
+    }
+
+    func load(for account: CredentialAccount) throws -> String? {
+        secrets[account]
+    }
+
+    func delete(for account: CredentialAccount) throws {
+        throw RollbackFailure()
     }
 }
 

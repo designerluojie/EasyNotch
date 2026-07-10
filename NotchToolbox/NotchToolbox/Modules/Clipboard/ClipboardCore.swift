@@ -16,10 +16,12 @@ final class ClipboardCore: ObservableObject, EnergyManagedTask {
     private let settingsStore: SettingsStore
     private let cleanupService: ClipboardCleanupService
     private let pasteExecutor: PasteExecutor
+    private let diagnosticsStore: DiagnosticsStore?
 
     private var pastebackTicket: ClipboardPastebackTicket?
     private var lastKnownChangeCount: Int
     private var pollTimer: Timer?
+    private var hasReportedPollFailure = false
 
     init(
         pasteboardClient: any ClipboardPasteboardClient,
@@ -28,7 +30,8 @@ final class ClipboardCore: ObservableObject, EnergyManagedTask {
         store: ClipboardStore,
         settingsStore: SettingsStore,
         cleanupService: ClipboardCleanupService,
-        pasteExecutor: PasteExecutor
+        pasteExecutor: PasteExecutor,
+        diagnosticsStore: DiagnosticsStore? = nil
     ) throws {
         self.pasteboardClient = pasteboardClient
         self.sourceApplicationProvider = sourceApplicationProvider
@@ -37,6 +40,7 @@ final class ClipboardCore: ObservableObject, EnergyManagedTask {
         self.settingsStore = settingsStore
         self.cleanupService = cleanupService
         self.pasteExecutor = pasteExecutor
+        self.diagnosticsStore = diagnosticsStore
         self.lastKnownChangeCount = pasteboardClient.changeCount
         self.history = try store.loadHistory()
     }
@@ -84,7 +88,7 @@ final class ClipboardCore: ObservableObject, EnergyManagedTask {
         isPolling = true
         let timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.pollOnceIgnoringErrors()
+                self?.pollOnceReportingErrors()
             }
         }
         // Let the OS coalesce wake-ups; clipboard polling doesn't need sub-second
@@ -120,7 +124,23 @@ final class ClipboardCore: ObservableObject, EnergyManagedTask {
         _ = try cleanupService.runIfNeeded()
     }
 
-    private func pollOnceIgnoringErrors() {
-        try? pollOnce()
+    // A poll failure means captures are being dropped (e.g. the history file
+    // can't be written). Report the first failure to diagnostics and stay
+    // quiet until a poll succeeds again — a 2 Hz poll must not flood the log.
+    func pollOnceReportingErrors() {
+        do {
+            try pollOnce()
+            hasReportedPollFailure = false
+        } catch {
+            guard !hasReportedPollFailure else {
+                return
+            }
+
+            hasReportedPollFailure = true
+            diagnosticsStore?.record(
+                .error,
+                message: "Clipboard capture failed: \(error)"
+            )
+        }
     }
 }
