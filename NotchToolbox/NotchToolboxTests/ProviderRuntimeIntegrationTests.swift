@@ -48,13 +48,18 @@ struct ProviderRuntimeIntegrationTests {
         #expect(assistant.status == .streaming)
         #expect(model.state.isStreamingVisible)
 
+        // 流式中不落库每个 token：库里只有发送时插入的空占位（终态才写全文）。
         let sessionID = try #require(model.currentSessionID)
         let persistedAssistant = try #require(persistedStore.loadMessages(for: sessionID).last)
-        #expect(persistedAssistant.text == "Hello")
+        #expect(persistedAssistant.text.isEmpty)
         #expect(persistedAssistant.status == .streaming)
 
         model.stopStreaming()
         #expect(await waitUntilModuleStops(model: model, maxPolls: 10_000))
+
+        let stoppedAssistant = try #require(persistedStore.loadMessages(for: sessionID).last)
+        #expect(stoppedAssistant.text == "Hello")
+        #expect(stoppedAssistant.status == .stopped)
     }
 
     @MainActor
@@ -463,7 +468,8 @@ private final class QwenModuleURLProtocol: URLProtocol {
             throw QwenModuleRequestValidationError.invalidContentType
         }
 
-        guard let body = request.httpBody else {
+        // URLSession hands the body to URLProtocol as a stream, never via httpBody.
+        guard let body = request.httpBody ?? Self.drainBodyStream(request.httpBodyStream) else {
             throw QwenModuleRequestValidationError.missingBody
         }
 
@@ -490,6 +496,26 @@ private final class QwenModuleURLProtocol: URLProtocol {
         guard role == "user", prompt == expectation.prompt else {
             throw QwenModuleRequestValidationError.invalidPrompt
         }
+    }
+
+    private static func drainBodyStream(_ stream: InputStream?) -> Data? {
+        guard let stream else {
+            return nil
+        }
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        let bufferSize = 4096
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+        defer { buffer.deallocate() }
+        while stream.hasBytesAvailable {
+            let read = stream.read(buffer, maxLength: bufferSize)
+            guard read > 0 else {
+                break
+            }
+            data.append(buffer, count: read)
+        }
+        return data
     }
 }
 
