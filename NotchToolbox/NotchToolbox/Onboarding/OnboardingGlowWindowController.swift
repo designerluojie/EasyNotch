@@ -35,7 +35,7 @@ final class OnboardingGlowWindowController {
         static let strokeDelay: CFTimeInterval = 0.15
         static let strokeDuration: CFTimeInterval = 1.6
         /// When the coordinator should reveal the welcome mini panel.
-        static let welcomeAt: CFTimeInterval = 1.9
+        static let welcomeAt: CFTimeInterval = 1.6
         /// The halo fades in together with the welcome mini panel (same moment,
         /// matched duration) so the notch doesn't light up before the greeting
         /// drops.
@@ -49,7 +49,10 @@ final class OnboardingGlowWindowController {
         static let haloFadeOutDuration: CFTimeInterval = 0.6
         static let windowFadeOutDuration: CFTimeInterval = 0.5
 
-        static var haloFadeOutAt: CFTimeInterval { welcomeAt + welcomeHold }
+        /// The halo starts fading a touch before the welcome hold fully ends so
+        /// the blue notch projection doesn't linger behind the greeting.
+        static let haloFadeOutLead: CFTimeInterval = 0.3
+        static var haloFadeOutAt: CFTimeInterval { welcomeAt + welcomeHold - haloFadeOutLead }
         static var windowFadeOutAt: CFTimeInterval { haloFadeOutAt + haloFadeOutDuration }
     }
 
@@ -230,7 +233,10 @@ final class OnboardingGlowWindowController {
     private func edgePath(bounds: CGRect, context: OnboardingGlowContext, towardsLeft: Bool) -> CGPath {
         let path = CGMutablePath()
         let edgeX = towardsLeft ? bounds.minX : bounds.maxX
-        let notchEdgeX = bounds.midX + (towardsLeft ? -1 : 1) * (context.anchorWidth / 2 + 12)
+        // Tuck the end a touch UNDER the notch edge (negative inset) so the
+        // traveling light joins into the notch/halo instead of stopping short
+        // and leaving a visible break beside the notch.
+        let notchEdgeX = bounds.midX + (towardsLeft ? -1 : 1) * (context.anchorWidth / 2 - 6)
         path.move(to: CGPoint(x: bounds.midX, y: bounds.minY))
         path.addLine(to: CGPoint(x: edgeX, y: bounds.minY))
         path.addLine(to: CGPoint(x: edgeX, y: bounds.maxY))
