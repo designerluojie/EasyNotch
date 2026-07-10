@@ -13,6 +13,10 @@ final class ClipboardViewModel: ObservableObject {
     @Published private(set) var cards: [ClipboardCardViewState] = []
     @Published private(set) var isEmpty = true
     @Published private(set) var lastPasteError: String?
+    /// Bumped every time a paste error is reported, even when the message is
+    /// identical to the previous one, so the view can fire a toast reliably on
+    /// repeated failures.
+    @Published private(set) var pasteErrorToken: Int = 0
     @Published private(set) var phase: ClipboardExpandedPhase = .history
 
     private static let missingItemErrorMessage = "该候选内容已不可用，请重新复制后再试。"
@@ -55,7 +59,7 @@ final class ClipboardViewModel: ObservableObject {
 
     func paste(itemID: UUID, onSuccess: (() -> Void)? = nil) {
         guard let item = core.history.first(where: { $0.id == itemID }) else {
-            lastPasteError = Self.missingItemErrorMessage
+            reportPasteError(Self.missingItemErrorMessage)
             return
         }
 
@@ -64,8 +68,13 @@ final class ClipboardViewModel: ObservableObject {
             lastPasteError = nil
             beginPastebackSuccessPhase(onCollapseRequested: onSuccess)
         } catch {
-            lastPasteError = Self.makePasteErrorMessage(from: error)
+            reportPasteError(Self.makePasteErrorMessage(from: error))
         }
+    }
+
+    private func reportPasteError(_ message: String) {
+        lastPasteError = message
+        pasteErrorToken += 1
     }
 
     private func apply(history: [ClipboardHistoryItem]) {

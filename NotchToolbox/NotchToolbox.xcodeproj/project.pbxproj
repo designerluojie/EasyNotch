@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		BDAA10022FAB000000EE7001 /* nowplaying-cli in Embed Helpers */ = {isa = PBXBuildFile; fileRef = BDAA10012FAB000000EE7001 /* nowplaying-cli */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		BDDD72932FAB8898002EE7FF /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -22,10 +26,6 @@
 			remoteInfo = NotchToolbox;
 		};
 /* End PBXContainerItemProxy section */
-
-/* Begin PBXBuildFile section */
-		BDAA10022FAB000000EE7001 /* nowplaying-cli in Embed Helpers */ = {isa = PBXBuildFile; fileRef = BDAA10012FAB000000EE7001 /* nowplaying-cli */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-/* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
 		BDAA10032FAB000000EE7001 /* Embed Helpers */ = {

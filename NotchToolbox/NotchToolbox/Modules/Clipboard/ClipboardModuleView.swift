@@ -6,19 +6,20 @@ struct ClipboardModuleView: View {
     var onSuccessfulPaste: (() -> Void)? = nil
     var onPreferredBodySizeChange: ((CGSize) -> Void)? = nil
 
+    @StateObject private var toast = PanelToastPresenter()
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             contentSurface
-
-            if viewModel.phase != .pastebackSuccess,
-               let lastPasteError = viewModel.lastPasteError {
-                Text(lastPasteError)
-                    .font(.system(size: 11, weight: .regular))
-                    .foregroundStyle(Color(red: 1, green: 0.43, blue: 0.43))
-                    .padding(.leading, 8)
-            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .overlay(alignment: .bottom) {
+            PanelToastView(presenter: toast)
+        }
+        .onChange(of: viewModel.pasteErrorToken) { _ in
+            guard viewModel.phase != .pastebackSuccess else { return }
+            toast.present(notice: viewModel.lastPasteError, emphasis: .error)
+        }
         .onAppear {
             viewModel.refresh()
             updatePreferredBodySize()
