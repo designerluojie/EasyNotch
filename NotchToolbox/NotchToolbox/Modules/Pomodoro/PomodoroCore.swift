@@ -320,5 +320,5 @@ final class PomodoroCore: ObservableObject, EnergyManagedTask {
 
     private static let defaultFocusDurationSeconds = 1_500
     private static let defaultBreakDurationSeconds = 300
-    private static let allowedFocusDurations: Set<Int> = [1_500, 2_700, 3_600]
+    private static let allowedFocusDurations: Set<Int> = [30, 1_500, 2_700, 3_600]
 }
