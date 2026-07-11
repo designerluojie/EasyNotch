@@ -37,8 +37,11 @@ struct ClipboardNormalizer {
                 ClipboardFileReference(
                     fileName: url.lastPathComponent,
                     isDirectory: url.hasDirectoryPath,
+                    // Security-scoped (not .minimalBookmark — the two are mutually
+                    // exclusive) so a copied file stays pasteable under the sandboxed
+                    // App Store build. Harmless in the non-sandboxed build.
                     bookmarkData: try url.bookmarkData(
-                        options: .minimalBookmark,
+                        options: [.withSecurityScope],
                         includingResourceValuesForKeys: nil,
                         relativeTo: nil
                     )
