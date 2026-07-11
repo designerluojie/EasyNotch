@@ -1106,9 +1106,24 @@ struct MusicModuleTests {
         #expect(invocations == [["/opt/homebrew/bin/nowplaying-cli", "get-raw"]])
     }
 
-    @Test func defaultExecutableCandidatesPreferBundledHelper() throws {
-        let first = try #require(NowPlayingSnapshotProvider.defaultExecutableCandidates.first)
-        #expect(first.hasSuffix("Contents/Helpers/nowplaying-cli"))
+    @Test func debugBuildsPreferInstalledHomebrewHelperOverBundledCopy() throws {
+        // MediaRemote access is bound to the specific granted binary/path on the
+        // dev machine: an installed Homebrew helper reads now-playing, while a copy
+        // at any other path (including the bundled Contents/Helpers one) silently
+        // returns empty. So in local dev builds the Homebrew helper must be tried
+        // BEFORE the bundled copy, or a working install gets shadowed by a helper
+        // that reads nothing. (Release ships only the bundled helper — see
+        // defaultExecutableCandidatesExcludeUserWritablePathsInReleaseBuilds.)
+        let candidates = NowPlayingSnapshotProvider.defaultExecutableCandidates
+        #if DEBUG
+        let brewIndex = try #require(candidates.firstIndex(of: "/opt/homebrew/bin/nowplaying-cli"))
+        let bundledIndex = try #require(
+            candidates.firstIndex { $0.hasSuffix("Contents/Helpers/nowplaying-cli") }
+        )
+        #expect(brewIndex < bundledIndex)
+        #else
+        #expect(candidates.first?.hasSuffix("Contents/Helpers/nowplaying-cli") == true)
+        #endif
     }
 
     @Test func defaultExecutableCandidatesExcludeUserWritablePathsInReleaseBuilds() {
