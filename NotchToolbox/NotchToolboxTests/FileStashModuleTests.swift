@@ -206,6 +206,68 @@ struct FileStashModuleTests {
         #expect(viewModel.cards.map(\.displayName) == ["repeat.png"])
     }
 
+    @Test func newlyStashedItemsUseSecurityScopedBookmarks() throws {
+        let root = try Self.makeTemporaryRoot()
+        let store = try Self.makeStore(root: root)
+        let fileURL = try Self.makeFile(root: root, name: "scoped.txt", contents: "x")
+
+        let items = try store.stash(urls: [fileURL], addedAt: Date(timeIntervalSince1970: 10))
+
+        // Only a security-scoped bookmark resolves with .withSecurityScope; a plain
+        // bookmark throws NSCocoaError 259 ("isn't in the correct format"), so this
+        // resolves to nil. Persisting scoped data now avoids a migration later when
+        // the sandboxed App Store build needs it.
+        var isStale = false
+        let resolvedScoped = try? URL(
+            resolvingBookmarkData: items[0].bookmarkData,
+            options: [.withSecurityScope],
+            relativeTo: nil,
+            bookmarkDataIsStale: &isStale
+        )
+        #expect(resolvedScoped != nil)
+    }
+
+    @Test func legacyPlainBookmarksStillResolveAfterUpgrade() throws {
+        let root = try Self.makeTemporaryRoot()
+        let fileURL = try Self.makeFile(root: root, name: "legacy.txt", contents: "y")
+
+        // Simulate items.json written by the pre-upgrade (plain-bookmark) build.
+        let plainBookmark = try fileURL.bookmarkData(
+            options: [],
+            includingResourceValuesForKeys: nil,
+            relativeTo: nil
+        )
+        let record = FileStashRecord(
+            id: UUID(),
+            displayName: "legacy.txt",
+            bookmarkData: plainBookmark,
+            itemKind: .file,
+            typeLabel: "文件",
+            addedAt: Date(timeIntervalSince1970: 5),
+            lastResolvedPath: fileURL.path(percentEncoded: false)
+        )
+        try Self.seedRecords([record], root: root)
+
+        let reloaded = try Self.makeStore(root: root).loadItems()
+
+        #expect(reloaded.count == 1)
+        #expect(reloaded[0].status == .available)
+        #expect(
+            reloaded[0].resolvedURL?.resolvingSymlinksInPath() == fileURL.resolvingSymlinksInPath()
+        )
+    }
+
+    private static func seedRecords(_ records: [FileStashRecord], root: URL) throws {
+        let fileStore = LocalFileStore(baseURL: root)
+        _ = try fileStore.prepareDirectory(.fileStash)
+        let encoder = JSONEncoder()
+        let data = try encoder.encode(records)
+        try data.write(
+            to: fileStore.url(for: .fileStash).appending(path: "items.json"),
+            options: [.atomic]
+        )
+    }
+
     private static func makeTemporaryRoot() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appending(path: "FileStashModuleTests")

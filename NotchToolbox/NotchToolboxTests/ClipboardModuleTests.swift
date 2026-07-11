@@ -34,6 +34,62 @@ struct ClipboardModuleTests {
         )
     }
 
+    @Test func normalizerCreatesSecurityScopedFileReferenceBookmarks() throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appending(path: "\(UUID().uuidString).txt")
+        try Data("hello".utf8).write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let snapshot = ClipboardPasteboardSnapshot(
+            changeCount: 1,
+            availableTypes: [],
+            dataByType: [:],
+            fileURLs: [fileURL]
+        )
+        let capture = try #require(
+            try ClipboardNormalizer().normalize(snapshot: snapshot, sourceApp: nil)
+        )
+        guard case let .fileReferences(references) = capture.payload else {
+            Issue.record("expected file references payload")
+            return
+        }
+
+        // Only a security-scoped bookmark resolves with .withSecurityScope; a plain
+        // (.minimalBookmark) one throws NSCocoaError 259, resolving to nil.
+        var isStale = false
+        let resolvedScoped = try? URL(
+            resolvingBookmarkData: references[0].bookmarkData,
+            options: [.withSecurityScope],
+            relativeTo: nil,
+            bookmarkDataIsStale: &isStale
+        )
+        #expect(resolvedScoped != nil)
+    }
+
+    @Test func referenceValidatorResolvesLegacyPlainBookmarks() throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appending(path: "\(UUID().uuidString).txt")
+        try Data("legacy".utf8).write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        // Simulate a history.json entry written by the pre-upgrade build, which
+        // used .minimalBookmark (a plain, non-scoped bookmark).
+        let legacyReference = ClipboardFileReference(
+            fileName: fileURL.lastPathComponent,
+            isDirectory: false,
+            bookmarkData: try fileURL.bookmarkData(
+                options: .minimalBookmark,
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            )
+        )
+
+        let resolved = try ClipboardReferenceValidator().validate([legacyReference])
+
+        #expect(resolved.count == 1)
+        #expect(resolved[0].resolvingSymlinksInPath() == fileURL.resolvingSymlinksInPath())
+    }
+
     @Test func normalizerDropsPasswordManagerConcealedContent() throws {
         let snapshot = ClipboardPasteboardSnapshot(
             changeCount: 1,
