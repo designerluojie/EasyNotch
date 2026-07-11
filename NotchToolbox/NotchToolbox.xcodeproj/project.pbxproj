@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		BDAA10022FAB000000EE7001 /* nowplaying-cli in Embed Helpers */ = {isa = PBXBuildFile; fileRef = BDAA10012FAB000000EE7001 /* nowplaying-cli */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		BDAA10022FAB000000EE7001 /* nowplaying-cli in Embed Helpers */ = {isa = PBXBuildFile; fileRef = BDAA10012FAB000000EE7001 /* nowplaying-cli */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -27,6 +27,24 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		BDAA10042FAB000000EE7001 /* Sign Bundled Helper */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Sign Bundled Helper";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# The bundled nowplaying-cli.bundle carries a nested adapter dylib in the\n# non-standard Contents/lib, which codesign does not auto-sign when sealing the\n# bundle. Sign inside-out: the dylib first, then the bundle itself (which signs\n# its main executable and seals resources). Runs before the app's final seal.\nset -e\n[ -z \"${EXPANDED_CODE_SIGN_IDENTITY}\" ] && exit 0\nBUNDLE=\"${CODESIGNING_FOLDER_PATH}/Contents/Helpers/nowplaying-cli.bundle\"\n[ -d \"${BUNDLE}\" ] || exit 0\nSIGN=\"/usr/bin/codesign --force --options runtime --timestamp=none --sign ${EXPANDED_CODE_SIGN_IDENTITY}\"\n${SIGN} \"${BUNDLE}/Contents/lib/nowplaying-cli/MediaRemoteMini.dylib\"\n${SIGN} \"${BUNDLE}\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXCopyFilesBuildPhase section */
 		BDAA10032FAB000000EE7001 /* Embed Helpers */ = {
 			isa = PBXCopyFilesBuildPhase;
@@ -42,7 +60,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		BDAA10012FAB000000EE7001 /* nowplaying-cli */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = "nowplaying-cli"; path = "Vendor/nowplaying-cli"; sourceTree = "<group>"; };
+		BDAA10012FAB000000EE7001 /* nowplaying-cli.bundle */ = {isa = PBXFileReference; lastKnownFileType = wrapper.cfbundle; name = "nowplaying-cli.bundle"; path = "Vendor/nowplaying-cli.bundle"; sourceTree = "<group>"; };
 		BDDD72852FAB8896002EE7FF /* NotchToolbox.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NotchToolbox.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		BDDD72922FAB8898002EE7FF /* NotchToolboxTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NotchToolboxTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		BDDD729C2FAB8898002EE7FF /* NotchToolboxUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NotchToolboxUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -123,6 +141,7 @@
 				BDDD72822FAB8896002EE7FF /* Frameworks */,
 				BDDD72832FAB8896002EE7FF /* Resources */,
 				BDAA10032FAB000000EE7001 /* Embed Helpers */,
+				BDAA10042FAB000000EE7001 /* Sign Bundled Helper */,
 			);
 			buildRules = (
 			);
@@ -328,7 +347,7 @@
 				DEVELOPMENT_TEAM = 7KRN87P2S6;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -392,7 +411,7 @@
 				DEVELOPMENT_TEAM = 7KRN87P2S6;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;

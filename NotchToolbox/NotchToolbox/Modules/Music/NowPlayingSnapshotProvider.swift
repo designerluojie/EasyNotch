@@ -135,33 +135,32 @@ struct NowPlayingSnapshotProvider: MusicSnapshotProviding {
         }
     }
 
-    static let bundledHelperName = "nowplaying-cli"
+    // The bundled helper is the full nowplaying-cli distribution (binary + its
+    // MediaRemoteMini adapter dylib + perl script), shipped as a code-signable
+    // .bundle in Contents/Helpers. macOS 15.4+ denies MediaRemote to non-system
+    // binaries, so the helper shells out to /usr/bin/perl (which is entitled) via
+    // the adapter it locates relative to its own Contents/. Bundling only the bare
+    // binary — without lib/ and share/ — makes it read nothing.
+    static let bundledHelperSubpath = "Contents/Helpers/nowplaying-cli.bundle/Contents/MacOS/nowplaying-cli"
 
-    // The helper ships inside the app bundle at Contents/Helpers so the music
-    // module works without the user installing a copy. There is deliberately no
-    // $PATH search — see `resolveCommand`.
+    // The helper ships inside the app bundle so the music module works without the
+    // user installing a copy. It's resolved first — DEBUG runs exercise the exact
+    // helper that ships. There is deliberately no $PATH search (see resolveCommand).
     //
-    // DEBUG resolves an installed Homebrew helper FIRST, then the bundled copy.
-    // MediaRemote access on macOS 15.4+ is bound to the specific granted
-    // binary/path: an installed Homebrew helper reads now-playing, but a copy at
-    // the bundled path silently returns empty on this machine. Probing Homebrew
-    // first keeps music working when running from Xcode; the bundled copy stays as
-    // a fallback so it can still be exercised when no Homebrew install exists.
-    //
-    // Release builds resolve ONLY the bundled helper — shipping the Homebrew paths
-    // would let the app execute a `nowplaying-cli` a user (or malware) dropped into
-    // a user-writable directory. (Whether the bundled helper actually reads
-    // MediaRemote for end users is a separate, open question — see release notes.)
+    // DEBUG also lists the Homebrew paths as a fallback for machines where the
+    // bundled helper hasn't been built yet. Release resolves ONLY the bundled
+    // helper — shipping the Homebrew paths would let the app execute a
+    // `nowplaying-cli` a user (or malware) dropped into a user-writable directory.
     static let defaultExecutableCandidates: [String] = {
         let bundledHelperPath = Bundle.main.bundleURL
-            .appending(path: "Contents/Helpers/\(bundledHelperName)")
+            .appending(path: bundledHelperSubpath)
             .path(percentEncoded: false)
 
         #if DEBUG
         return [
+            bundledHelperPath,
             "/opt/homebrew/bin/nowplaying-cli",
-            "/usr/local/bin/nowplaying-cli",
-            bundledHelperPath
+            "/usr/local/bin/nowplaying-cli"
         ]
         #else
         return [bundledHelperPath]
