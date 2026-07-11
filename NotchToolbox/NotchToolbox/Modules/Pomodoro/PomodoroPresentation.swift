@@ -27,7 +27,7 @@ struct PomodoroPresentation: Equatable {
         self.showsDurationOptions = displayPhase == .focus && displayStatus == .idle
         self.showsControlRowPrimaryAction = false
         self.selectedDurationSeconds = core.selectedFocusDurationSeconds
-        self.durationOptions = [1_500, 2_700, 3_600]
+        self.durationOptions = [30, 1_500, 2_700, 3_600]
         self.footerText = "今日已累计专注 \(core.todayFocusedSeconds() / 60) 分钟"
         self.progress = Self.progress(core: core, displayPhase: displayPhase, displayStatus: displayStatus)
     }
