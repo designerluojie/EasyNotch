@@ -7,6 +7,7 @@ final class NotchShellRuntime: NSObject {
     let interactions: OverlayPanelInteractions
 
     private let coordinator: OverlayCoordinator
+    private let fileDragMonitor = GlobalFileDragMonitor()
     private let onboardingCoordinator: OnboardingCoordinator
     private let lifecycleDispatcher: ModuleLifecycleDispatcher
     private let globalShortcutService: any GlobalShortcutServicing
@@ -144,6 +145,16 @@ final class NotchShellRuntime: NSObject {
                 )
             }
         }
+        // Track a system-wide file drag so the notch can open its drop target as
+        // the cursor nears the top of the screen.
+        fileDragMonitor.onFileDragChanged = { [weak self] location in
+            self?.coordinator.updateFileDropTarget(at: location)
+        }
+        fileDragMonitor.onFileDragEnded = { [weak self] location in
+            self?.coordinator.endFileDropTarget(at: location)
+        }
+        fileDragMonitor.start()
+
         applyRuntimeSettings(compositionRoot.sharedServices.settingsStore.settings)
         compositionRoot.sharedServices.settingsStore.$settings
             .dropFirst()

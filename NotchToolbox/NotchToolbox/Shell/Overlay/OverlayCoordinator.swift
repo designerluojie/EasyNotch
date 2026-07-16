@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 @MainActor
@@ -285,6 +286,99 @@ final class OverlayCoordinator {
 
     private func profile(for screenID: String) -> ScreenProfile? {
         profiles.first { $0.id == screenID }
+    }
+
+    // MARK: File-drop pre-arm
+    //
+    // While a file is dragged anywhere on screen we watch the cursor. Once it
+    // enters a notch screen's top-centre zone we open the fileStash panel as the
+    // drop target (its real expand — correct layout, a visible "drop here"), and
+    // collapse it again when the cursor leaves without dropping. The actual drop
+    // is handled by the panel's existing SwiftUI `onDrop`.
+
+    // Kept close to the notch so the drop target only opens once the cursor
+    // actually reaches the top, not while it is still far below (which reads as
+    // an accidental trigger). The expanded fileStash panel extends further down,
+    // so releases still land on it.
+    private static let fileDropZoneHeight: CGFloat = 56
+    private static let fileDropZoneWidth: CGFloat = 300
+    private var fileDropPrearmedScreenID: String?
+
+    func updateFileDropTarget(at location: CGPoint) {
+        // Already open: keep it open while the cursor is anywhere over the whole
+        // expanded panel — not just the small trigger zone — so sliding down onto
+        // the content/prompt doesn't read as "left the target" and collapse it.
+        if let screenID = fileDropPrearmedScreenID {
+            if let profile = profiles.first(where: { $0.id == screenID }),
+               fileDropKeepOpenRegion(screenFrame: profile.frame).contains(location) {
+                return
+            }
+            collapseFileDropPrearmIfNeeded()
+            return
+        }
+
+        // Not open yet: open only once the cursor reaches the top trigger zone.
+        guard let profile = profiles.first(where: { $0.frame.contains(location) }),
+              isInFileDropZone(location, screenFrame: profile.frame),
+              compositionRoot.overlayState.isExpandedLike == false else {
+            return
+        }
+
+        fileDropPrearmedScreenID = profile.id
+        // Show the "release to stash" prompt immediately — we already know a file
+        // is being dragged, so there's no reason to first show the neutral state.
+        compositionRoot.fileStashViewModel.setDropTargeted(true)
+        // Open via hover→expand (not idle→expand) so the panel uses the exact
+        // same morph as a click-open instead of the faster window-frame animation.
+        pointerEntered(onScreenID: profile.id)
+        expand(moduleID: .fileStash, onScreenID: profile.id)
+    }
+
+    private func fileDropKeepOpenRegion(screenFrame: CGRect) -> CGRect {
+        let expanded = OverlayPanelChromeMetrics.expandedOuterFrame(
+            for: compositionRoot.panelBodySize(for: .fileStash),
+            on: screenFrame
+        )
+        // Union with the trigger zone so there is no dead gap at the top edge.
+        let triggerZone = CGRect(
+            x: screenFrame.midX - Self.fileDropZoneWidth / 2,
+            y: screenFrame.maxY - Self.fileDropZoneHeight,
+            width: Self.fileDropZoneWidth,
+            height: Self.fileDropZoneHeight
+        )
+        return expanded.union(triggerZone)
+    }
+
+    func endFileDropTarget(at location: CGPoint) {
+        guard let screenID = fileDropPrearmedScreenID else {
+            return
+        }
+        fileDropPrearmedScreenID = nil
+
+        // Released anywhere over the panel → a drop is landing; leave it so the
+        // import shows (setDropTargeted is cleared by the import). Using the full
+        // keep-open region (not just the small trigger zone) avoids a flicker
+        // where a release onto the content collapses then the drop re-expands.
+        if let profile = profiles.first(where: { $0.id == screenID }),
+           fileDropKeepOpenRegion(screenFrame: profile.frame).contains(location) {
+            return
+        }
+        compositionRoot.fileStashViewModel.setDropTargeted(false)
+        collapse(reason: .userDismiss, onScreenID: screenID)
+    }
+
+    private func collapseFileDropPrearmIfNeeded() {
+        guard let screenID = fileDropPrearmedScreenID else {
+            return
+        }
+        fileDropPrearmedScreenID = nil
+        compositionRoot.fileStashViewModel.setDropTargeted(false)
+        collapse(reason: .userDismiss, onScreenID: screenID)
+    }
+
+    private func isInFileDropZone(_ location: CGPoint, screenFrame: CGRect) -> Bool {
+        location.y >= screenFrame.maxY - Self.fileDropZoneHeight
+            && abs(location.x - screenFrame.midX) <= Self.fileDropZoneWidth / 2
     }
 
     private func presentPanels(activeState: OverlayState) {

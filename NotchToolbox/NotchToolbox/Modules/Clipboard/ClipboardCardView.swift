@@ -85,7 +85,7 @@ struct ClipboardCardView: View {
         _ thumbnail: ClipboardCardThumbnail,
         showsMissingReferenceBadge: Bool
     ) -> some View {
-        ZStack(alignment: .topTrailing) {
+        ZStack {
             thumbnailImage(for: thumbnail)
                 .frame(
                     width: ClipboardCardLayout.previewSize.width,
@@ -105,12 +105,15 @@ struct ClipboardCardView: View {
                         style: .continuous
                     )
                 )
+                // Dim the stale thumbnail so the invalid state reads clearly.
+                .opacity(showsMissingReferenceBadge ? 0.5 : 1)
 
             if showsMissingReferenceBadge {
+                // Enlarged and centred over the dimmed thumbnail instead of a
+                // small corner badge.
                 Image(systemName: "questionmark.circle.fill")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 24, weight: .semibold))
                     .foregroundStyle(.white, Color.orange)
-                    .padding(4)
             }
         }
     }
@@ -129,7 +132,7 @@ struct ClipboardCardView: View {
     }
 
     private var missingReferencePlaceholder: some View {
-        ZStack(alignment: .topTrailing) {
+        ZStack {
             RoundedRectangle(
                 cornerRadius: ClipboardCardLayout.previewCornerRadius,
                 style: .continuous
@@ -139,16 +142,11 @@ struct ClipboardCardView: View {
                 width: ClipboardCardLayout.previewSize.width,
                 height: ClipboardCardLayout.previewSize.height
             )
-            .overlay {
-                Image(systemName: "questionmark.folder")
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
-            }
 
+            // Same enlarged, centred orange badge as the stale-thumbnail case.
             Image(systemName: "questionmark.circle.fill")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 24, weight: .semibold))
                 .foregroundStyle(.white, Color.orange)
-                .padding(4)
         }
     }
 
