@@ -94,17 +94,19 @@ final class OnboardingCoordinator {
         // "Primary" for onboarding means the screen the notch story belongs
         // to: hardware notch first, then the built-in screen, then whatever
         // the topology provider ranks first (NSScreen.main can be an external
-        // display when another app holds key focus at launch).
-        guard let profile = profiles.first(where: \.supportsHardwareNotch)
+        // display when another app holds key focus at launch). The welcome
+        // panel is activated here, but the glow now plays on every screen so it
+        // matches the welcome notch appearing on all of them.
+        guard let primaryProfile = profiles.first(where: \.supportsHardwareNotch)
             ?? profiles.first(where: { $0.kind == .builtInWithoutNotch })
             ?? profiles.first else {
             return
         }
 
         markCompleted()
-        activateScreen?(profile.id)
+        activateScreen?(primaryProfile.id)
         glowController.play(
-            context: glowContext(for: profile),
+            contexts: profiles.map(glowContext(for:)),
             onWelcomeMoment: { [weak self] in
                 self?.compositionRoot.restVariantStore.enqueueTransientRequest(
                     OnboardingWelcomePresentation.transientRequest()

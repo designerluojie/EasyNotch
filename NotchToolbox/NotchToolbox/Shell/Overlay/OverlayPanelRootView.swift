@@ -63,7 +63,10 @@ struct OverlayPanelRootView: View {
 
             if isInside {
                 interactions.pointerEntered(screenID: panelModel.screenID)
-            } else {
+            } else if shouldHonorExpandedHoverExit() {
+                // Moving onto interactive content inside the expanded panel makes
+                // SwiftUI report the root as un-hovered; only collapse if the real
+                // cursor has actually left the expanded frame.
                 interactions.pointerExited(screenID: panelModel.screenID)
             }
         }

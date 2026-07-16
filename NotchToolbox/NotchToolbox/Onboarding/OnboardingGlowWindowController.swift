@@ -83,42 +83,54 @@ final class OnboardingGlowWindowController {
     }
 
     func play(
-        context: OnboardingGlowContext,
+        contexts: [OnboardingGlowContext],
         onWelcomeMoment: @escaping () -> Void,
         completion: @escaping () -> Void
     ) {
         cancel()
+        guard contexts.isEmpty == false else {
+            completion()
+            return
+        }
         self.completion = completion
 
-        let bounds = CGRect(origin: .zero, size: context.screenFrame.size)
+        // Build an independent halo + edge-glow pair per screen so the same
+        // sequence plays everywhere the welcome notch appears.
+        var glows: [ScreenGlow] = []
+        for context in contexts {
+            let bounds = CGRect(origin: .zero, size: context.screenFrame.size)
 
-        // Halo lives in its own window BELOW the welcome panel so the notch
-        // backlights it.
-        let haloWindow = makeWindow(
-            screenFrame: context.screenFrame,
-            level: haloWindowLevel,
-            usesCoreImageFilters: false
-        )
-        let halo = makeHaloLayer(bounds: bounds, context: context)
-        haloWindow.contentView!.layer!.addSublayer(halo)
+            // Halo lives in its own window BELOW the welcome panel so the notch
+            // backlights it.
+            let haloWindow = makeWindow(
+                screenFrame: context.screenFrame,
+                level: haloWindowLevel,
+                usesCoreImageFilters: false
+            )
+            let halo = makeHaloLayer(bounds: bounds, context: context)
+            haloWindow.contentView!.layer!.addSublayer(halo)
 
-        // Edge glow lives ABOVE everything, washing over the menu bar.
-        let glowWindow = makeWindow(
-            screenFrame: context.screenFrame,
-            level: edgeGlowWindowLevel,
-            usesCoreImageFilters: true
-        )
-        let edgeGlow = makeEdgeGlowLayer(bounds: bounds, context: context)
-        glowWindow.contentView!.layer!.addSublayer(edgeGlow.container)
+            // Edge glow lives ABOVE everything, washing over the menu bar.
+            let glowWindow = makeWindow(
+                screenFrame: context.screenFrame,
+                level: edgeGlowWindowLevel,
+                usesCoreImageFilters: true
+            )
+            let edgeGlow = makeEdgeGlowLayer(bounds: bounds, context: context)
+            glowWindow.contentView!.layer!.addSublayer(edgeGlow.container)
 
-        windows = [haloWindow, glowWindow]
+            windows.append(haloWindow)
+            windows.append(glowWindow)
+            glows.append(ScreenGlow(edgeGlow: edgeGlow, halo: halo))
+        }
+
         for window in windows {
             window.alphaValue = 1
             window.orderFrontRegardless()
             window.displayIfNeeded()
         }
 
-        animateSequence(edgeGlow: edgeGlow, halo: halo)
+        animateSequence(glows: glows)
 
         schedule(at: Timeline.welcomeAt, onWelcomeMoment)
         schedule(at: Timeline.windowFadeOutAt) { [weak self] in
@@ -175,6 +187,11 @@ final class OnboardingGlowWindowController {
     private struct EdgeGlowLayers {
         let container: CALayer
         let strokes: [CAShapeLayer]
+    }
+
+    private struct ScreenGlow {
+        let edgeGlow: EdgeGlowLayers
+        let halo: CAGradientLayer
     }
 
     private func makeEdgeGlowLayer(bounds: CGRect, context: OnboardingGlowContext) -> EdgeGlowLayers {
@@ -269,56 +286,64 @@ final class OnboardingGlowWindowController {
 
     // MARK: - Animation sequence
 
-    private func animateSequence(edgeGlow: EdgeGlowLayers, halo: CAGradientLayer) {
+    private func animateSequence(glows: [ScreenGlow]) {
         commitWithoutImplicitActions {
-            edgeGlow.container.opacity = 1
-            edgeGlow.container.add(
-                basicAnimation(keyPath: "opacity", from: 0, to: 1, duration: Timeline.glowFadeInDuration),
-                forKey: "fadeIn"
-            )
-
-            for stroke in edgeGlow.strokes {
-                stroke.strokeEnd = 1
-                let travel = basicAnimation(
-                    keyPath: "strokeEnd",
-                    from: 0,
-                    to: 1,
-                    duration: Timeline.strokeDuration
+            for glow in glows {
+                glow.edgeGlow.container.opacity = 1
+                glow.edgeGlow.container.add(
+                    basicAnimation(keyPath: "opacity", from: 0, to: 1, duration: Timeline.glowFadeInDuration),
+                    forKey: "fadeIn"
                 )
-                travel.beginTime = CACurrentMediaTime() + Timeline.strokeDelay
-                travel.fillMode = .backwards
-                travel.timingFunction = CAMediaTimingFunction(controlPoints: 0.35, 0, 0.25, 1)
-                stroke.add(travel, forKey: "travel")
+
+                for stroke in glow.edgeGlow.strokes {
+                    stroke.strokeEnd = 1
+                    let travel = basicAnimation(
+                        keyPath: "strokeEnd",
+                        from: 0,
+                        to: 1,
+                        duration: Timeline.strokeDuration
+                    )
+                    travel.beginTime = CACurrentMediaTime() + Timeline.strokeDelay
+                    travel.fillMode = .backwards
+                    travel.timingFunction = CAMediaTimingFunction(controlPoints: 0.35, 0, 0.25, 1)
+                    stroke.add(travel, forKey: "travel")
+                }
             }
         }
 
         schedule(at: Timeline.haloFadeInAt) {
             self.commitWithoutImplicitActions {
-                halo.opacity = 1
-                halo.add(
-                    self.basicAnimation(keyPath: "opacity", from: 0, to: 1, duration: Timeline.haloFadeInDuration),
-                    forKey: "fadeIn"
-                )
+                for glow in glows {
+                    glow.halo.opacity = 1
+                    glow.halo.add(
+                        self.basicAnimation(keyPath: "opacity", from: 0, to: 1, duration: Timeline.haloFadeInDuration),
+                        forKey: "fadeIn"
+                    )
+                }
             }
         }
 
         schedule(at: Timeline.edgeFadeOutAt) {
             self.commitWithoutImplicitActions {
-                edgeGlow.container.opacity = 0
-                edgeGlow.container.add(
-                    self.basicAnimation(keyPath: "opacity", from: 1, to: 0, duration: Timeline.edgeFadeOutDuration),
-                    forKey: "fadeOut"
-                )
+                for glow in glows {
+                    glow.edgeGlow.container.opacity = 0
+                    glow.edgeGlow.container.add(
+                        self.basicAnimation(keyPath: "opacity", from: 1, to: 0, duration: Timeline.edgeFadeOutDuration),
+                        forKey: "fadeOut"
+                    )
+                }
             }
         }
 
         schedule(at: Timeline.haloFadeOutAt) {
             self.commitWithoutImplicitActions {
-                halo.opacity = 0
-                halo.add(
-                    self.basicAnimation(keyPath: "opacity", from: 1, to: 0, duration: Timeline.haloFadeOutDuration),
-                    forKey: "fadeOut"
-                )
+                for glow in glows {
+                    glow.halo.opacity = 0
+                    glow.halo.add(
+                        self.basicAnimation(keyPath: "opacity", from: 1, to: 0, duration: Timeline.haloFadeOutDuration),
+                        forKey: "fadeOut"
+                    )
+                }
             }
         }
     }

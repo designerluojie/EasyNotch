@@ -235,23 +235,7 @@ private struct FileStashCardView: View {
     @StateObject private var thumbnailLoader = FileStashThumbnailLoader()
 
     var body: some View {
-        HStack(alignment: .center, spacing: 6) {
-            thumbnail
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(card.displayName)
-                    .font(.system(size: 11, weight: .regular))
-                    .foregroundStyle(Color.white.opacity(card.status == .available ? 1 : 0.45))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-
-                Text(card.status == .available ? card.typeLabel : "已失效")
-                    .font(.system(size: 11, weight: .regular))
-                    .foregroundStyle(Color.white.opacity(0.5))
-                    .lineLimit(1)
-            }
-            .frame(maxWidth: 92, alignment: .leading)
-        }
+        cardContent
         .padding(.horizontal, 8)
         .padding(.vertical, 3)
         .frame(height: 48)
@@ -330,10 +314,46 @@ private struct FileStashCardView: View {
 
             onInternalDragStart()
             return NSItemProvider(contentsOf: url) ?? NSItemProvider()
+        } preview: {
+            // Give the dragged-out card a full solid background instead of the
+            // default transparent snapshot (which only showed the trailing
+            // delete-mask gradient).
+            cardContent
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .frame(height: 48)
+                .background(
+                    RoundedRectangle(
+                        cornerRadius: FileStashModuleLayout.cardCornerRadius,
+                        style: .continuous
+                    )
+                    .fill(Color.black)
+                )
         }
         .animation(.easeOut(duration: 0.12), value: isHovered)
         .animation(.easeOut(duration: 0.10), value: isDeleteHovered)
         .animation(.easeOut(duration: 0.18), value: isPendingReveal)
+    }
+
+    @ViewBuilder
+    private var cardContent: some View {
+        HStack(alignment: .center, spacing: 6) {
+            thumbnail
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(card.displayName)
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundStyle(Color.white.opacity(card.status == .available ? 1 : 0.45))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
+                Text(card.status == .available ? card.typeLabel : "已失效")
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundStyle(Color.white.opacity(0.5))
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: 92, alignment: .leading)
+        }
     }
 
     @ViewBuilder
