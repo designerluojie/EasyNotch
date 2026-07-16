@@ -200,7 +200,6 @@ struct PomodoroModuleTests {
     }
 
     @Test func durationTabMetricsMatchPrimaryModuleTabs() {
-        #expect(PomodoroDurationTabMetrics.containerWidth == 223)
         #expect(PomodoroDurationTabMetrics.containerHeight == 31)
         #expect(PomodoroDurationTabMetrics.containerPadding == 2)
         #expect(PomodoroDurationTabMetrics.segmentHeight == 27)
@@ -208,6 +207,13 @@ struct PomodoroModuleTests {
         #expect(PomodoroDurationTabMetrics.containerCornerRadius == 8)
         #expect(PomodoroDurationTabMetrics.segmentWidth(isLast: false) == 55)
         #expect(PomodoroDurationTabMetrics.segmentWidth(isLast: true) == 54)
+    }
+
+    @Test func durationTabContainerWidthFitsSegments() {
+        // Three options today: 2×55 + 54 + 2×2 padding = 168, no trailing gap.
+        #expect(PomodoroDurationTabMetrics.containerWidth(optionCount: 3) == 168)
+        // Original four-option layout still resolves to the old 223.
+        #expect(PomodoroDurationTabMetrics.containerWidth(optionCount: 4) == 223)
     }
 
     @Test func durationOptionTitlesMatchFigmaTimerFormat() {

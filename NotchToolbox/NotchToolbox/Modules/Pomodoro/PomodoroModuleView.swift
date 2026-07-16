@@ -146,7 +146,7 @@ private struct PomodoroDurationPickerView: View {
         }
         .padding(PomodoroDurationTabMetrics.containerPadding)
         .frame(
-            width: PomodoroDurationTabMetrics.containerWidth,
+            width: PomodoroDurationTabMetrics.containerWidth(optionCount: presentation.durationOptions.count),
             height: PomodoroDurationTabMetrics.containerHeight
         )
         .background {

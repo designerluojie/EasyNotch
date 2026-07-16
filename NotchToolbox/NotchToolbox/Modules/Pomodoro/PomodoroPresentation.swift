@@ -137,7 +137,6 @@ struct PomodoroPresentation: Equatable {
 }
 
 enum PomodoroDurationTabMetrics {
-    static let containerWidth: CGFloat = 223
     static let containerHeight: CGFloat = 31
     static let containerPadding: CGFloat = 2
     static let segmentHeight: CGFloat = 27
@@ -146,6 +145,15 @@ enum PomodoroDurationTabMetrics {
 
     static func segmentWidth(isLast: Bool) -> CGFloat {
         isLast ? 54 : 55
+    }
+
+    /// Fits the container to its segments so trailing empty space never
+    /// lingers after options are added or removed.
+    static func containerWidth(optionCount: Int) -> CGFloat {
+        guard optionCount > 0 else { return containerPadding * 2 }
+        let segments = CGFloat(optionCount - 1) * segmentWidth(isLast: false)
+            + segmentWidth(isLast: true)
+        return segments + containerPadding * 2
     }
 }
 
