@@ -41,7 +41,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# The bundled nowplaying-cli.bundle carries a nested adapter dylib in the\n# non-standard Contents/lib, which codesign does not auto-sign when sealing the\n# bundle. Sign inside-out: the dylib first, then the bundle itself (which signs\n# its main executable and seals resources). Runs before the app's final seal.\nset -e\n[ -z \"${EXPANDED_CODE_SIGN_IDENTITY}\" ] && exit 0\nBUNDLE=\"${CODESIGNING_FOLDER_PATH}/Contents/Helpers/nowplaying-cli.bundle\"\n[ -d \"${BUNDLE}\" ] || exit 0\nSIGN=\"/usr/bin/codesign --force --options runtime --timestamp=none --sign ${EXPANDED_CODE_SIGN_IDENTITY}\"\n${SIGN} \"${BUNDLE}/Contents/lib/nowplaying-cli/MediaRemoteMini.dylib\"\n${SIGN} \"${BUNDLE}\"\n";
+			shellScript = "# The bundled nowplaying-cli.bundle carries a nested adapter dylib in the\n# non-standard Contents/lib, which codesign does not auto-sign when sealing the\n# bundle. Sign inside-out: the dylib first, then the bundle itself (which signs\n# its main executable and seals resources). Runs before the app's final seal.\nset -e\n[ -z \"${EXPANDED_CODE_SIGN_IDENTITY}\" ] && exit 0\nBUNDLE=\"${CODESIGNING_FOLDER_PATH}/Contents/Helpers/nowplaying-cli.bundle\"\n[ -d \"${BUNDLE}\" ] || exit 0\nSIGN=\"/usr/bin/codesign --force --options runtime --timestamp --sign ${EXPANDED_CODE_SIGN_IDENTITY}\"\n${SIGN} \"${BUNDLE}/Contents/lib/nowplaying-cli/MediaRemoteMini.dylib\"\n${SIGN} \"${BUNDLE}\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
