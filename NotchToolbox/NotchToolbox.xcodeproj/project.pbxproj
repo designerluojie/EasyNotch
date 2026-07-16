@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		BDAA10022FAB000000EE7001 /* nowplaying-cli in Embed Helpers */ = {isa = PBXBuildFile; fileRef = BDAA10012FAB000000EE7001 /* nowplaying-cli */; };
+		BDAA10022FAB000000EE7001 /* nowplaying-cli.bundle in Embed Helpers */ = {isa = PBXBuildFile; fileRef = BDAA10012FAB000000EE7001 /* nowplaying-cli.bundle */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -27,24 +27,6 @@
 		};
 /* End PBXContainerItemProxy section */
 
-/* Begin PBXShellScriptBuildPhase section */
-		BDAA10042FAB000000EE7001 /* Sign Bundled Helper */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputPaths = (
-			);
-			name = "Sign Bundled Helper";
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "# The bundled nowplaying-cli.bundle carries a nested adapter dylib in the\n# non-standard Contents/lib, which codesign does not auto-sign when sealing the\n# bundle. Sign inside-out: the dylib first, then the bundle itself (which signs\n# its main executable and seals resources). Runs before the app's final seal.\nset -e\n[ -z \"${EXPANDED_CODE_SIGN_IDENTITY}\" ] && exit 0\nBUNDLE=\"${CODESIGNING_FOLDER_PATH}/Contents/Helpers/nowplaying-cli.bundle\"\n[ -d \"${BUNDLE}\" ] || exit 0\nSIGN=\"/usr/bin/codesign --force --options runtime --timestamp --sign ${EXPANDED_CODE_SIGN_IDENTITY}\"\n${SIGN} \"${BUNDLE}/Contents/lib/nowplaying-cli/MediaRemoteMini.dylib\"\n${SIGN} \"${BUNDLE}\"\n";
-		};
-/* End PBXShellScriptBuildPhase section */
-
 /* Begin PBXCopyFilesBuildPhase section */
 		BDAA10032FAB000000EE7001 /* Embed Helpers */ = {
 			isa = PBXCopyFilesBuildPhase;
@@ -52,7 +34,7 @@
 			dstPath = Contents/Helpers;
 			dstSubfolderSpec = 1;
 			files = (
-				BDAA10022FAB000000EE7001 /* nowplaying-cli in Embed Helpers */,
+				BDAA10022FAB000000EE7001 /* nowplaying-cli.bundle in Embed Helpers */,
 			);
 			name = "Embed Helpers";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -115,7 +97,7 @@
 				BDDD72872FAB8896002EE7FF /* NotchToolbox */,
 				BDDD72952FAB8898002EE7FF /* NotchToolboxTests */,
 				BDDD729F2FAB8898002EE7FF /* NotchToolboxUITests */,
-				BDAA10012FAB000000EE7001 /* nowplaying-cli */,
+				BDAA10012FAB000000EE7001 /* nowplaying-cli.bundle */,
 				BDDD72862FAB8896002EE7FF /* Products */,
 			);
 			sourceTree = "<group>";
@@ -270,6 +252,24 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		BDAA10042FAB000000EE7001 /* Sign Bundled Helper */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Sign Bundled Helper";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# The bundled nowplaying-cli.bundle carries a nested adapter dylib in the\n# non-standard Contents/lib, which codesign does not auto-sign when sealing the\n# bundle. Sign inside-out: the dylib first, then the bundle itself (which signs\n# its main executable and seals resources). Runs before the app's final seal.\nset -e\n[ -z \"${EXPANDED_CODE_SIGN_IDENTITY}\" ] && exit 0\nBUNDLE=\"${CODESIGNING_FOLDER_PATH}/Contents/Helpers/nowplaying-cli.bundle\"\n[ -d \"${BUNDLE}\" ] || exit 0\nSIGN=\"/usr/bin/codesign --force --options runtime --timestamp --sign ${EXPANDED_CODE_SIGN_IDENTITY}\"\n${SIGN} \"${BUNDLE}/Contents/lib/nowplaying-cli/MediaRemoteMini.dylib\"\n${SIGN} \"${BUNDLE}\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		BDDD72812FAB8896002EE7FF /* Sources */ = {

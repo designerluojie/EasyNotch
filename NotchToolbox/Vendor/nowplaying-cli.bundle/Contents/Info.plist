@@ -14,5 +14,7 @@
 	<string>2.1.0</string>
 	<key>CFBundleShortVersionString</key>
 	<string>2.1.0</string>
+	<key>LSBackgroundOnly</key>
+	<true/>
 </dict>
 </plist>
