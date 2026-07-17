@@ -1,0 +1,12 @@
+<svg width="600" height="400" viewBox="0 0 600 400" xmlns="http://www.w3.org/2000/svg">
+  <rect width="600" height="400" fill="#FFFFFF"/>
+  <text x="300" y="105" text-anchor="middle" font-family="-apple-system, SF Pro Display, Helvetica Neue, sans-serif"
+        font-size="26" font-weight="600" fill="#1c1c1e">拖入应用程序即可安装</text>
+  <text x="300" y="140" text-anchor="middle" font-family="-apple-system, SF Pro Text, Helvetica Neue, sans-serif"
+        font-size="15" font-weight="400" fill="#8a8a8e">Drag into Applications to install</text>
+  <!-- 箭头：缩小 + 左移，居于两图标之间偏左，y=228 -->
+  <g stroke="#c7c7cc" stroke-width="6" stroke-linecap="round" fill="none">
+    <line x1="258" y1="228" x2="312" y2="228"/>
+  </g>
+  <path d="M310 214 L336 228 L310 242 Z" fill="#c7c7cc"/>
+</svg>
