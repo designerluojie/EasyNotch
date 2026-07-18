@@ -448,7 +448,9 @@ struct MusicModuleTests {
                 MusicPlayerCapability.spotify.bundleID,
             ]
         )
-        #expect(emptyState.launchTargets.map(\.isInteractive) == [false, true, true, true, true, false])
+        // Every launch tile must be tappable — including Apple Music and Spotify,
+        // which are opened via the adapter-less `open -b` launch fallback.
+        #expect(emptyState.launchTargets.map(\.isInteractive) == [true, true, true, true, true, true])
     }
 
     @MainActor

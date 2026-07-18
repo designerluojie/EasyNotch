@@ -230,12 +230,12 @@ struct MusicModuleViewModel {
     }
     private static func launchTargets(for _: [MusicPlayerCapability]) -> [LaunchTarget] {
         [
-            launchTarget(for: .appleMusic, isInteractive: false),
+            launchTarget(for: .appleMusic, isInteractive: true),
             launchTarget(for: .neteaseMusic, isInteractive: true),
             launchTarget(for: .qqMusic, isInteractive: true),
             launchTarget(for: .kugouMusic, isInteractive: true),
             launchTarget(for: .qishuiMusic, isInteractive: true),
-            launchTarget(for: .spotify, isInteractive: false)
+            launchTarget(for: .spotify, isInteractive: true)
         ]
     }
 
