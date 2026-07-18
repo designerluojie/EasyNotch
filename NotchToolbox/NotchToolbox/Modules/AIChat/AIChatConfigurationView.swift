@@ -37,6 +37,7 @@ struct AIChatConfigurationView: View {
     @State private var selectedModelIDs = Set<String>()
     @State private var errorMessage: String?
     @State private var isSaving = false
+    @State private var isConfirmHovered = false
 
     var body: some View {
         GeometryReader { proxy in
@@ -63,11 +64,25 @@ struct AIChatConfigurationView: View {
                             .font(AIChatTheme.bodyFont.weight(.medium))
                             .foregroundStyle(AIChatTheme.textPrimary)
                             .frame(width: 112, height: 28)
-                            .background(AIChatTheme.surface)
+                            .background {
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .fill(AIChatTheme.surface)
+                                    .overlay {
+                                        // Hover highlight matches the Settings dropdown
+                                        // pill (SettingsControlInteractionMetrics
+                                        // .hoverOverlayOpacity = 0.10 white overlay).
+                                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                            .fill(Color.white.opacity(
+                                                isConfirmHovered && !isConfirmDisabled ? 0.10 : 0
+                                            ))
+                                    }
+                            }
                             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     }
                     .buttonStyle(.plain)
                     .disabled(isConfirmDisabled)
+                    .onHover { isConfirmHovered = $0 }
+                    .animation(.easeOut(duration: 0.12), value: isConfirmHovered)
 
                     Spacer(minLength: 60)
                 }
