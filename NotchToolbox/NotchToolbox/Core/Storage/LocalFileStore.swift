@@ -22,7 +22,18 @@ nonisolated struct LocalFileStore {
         self.fileManager = fileManager
     }
 
-    init(appName: String = "NotchToolbox", fileManager: FileManager = .default) throws {
+    // Debug builds write to a separate folder (and use a .debug bundle id) so
+    // developing never pollutes the release app's clipboard / file-stash / AI
+    // history — and so onboarding, keys, etc. can be tested from a clean slate.
+    static let defaultAppName: String = {
+        #if DEBUG
+        return "NotchToolbox-debug"
+        #else
+        return "NotchToolbox"
+        #endif
+    }()
+
+    init(appName: String = LocalFileStore.defaultAppName, fileManager: FileManager = .default) throws {
         let applicationSupportURL = try fileManager.url(
             for: .applicationSupportDirectory,
             in: .userDomainMask,
