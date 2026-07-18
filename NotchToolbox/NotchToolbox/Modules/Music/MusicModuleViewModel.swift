@@ -95,9 +95,17 @@ struct MusicModuleViewModel {
             case warning
         }
 
+        // A one-tap jump to the System Settings pane where the user flips the
+        // switch. Present only on permission prompts.
+        struct SettingsAction: Equatable {
+            let buttonTitle: String
+            let settingsURL: URL
+        }
+
         let title: String
         let body: String
         let emphasis: Emphasis
+        var settingsAction: SettingsAction? = nil
     }
 
     enum Presentation: Equatable {
@@ -157,7 +165,8 @@ struct MusicModuleViewModel {
                 MessagePresentation(
                     title: requirement.title,
                     body: requirement.message,
-                    emphasis: .warning
+                    emphasis: .warning,
+                    settingsAction: Self.settingsAction(for: requirement.kind)
                 )
             )
         case .playerNotInstalled(let displayName):
@@ -228,6 +237,18 @@ struct MusicModuleViewModel {
             return "Adapter Fallback"
         }
     }
+    private static func settingsAction(for kind: PermissionKind) -> MessagePresentation.SettingsAction? {
+        let base = "x-apple.systempreferences:com.apple.preference.security"
+        switch kind {
+        case .accessibility:
+            return .init(buttonTitle: "去开启辅助功能", settingsURL: URL(string: "\(base)?Privacy_Accessibility")!)
+        case .automation:
+            return .init(buttonTitle: "去开启自动化权限", settingsURL: URL(string: "\(base)?Privacy_Automation")!)
+        case .mediaLibrary, .notifications:
+            return nil
+        }
+    }
+
     private static func launchTargets(for _: [MusicPlayerCapability]) -> [LaunchTarget] {
         [
             launchTarget(for: .appleMusic, isInteractive: true),

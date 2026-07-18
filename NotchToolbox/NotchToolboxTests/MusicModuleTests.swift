@@ -504,6 +504,25 @@ struct MusicModuleTests {
         #expect(message.title == "需要自动化权限")
         #expect(message.body == "请允许控制 QQ 音乐，以执行播放控制。")
         #expect(message.emphasis == .warning)
+        // Offers a one-tap jump to the right System Settings pane.
+        #expect(message.settingsAction?.settingsURL.absoluteString.contains("Privacy_Automation") == true)
+    }
+
+    @MainActor
+    @Test func accessibilityPermissionOffersAccessibilitySettingsDeepLink() {
+        let runtime = MusicModuleRuntime(
+            initialState: .permissionRequired(.accessibility(displayName: "汽水音乐"))
+        )
+        let viewModel = MusicModuleViewModel(runtime: runtime)
+
+        guard case .message(let message) = viewModel.presentation else {
+            Issue.record("Expected message presentation")
+            return
+        }
+        #expect(message.title == "需要辅助功能权限")
+        let action = try? #require(message.settingsAction)
+        #expect(action?.settingsURL.absoluteString.contains("Privacy_Accessibility") == true)
+        #expect(action?.buttonTitle.isEmpty == false)
     }
 
     @Test func qqAdapterLaunchesByBundleIdentifierInBackground() async throws {
