@@ -202,16 +202,58 @@ final class PanelWindowController: OverlayPanelPresenting {
         return true
     }
 
+    // Expand the collapsed notch when its strip is clicked — including the very
+    // top pixel row. The strip window sits flush against the top of the screen,
+    // and macOS never delivers a mouse-down on that top edge to the window's
+    // SwiftUI button, so a click there would otherwise do nothing. Catching the
+    // click at the screen level (via the mouse-down monitors) covers that edge.
+    @discardableResult
+    func handleCollapsedExpandMouseDown(at screenPoint: CGPoint) -> Bool {
+        guard panel.isVisible else {
+            return false
+        }
+
+        let screenID: String
+        let presentation: ResolvedRestPresentation
+        switch panelModel.state {
+        case .idle(let sid, let p), .hoverHint(let sid, let p):
+            screenID = sid
+            presentation = p
+        default:
+            return false
+        }
+
+        // Inclusive of the strip's top edge, and unbounded above it — nothing sits
+        // above the notch, so a point on/over the top row still targets the strip.
+        let stripFrame = panel.frame
+        guard screenPoint.x >= stripFrame.minX,
+              screenPoint.x <= stripFrame.maxX,
+              screenPoint.y >= stripFrame.minY else {
+            return false
+        }
+
+        if case .request(let request) = presentation {
+            interactions.expand(screenID: screenID, moduleID: request.moduleID)
+        } else {
+            interactions.expand(screenID: screenID)
+        }
+        return true
+    }
+
     private func installDismissMonitors() {
         let mask: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
 
         localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
-            self?.handleGlobalMouseDown(at: self?.screenPoint(for: event) ?? NSEvent.mouseLocation)
+            let point = self?.screenPoint(for: event) ?? NSEvent.mouseLocation
+            self?.handleCollapsedExpandMouseDown(at: point)
+            self?.handleGlobalMouseDown(at: point)
             return event
         }
 
         globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] _ in
-            self?.handleGlobalMouseDown(at: NSEvent.mouseLocation)
+            let point = NSEvent.mouseLocation
+            self?.handleCollapsedExpandMouseDown(at: point)
+            self?.handleGlobalMouseDown(at: point)
         }
     }
 
