@@ -856,6 +856,93 @@ struct PanelWindowControllerTests {
         #expect(collapsedScreenID == "built-in")
     }
 
+    // Regression: the collapsed strip window sits flush against the top of the
+    // screen, and macOS does not deliver a mouse-down landing on that very top
+    // pixel row (screenFrame.maxY) to the window's SwiftUI button — so clicking
+    // the notch at the extreme top edge never expanded it. A screen-level
+    // mouse-down within the collapsed strip's span must expand it, top edge included.
+    @Test func topEdgeClickOnCollapsedStripExpandsPanel() async {
+        let compositionRoot = Self.makeCompositionRoot(activeModule: .music, initialScreenID: "built-in")
+        let interactions = OverlayPanelInteractions()
+        let controller = PanelWindowController(
+            compositionRoot: compositionRoot,
+            interactions: interactions
+        )
+        // A top-flush idle strip: its top edge is exactly at screenFrame.maxY.
+        let geometry = Self.topFlushGeometry
+        var expandedScreenID: String?
+        interactions.requestExpand = { expandedScreenID = $0 }
+
+        controller.present(state: .idle(screenID: "built-in"), geometry: geometry)
+        // The exact top pixel row — the point that used to be dead.
+        controller.handleCollapsedExpandMouseDown(
+            at: CGPoint(x: geometry.idleFrame.midX, y: geometry.screenFrame.maxY)
+        )
+        await Task.yield()
+
+        #expect(expandedScreenID == "built-in")
+    }
+
+    @Test func clickAwayFromCollapsedStripDoesNotExpand() async {
+        let compositionRoot = Self.makeCompositionRoot(activeModule: .music, initialScreenID: "built-in")
+        let interactions = OverlayPanelInteractions()
+        let controller = PanelWindowController(
+            compositionRoot: compositionRoot,
+            interactions: interactions
+        )
+        let geometry = Self.topFlushGeometry
+        var expandedScreenID: String?
+        interactions.requestExpand = { expandedScreenID = $0 }
+
+        controller.present(state: .idle(screenID: "built-in"), geometry: geometry)
+        // Far from the notch's horizontal span and well below it.
+        controller.handleCollapsedExpandMouseDown(at: CGPoint(x: 40, y: 500))
+        await Task.yield()
+
+        #expect(expandedScreenID == nil)
+    }
+
+    @Test func collapsedExpandMouseDownIsIgnoredWhileExpanded() async {
+        let compositionRoot = Self.makeCompositionRoot(activeModule: .music, initialScreenID: "built-in")
+        let interactions = OverlayPanelInteractions()
+        let controller = PanelWindowController(
+            compositionRoot: compositionRoot,
+            interactions: interactions
+        )
+        let geometry = Self.topFlushGeometry
+        var expandCount = 0
+        interactions.requestExpand = { _ in expandCount += 1 }
+
+        controller.present(state: .expanded(screenID: "built-in", moduleID: .music), geometry: geometry)
+        controller.handleCollapsedExpandMouseDown(
+            at: CGPoint(x: geometry.idleFrame.midX, y: geometry.screenFrame.maxY)
+        )
+        await Task.yield()
+
+        #expect(expandCount == 0)
+    }
+
+    private static var topFlushGeometry: TopAnchorGeometry {
+        let screenFrame = NSRect(x: 0, y: 0, width: 1512, height: 982)
+        // Strip 185×32 centered, top edge at screenFrame.maxY (982) → y = 950.
+        let idleFrame = NSRect(x: 663, y: 950, width: 185, height: 32)
+        return TopAnchorGeometry(
+            screenID: "built-in",
+            screenFrame: screenFrame,
+            anchorKind: .hardwareNotch,
+            notchMetrics: NotchMetrics(visibleSize: CGSize(width: 185, height: 32), source: .hardware),
+            idleFrame: idleFrame,
+            hoverHintFrame: NSRect(x: 645, y: 910, width: 221, height: 72),
+            hoverHintVisibleFrame: NSRect(x: 669, y: 942, width: 173, height: 40),
+            expandedFrame: NSRect(x: 408, y: 646, width: 696, height: 336),
+            expandedVisibleFrame: NSRect(x: 466, y: 674, width: 580, height: 280),
+            toastFrame: NSRect(x: 596, y: 916, width: 320, height: 52),
+            hotzoneFrame: idleFrame,
+            safeTopInset: 32,
+            idleVisibleHeight: 32
+        )
+    }
+
     @Test func dismissOrdersPanelOut() {
         let controller = PanelWindowController(compositionRoot: Self.makeCompositionRoot())
         let geometry = TopAnchorGeometry(
