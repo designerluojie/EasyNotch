@@ -15,14 +15,16 @@ private struct NoopMusicPlayerController: MusicPlayerControlling {
     func perform(_ action: MusicControlAction, for bundleID: String?) async throws {}
 }
 
-private struct DefaultMusicPlayerController: MusicPlayerControlling {
+struct DefaultMusicPlayerController: MusicPlayerControlling {
     private let adapters: [String: any MusicPlayerAdapter]
+    private let processRunner: any MusicProcessRunning
 
     init(
         processRunner: any MusicProcessRunning,
         mediaKeyPoster: any MediaKeyPosting = SystemMediaKeyPoster(),
         accessibilityTrustChecker: any AccessibilityTrustChecking = AccessibilityTrustChecker()
     ) {
+        self.processRunner = processRunner
         adapters = [
             MusicPlayerCapability.qqMusic.bundleID: QQMusicAdapter(processRunner: processRunner),
             MusicPlayerCapability.neteaseMusic.bundleID: SystemMediaControlAdapter(
@@ -47,11 +49,24 @@ private struct DefaultMusicPlayerController: MusicPlayerControlling {
     }
 
     func launch(bundleID: String) async throws {
-        guard let adapter = adapters[bundleID] else {
+        if let adapter = adapters[bundleID] {
+            try await adapter.launch()
             return
         }
 
-        try await adapter.launch()
+        // Players read via MediaRemote but without a control adapter (Apple
+        // Music, Spotify) still need to open when tapped from the notch — just
+        // launch them by bundle id, same as the adapters do.
+        let output = try await processRunner.run(
+            "/usr/bin/open",
+            arguments: ["-g", "-b", bundleID]
+        )
+        guard output.status == 0 else {
+            if SystemMediaControlAdapter.isMissingPlayerLaunchFailure(output.stderr) {
+                throw MusicProviderError.playerNotInstalled
+            }
+            throw MusicProviderError.launchCommandFailed(stderr: output.stderr)
+        }
     }
 
     func perform(_ action: MusicControlAction, for bundleID: String?) async throws {
