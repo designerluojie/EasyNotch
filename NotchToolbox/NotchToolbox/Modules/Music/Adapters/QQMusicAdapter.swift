@@ -37,14 +37,16 @@ private extension QQMusicAdapter {
     static func qqMenuScript(action: MusicControlAction) -> String {
         switch action {
         case .playPause:
+            // The first item of "播放控制" is the play/pause toggle. Its label
+            // flips between "暂停" (playing) and "播放" (paused), so click it by
+            // index instead of by name: matching a fixed label meant that when
+            // the click for the current state failed transiently (menu still
+            // opening), the fallback clicked the opposite label — which doesn't
+            // exist in the current state — and the whole control failed.
             """
             tell application "System Events"
                 tell process "QQ音乐"
-                    try
-                        click menu item "暂停" of menu "播放控制" of menu bar item "播放控制" of menu bar 1
-                    on error
-                        click menu item "播放" of menu "播放控制" of menu bar item "播放控制" of menu bar 1
-                    end try
+                    click menu item 1 of menu "播放控制" of menu bar item "播放控制" of menu bar 1
                 end tell
             end tell
             """
