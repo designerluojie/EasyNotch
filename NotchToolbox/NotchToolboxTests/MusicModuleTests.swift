@@ -115,6 +115,38 @@ struct MusicModuleTests {
         #expect(state == .empty(players: MusicPlayerCapability.v1Targets))
     }
 
+    @Test func idlePlayerWithoutMetadataBuildsEmptyStateNotAnError() {
+        // A player just opened from the notch isn't playing yet: it reports no
+        // track and a stopped/unknown state. That's "nothing playing", not a
+        // "can't read metadata" error — it must fall back to the empty state.
+        let stopped = MusicModuleState.fromResolvedSnapshot(
+            makeVerifiedSnapshot(playbackState: .stopped, title: nil, artist: nil, duration: nil)
+        )
+        #expect(stopped == .empty(players: MusicPlayerCapability.v1Targets))
+
+        let unknown = MusicModuleState.fromResolvedSnapshot(
+            makeVerifiedSnapshot(playbackState: .unknown, title: nil, artist: nil, duration: nil)
+        )
+        #expect(unknown == .empty(players: MusicPlayerCapability.v1Targets))
+    }
+
+    @Test func controllerOpensPlayerWithoutControlAdapterByBundleIdentifier() async throws {
+        // Apple Music and Spotify are read via MediaRemote and have no control
+        // adapter, but opening them from the notch must still launch the app.
+        let runner = MusicProcessRunnerSpy()
+        let controller = DefaultMusicPlayerController(processRunner: runner)
+
+        try await controller.launch(bundleID: MusicPlayerCapability.appleMusic.bundleID)
+        #expect(await runner.lastInvocation() == [
+            "/usr/bin/open", "-g", "-b", "com.apple.Music"
+        ])
+
+        try await controller.launch(bundleID: MusicPlayerCapability.spotify.bundleID)
+        #expect(await runner.lastInvocation() == [
+            "/usr/bin/open", "-g", "-b", "com.spotify.client"
+        ])
+    }
+
     @Test func supportedPlayerSymbolsStayStable() {
         #expect(MusicPlayerCapability.qqMusic.symbolIdentifier == "qq")
         #expect(MusicPlayerCapability.neteaseMusic.symbolIdentifier == "netease")

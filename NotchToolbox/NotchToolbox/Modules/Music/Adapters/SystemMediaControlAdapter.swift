@@ -107,6 +107,10 @@ private extension SystemMediaControlAdapter {
         }
     }
 
+}
+
+extension SystemMediaControlAdapter {
+    // Reused by DefaultMusicPlayerController's adapter-less launch fallback.
     static func isMissingPlayerLaunchFailure(_ stderr: String) -> Bool {
         let normalized = stderr.lowercased()
         return normalized.contains("cannot be found")

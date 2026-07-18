@@ -30,18 +30,22 @@ extension MusicModuleState {
         if let requirement = snapshot.permissionRequirement {
             return .permissionRequired(requirement)
         }
+        // A player that isn't actively playing/paused has nothing to show — e.g.
+        // one just opened from the notch that hasn't started yet reports no track
+        // and a stopped/unknown state. That's the empty state, NOT a "can't read
+        // metadata" error. Decide on playback state first so a missing track only
+        // becomes an error when the player claims to be playing.
+        switch snapshot.playbackState {
+        case .stopped, .unknown:
+            return .empty(players: MusicPlayerCapability.v1Targets)
+        case .playing, .paused:
+            break
+        }
         if snapshot.title == nil || snapshot.artist == nil || snapshot.duration == nil {
             return .metadataUnavailable(displayName: snapshot.displayName)
         }
         let session = MusicPlaybackSession(snapshot: snapshot)
-        switch snapshot.playbackState {
-        case .playing:
-            return .playing(session)
-        case .paused:
-            return .paused(session)
-        case .stopped, .unknown:
-            return .empty(players: MusicPlayerCapability.v1Targets)
-        }
+        return snapshot.playbackState == .playing ? .playing(session) : .paused(session)
     }
 
     var collapsedSummary: CollapsedMusicSummary? {
