@@ -528,8 +528,12 @@ struct MusicModuleTests {
         #expect(await runner.lastScript()?.contains("System Events") == true)
         #expect(await runner.lastScript()?.contains("QQ音乐") == true)
         #expect(await runner.lastScript()?.contains("menu bar item \"播放控制\"") == true)
-        #expect(await runner.lastScript()?.contains("menu item \"暂停\"") == true)
-        #expect(await runner.lastScript()?.contains("menu item \"播放\"") == true)
+        // Click the first item by index — it's the play/pause toggle whose label
+        // flips between "暂停"/"播放". Matching a fixed label breaks: if the click
+        // for the current state fails transiently, falling back to the opposite
+        // label is guaranteed to miss (the state hasn't changed).
+        #expect(await runner.lastScript()?.contains("menu item 1 of menu \"播放控制\"") == true)
+        #expect(await runner.lastScript()?.contains("menu item \"暂停\"") == false)
     }
 
     @Test func qqAdapterDoesNotActivateQQMusicBeforeClickingPlaybackMenu() async throws {
