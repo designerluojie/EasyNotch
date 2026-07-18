@@ -130,6 +130,9 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
     private var launchObservationTask: Task<Void, Never>?
     private var remainingConfirmationRefreshes = 0
     private var canonicalTimeline: MusicCanonicalTimeline?
+    // Non-nil while a control-permission prompt is pinned on screen; cleared by
+    // dismissPermissionPrompt(). See updateModuleState(_:syncsCanonicalTimeline:).
+    private var pinnedControlPermission: MusicPermissionRequirement?
     // Guards against overlapping snapshot probes. Multiple refresh entry points (polling,
     // lifecycle appear, energy-mode changes) can each spawn external `nowplaying-cli` /
     // `osascript` processes; overlapping probes pile up (especially if a probe hangs on an
@@ -287,6 +290,13 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
         }
     }
 
+    // "返回": drop a pinned control-permission prompt and fall back to whatever the
+    // player is actually doing now.
+    func dismissPermissionPrompt() async {
+        pinnedControlPermission = nil
+        await refreshSnapshot()
+    }
+
     func updateModuleState(_ state: MusicModuleState) {
         updateModuleState(state, syncsCanonicalTimeline: true)
     }
@@ -295,6 +305,16 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
         _ state: MusicModuleState,
         syncsCanonicalTimeline: Bool
     ) {
+        // A control-permission prompt stays put until the user dismisses it. It's
+        // raised by a failed control action, but reading now-playing needs no such
+        // permission — so the 1s background poll would otherwise overwrite the card
+        // on its next tick, making it flash and vanish before it can be acted on.
+        if case .permissionRequired(let requirement) = state, requirement.isControlPermission {
+            pinnedControlPermission = requirement
+        } else if pinnedControlPermission != nil {
+            return
+        }
+
         moduleState = state
         if syncsCanonicalTimeline {
             canonicalTimeline = MusicCanonicalTimeline(state: state)

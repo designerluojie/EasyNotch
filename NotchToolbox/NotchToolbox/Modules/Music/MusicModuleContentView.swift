@@ -4,6 +4,7 @@ import SwiftUI
 struct MusicModuleContentView: View {
     let viewModel: MusicModuleViewModel
     @State private var isSettingsButtonHovered = false
+    @State private var isDismissButtonHovered = false
 
     var body: some View {
         switch viewModel.presentation {
@@ -20,39 +21,40 @@ struct MusicModuleContentView: View {
         }
     }
 
-    // Permission prompt: centered, all-white text on a solid #000 card, with a
-    // button that opens the exact System Settings pane to flip the switch.
+    // Permission prompt: a single guiding line on a solid #000 card. It stays put
+    // (the runtime pins it) until the user picks one of two actions — jump to the
+    // exact System Settings pane, or dismiss and go back to the player.
     private func permissionContent(
         _ message: MusicModuleViewModel.MessagePresentation,
         action: MusicModuleViewModel.MessagePresentation.SettingsAction
     ) -> some View {
-        VStack(spacing: 10) {
-            Text(message.title)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(.white)
-
+        VStack(spacing: 14) {
             Text(message.body)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
 
-            Button {
-                NSWorkspace.shared.open(action.settingsURL)
-            } label: {
-                Text(action.buttonTitle)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .frame(height: 28)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(Color.white.opacity(isSettingsButtonHovered ? 0.18 : 0.12))
-                    )
+            HStack(spacing: 10) {
+                Button {
+                    Task { await viewModel.dismissPermissionPrompt() }
+                } label: {
+                    promptButtonLabel("返回", isHovered: isDismissButtonHovered, isPrimary: false)
+                }
+                .buttonStyle(.plain)
+                .onHover { isDismissButtonHovered = $0 }
+                .animation(.easeOut(duration: 0.12), value: isDismissButtonHovered)
+
+                Button {
+                    NSWorkspace.shared.open(action.settingsURL)
+                } label: {
+                    promptButtonLabel(action.buttonTitle, isHovered: isSettingsButtonHovered, isPrimary: true)
+                }
+                .buttonStyle(.plain)
+                .onHover { isSettingsButtonHovered = $0 }
+                .animation(.easeOut(duration: 0.12), value: isSettingsButtonHovered)
             }
-            .buttonStyle(.plain)
-            .onHover { isSettingsButtonHovered = $0 }
-            .animation(.easeOut(duration: 0.12), value: isSettingsButtonHovered)
-            .padding(.top, 2)
+            .frame(maxWidth: 260)
         }
         .frame(maxWidth: .infinity, minHeight: 108, alignment: .center)
         .padding(.horizontal, 18)
@@ -61,6 +63,20 @@ struct MusicModuleContentView: View {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .fill(Color.black)
         )
+    }
+
+    private func promptButtonLabel(_ title: String, isHovered: Bool, isPrimary: Bool) -> some View {
+        let baseOpacity = isPrimary ? 0.16 : 0.08
+        let hoverOpacity = isPrimary ? 0.24 : 0.14
+        return Text(title)
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 28)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.white.opacity(isHovered ? hoverOpacity : baseOpacity))
+            )
     }
 
     private func messageContent(_ message: MusicModuleViewModel.MessagePresentation) -> some View {

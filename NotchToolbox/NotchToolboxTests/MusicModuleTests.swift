@@ -163,12 +163,15 @@ struct MusicModuleTests {
         let automation = MusicPermissionRequirement.automation(displayName: "QQ 音乐")
         #expect(automation.kind == .automation)
         #expect(automation.title == "需要自动化权限")
-        #expect(automation.message == "请允许控制 QQ 音乐，以执行播放控制。")
+        #expect(automation.message == "为了保证功能正常使用，请开启自动化权限。")
+        #expect(automation.isControlPermission)
 
         let accessibility = MusicPermissionRequirement.accessibility(displayName: "QQ 音乐")
         #expect(accessibility.kind == .accessibility)
         #expect(accessibility.title == "需要辅助功能权限")
-        #expect(accessibility.message == "请允许辅助功能访问 QQ 音乐，以执行播放控制。")
+        #expect(accessibility.message == "为了保证功能正常使用，请开启辅助功能。")
+        #expect(accessibility.isControlPermission)
+        #expect(metadata.isControlPermission == false)
     }
 
     @Test func permissionDeniedErrorCarriesSystemPermissionKind() {
@@ -502,7 +505,7 @@ struct MusicModuleTests {
         }
 
         #expect(message.title == "需要自动化权限")
-        #expect(message.body == "请允许控制 QQ 音乐，以执行播放控制。")
+        #expect(message.body == "为了保证功能正常使用，请开启自动化权限。")
         #expect(message.emphasis == .warning)
         // Offers a one-tap jump to the right System Settings pane.
         #expect(message.settingsAction?.settingsURL.absoluteString.contains("Privacy_Automation") == true)
@@ -522,7 +525,31 @@ struct MusicModuleTests {
         #expect(message.title == "需要辅助功能权限")
         let action = try? #require(message.settingsAction)
         #expect(action?.settingsURL.absoluteString.contains("Privacy_Accessibility") == true)
-        #expect(action?.buttonTitle.isEmpty == false)
+        #expect(action?.buttonTitle == "前往开启")
+    }
+
+    @MainActor
+    @Test func viewModelDismissesPinnedPermissionPromptThroughRuntime() async {
+        let runtime = MusicModuleRuntime(
+            initialState: .playing(
+                MusicPlaybackSession(snapshot: makeVerifiedSnapshot(trackKey: "before-vm-dismiss"))
+            ),
+            snapshotProvider: SequencedSnapshotProviderStub(
+                snapshots: [makeVerifiedSnapshot(playbackState: .paused, trackKey: "after-vm-dismiss")]
+            ),
+            playerController: ThrowingMusicPlayerControllerStub(
+                error: .permissionDenied(kind: .automation)
+            )
+        )
+        await runtime.performControl(.playPause)
+        #expect(runtime.moduleState == .permissionRequired(.automation(displayName: "QQ 音乐")))
+
+        await MusicModuleViewModel(runtime: runtime).dismissPermissionPrompt()
+
+        guard case .paused = runtime.moduleState else {
+            Issue.record("Expected the view model's 返回 to resume playback state")
+            return
+        }
     }
 
     @Test func qqAdapterLaunchesByBundleIdentifierInBackground() async throws {
@@ -1422,6 +1449,58 @@ struct MusicModuleTests {
         await runtime.performControl(.playPause)
 
         #expect(runtime.moduleState == .permissionRequired(.automation(displayName: "QQ 音乐")))
+    }
+
+    @MainActor
+    @Test func controlPermissionPromptStaysPinnedAcrossBackgroundRefresh() async {
+        // A readable now-playing snapshot: reading never needs the control
+        // permission, so a background poll would otherwise overwrite the prompt.
+        let readableSnapshot = makeVerifiedSnapshot(trackKey: "readable-while-denied")
+        let runtime = MusicModuleRuntime(
+            initialState: .playing(
+                MusicPlaybackSession(snapshot: makeVerifiedSnapshot(trackKey: "before-denied"))
+            ),
+            snapshotProvider: SequencedSnapshotProviderStub(snapshots: [readableSnapshot, readableSnapshot]),
+            playerController: ThrowingMusicPlayerControllerStub(
+                error: .permissionDenied(kind: .automation)
+            )
+        )
+
+        await runtime.performControl(.playPause)
+        #expect(runtime.moduleState == .permissionRequired(.automation(displayName: "QQ 音乐")))
+
+        // The 1s background poll fires while the card is up. It must not clobber it.
+        await runtime.refreshSnapshot()
+
+        #expect(runtime.moduleState == .permissionRequired(.automation(displayName: "QQ 音乐")))
+    }
+
+    @MainActor
+    @Test func dismissingControlPermissionPromptResumesModuleState() async {
+        let resumedSnapshot = makeVerifiedSnapshot(
+            playbackState: .paused,
+            trackKey: "resumed-after-dismiss"
+        )
+        let runtime = MusicModuleRuntime(
+            initialState: .playing(
+                MusicPlaybackSession(snapshot: makeVerifiedSnapshot(trackKey: "before-dismiss"))
+            ),
+            snapshotProvider: SequencedSnapshotProviderStub(snapshots: [resumedSnapshot]),
+            playerController: ThrowingMusicPlayerControllerStub(
+                error: .permissionDenied(kind: .automation)
+            )
+        )
+
+        await runtime.performControl(.playPause)
+        #expect(runtime.moduleState == .permissionRequired(.automation(displayName: "QQ 音乐")))
+
+        // 返回: dismiss the pinned prompt and fall back to the real playback state.
+        await runtime.dismissPermissionPrompt()
+
+        guard case .paused = runtime.moduleState else {
+            Issue.record("Expected playback to resume after dismissing the prompt")
+            return
+        }
     }
 
     @MainActor

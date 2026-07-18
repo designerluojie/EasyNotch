@@ -4,6 +4,13 @@ struct MusicPermissionRequirement: Equatable {
     let kind: PermissionKind
     let title: String
     let message: String
+
+    // Accessibility/automation gate *controlling* a player, not *reading* it.
+    // Reading now-playing keeps succeeding without them, so a poll-driven refresh
+    // must not silently overwrite the prompt — it stays pinned until dismissed.
+    var isControlPermission: Bool {
+        kind == .accessibility || kind == .automation
+    }
 }
 
 extension MusicPermissionRequirement {
@@ -13,19 +20,21 @@ extension MusicPermissionRequirement {
         message: "请授权音乐元数据读取权限以显示当前播放内容。"
     )
 
-    static func automation(displayName: String) -> MusicPermissionRequirement {
+    // The player name is intentionally omitted: every supported platform needs the
+    // same control permission, so naming one adds noise without adding guidance.
+    static func automation(displayName _: String) -> MusicPermissionRequirement {
         MusicPermissionRequirement(
             kind: .automation,
             title: "需要自动化权限",
-            message: "请允许控制 \(displayName)，以执行播放控制。"
+            message: "为了保证功能正常使用，请开启自动化权限。"
         )
     }
 
-    static func accessibility(displayName: String) -> MusicPermissionRequirement {
+    static func accessibility(displayName _: String) -> MusicPermissionRequirement {
         MusicPermissionRequirement(
             kind: .accessibility,
             title: "需要辅助功能权限",
-            message: "请允许辅助功能访问 \(displayName)，以执行播放控制。"
+            message: "为了保证功能正常使用，请开启辅助功能。"
         )
     }
 }

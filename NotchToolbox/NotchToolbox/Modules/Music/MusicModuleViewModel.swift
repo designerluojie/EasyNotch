@@ -227,6 +227,10 @@ struct MusicModuleViewModel {
         await runtime.refreshSnapshot()
     }
 
+    func dismissPermissionPrompt() async {
+        await runtime.dismissPermissionPrompt()
+    }
+
     private static func sourceText(for source: MusicSnapshotSource) -> String {
         switch source {
         case .nowPlayingCLI:
@@ -241,9 +245,9 @@ struct MusicModuleViewModel {
         let base = "x-apple.systempreferences:com.apple.preference.security"
         switch kind {
         case .accessibility:
-            return .init(buttonTitle: "去开启辅助功能", settingsURL: URL(string: "\(base)?Privacy_Accessibility")!)
+            return .init(buttonTitle: "前往开启", settingsURL: URL(string: "\(base)?Privacy_Accessibility")!)
         case .automation:
-            return .init(buttonTitle: "去开启自动化权限", settingsURL: URL(string: "\(base)?Privacy_Automation")!)
+            return .init(buttonTitle: "前往开启", settingsURL: URL(string: "\(base)?Privacy_Automation")!)
         case .mediaLibrary, .notifications:
             return nil
         }
