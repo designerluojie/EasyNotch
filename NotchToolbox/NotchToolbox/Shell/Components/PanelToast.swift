@@ -14,6 +14,24 @@ enum PanelToastEmphasis: Equatable {
     case error
     /// Neutral confirmation/notice — dark neutral tint, info glyph.
     case info
+    /// Operation succeeded — green tint, checkmark glyph.
+    case success
+
+    var glyph: String {
+        switch self {
+        case .error: return "exclamationmark.circle.fill"
+        case .info: return "info.circle.fill"
+        case .success: return "checkmark.circle.fill"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .error: return Color(red: 0.74, green: 0.20, blue: 0.20).opacity(0.96)
+        case .info: return Color.black.opacity(0.82)
+        case .success: return Color(red: 0.18, green: 0.62, blue: 0.35).opacity(0.96)
+        }
+    }
 }
 
 struct PanelToast: Equatable {
@@ -83,7 +101,7 @@ struct PanelToastView: View {
 
     private func label(for toast: PanelToast) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: glyph(for: toast.emphasis))
+            Image(systemName: toast.emphasis.glyph)
                 .font(.system(size: 12, weight: .semibold))
             Text(toast.text)
                 .font(.system(size: 12, weight: .medium))
@@ -96,7 +114,7 @@ struct PanelToastView: View {
         .padding(.vertical, 8)
         .background {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(tint(for: toast.emphasis))
+                .fill(toast.emphasis.tint)
                 .overlay {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .strokeBorder(Color.white.opacity(0.14), lineWidth: 1)
@@ -107,17 +125,4 @@ struct PanelToastView: View {
         .padding(.bottom, 10)
     }
 
-    private func glyph(for emphasis: PanelToastEmphasis) -> String {
-        switch emphasis {
-        case .error: return "exclamationmark.circle.fill"
-        case .info: return "info.circle.fill"
-        }
-    }
-
-    private func tint(for emphasis: PanelToastEmphasis) -> Color {
-        switch emphasis {
-        case .error: return Color(red: 0.74, green: 0.20, blue: 0.20).opacity(0.96)
-        case .info: return Color.black.opacity(0.82)
-        }
-    }
 }

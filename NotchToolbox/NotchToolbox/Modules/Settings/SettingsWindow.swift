@@ -394,6 +394,7 @@ private struct SettingsFeaturesScrollMetricsKey: PreferenceKey {
 
 private struct SettingsAboutPane: View {
     @ObservedObject var updateController: AppUpdateController
+    @StateObject private var toast = PanelToastPresenter()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -455,10 +456,29 @@ private struct SettingsAboutPane: View {
             .padding(.top, 16)
             .padding(.horizontal, 16)
 
+            HStack {
+                Text("反馈问题")
+                    .font(SettingsWindowTheme.bodyFont)
+                    .foregroundStyle(.white)
+                Spacer()
+                Button {
+                    SettingsFeedbackContact.copyEmailAddress()
+                    toast.show(SettingsFeedbackContact.copiedToastText, emphasis: .success)
+                } label: {
+                    SettingsValuePill(text: SettingsFeedbackContact.emailAddress)
+                }
+                .buttonStyle(.plain)
+            }
+            .frame(height: 36)
+            .padding(.horizontal, 16)
+
             Spacer()
         }
         .padding(.top, 40)
         .padding(.horizontal, 12)
+        .overlay(alignment: .bottom) {
+            PanelToastView(presenter: toast)
+        }
     }
 }
 
