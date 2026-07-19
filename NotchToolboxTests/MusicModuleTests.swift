@@ -1,0 +1,2599 @@
+import Foundation
+import Testing
+@testable import NotchToolbox
+
+struct MusicModuleTests {
+
+    @Test func v1LaunchTargetsMatchApprovedSupportBoundary() {
+        #expect(MusicPlayerCapability.v1Targets.map(\.bundleID) == [
+            "com.tencent.QQMusicMac",
+            "com.netease.163music",
+            "com.kugou.mac.Music",
+            "com.soda.music"
+        ])
+    }
+
+    @Test func targetPlayersStayOutOfV1LaunchTargets() {
+        #expect(MusicPlayerCapability.targetOnly.map(\.bundleID) == [
+            "com.apple.Music",
+            "com.spotify.client"
+        ])
+    }
+
+    @Test func unsupportedActivePlayerBuildsHonestModuleState() {
+        // A player we have no capability entry for (e.g. a browser publishing
+        // now-playing for a web video) — phase stays .unsupported.
+        let browserCapability = MusicPlayerCapability(
+            bundleID: "com.google.Chrome",
+            displayName: "com.google.Chrome",
+            symbolIdentifier: "questionmark.circle",
+            launch: .unsupported,
+            metadata: .unsupported,
+            playPause: .unsupported,
+            skip: .unsupported,
+            phase: .unsupported
+        )
+        let snapshot = MusicPlayerSnapshot(
+            bundleID: "com.google.Chrome",
+            displayName: "com.google.Chrome",
+            isRunning: true,
+            playbackState: .playing,
+            trackKey: "web-track",
+            title: "Track",
+            artist: "Artist",
+            artworkData: nil,
+            duration: 240,
+            elapsedTime: 30,
+            capability: browserCapability,
+            permissionRequirement: nil,
+            source: .nowPlayingCLI,
+            capturedAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+
+        let state = MusicModuleState.fromResolvedSnapshot(snapshot)
+        #expect(state == .unsupportedActivePlayer(displayName: "com.google.Chrome"))
+    }
+
+    @Test func nilSnapshotBuildsVerifiedEmptyState() {
+        let state = MusicModuleState.fromResolvedSnapshot(nil)
+        #expect(state == .empty(players: MusicPlayerCapability.v1Targets))
+    }
+
+    @Test func permissionRequirementBuildsPermissionRequiredState() {
+        let snapshot = makeVerifiedSnapshot(
+            permissionRequirement: .automation(displayName: "QQ 音乐")
+        )
+
+        let state = MusicModuleState.fromResolvedSnapshot(snapshot)
+        #expect(state == .permissionRequired(.automation(displayName: "QQ 音乐")))
+    }
+
+    @Test func missingMetadataBuildsMetadataUnavailableState() {
+        let missingTitleState = MusicModuleState.fromResolvedSnapshot(
+            makeVerifiedSnapshot(title: nil)
+        )
+        #expect(missingTitleState == .metadataUnavailable(displayName: "QQ 音乐"))
+
+        // Missing artist alone is NOT a metadata failure — Apple Music local tracks
+        // legitimately push an empty artist (see resolvedSnapshotWithMissingArtistStillMapsToPlaying).
+        guard case .playing = MusicModuleState.fromResolvedSnapshot(makeVerifiedSnapshot(artist: nil)) else {
+            Issue.record("Expected playing state when only artist is missing")
+            return
+        }
+
+        let missingDurationState = MusicModuleState.fromResolvedSnapshot(
+            makeVerifiedSnapshot(duration: nil)
+        )
+        #expect(missingDurationState == .metadataUnavailable(displayName: "QQ 音乐"))
+    }
+
+    @Test func verifiedPlayingSnapshotBuildsPlayingSession() {
+        let snapshot = makeVerifiedSnapshot(playbackState: .playing, trackKey: "track-1")
+
+        let state = MusicModuleState.fromResolvedSnapshot(snapshot)
+
+        guard case .playing(let session) = state else {
+            Issue.record("Expected playing state, got \(state)")
+            return
+        }
+
+        #expect(session == MusicPlaybackSession(snapshot: snapshot))
+    }
+
+    @Test func verifiedPausedSnapshotBuildsPausedSession() {
+        let snapshot = makeVerifiedSnapshot(playbackState: .paused, trackKey: "track-1")
+
+        let state = MusicModuleState.fromResolvedSnapshot(snapshot)
+
+        guard case .paused(let session) = state else {
+            Issue.record("Expected paused state, got \(state)")
+            return
+        }
+
+        #expect(session == MusicPlaybackSession(snapshot: snapshot))
+    }
+
+    @Test func stoppedSnapshotBuildsVerifiedEmptyState() {
+        let state = MusicModuleState.fromResolvedSnapshot(
+            makeVerifiedSnapshot(playbackState: .stopped)
+        )
+
+        #expect(state == .empty(players: MusicPlayerCapability.v1Targets))
+    }
+
+    @Test func unknownSnapshotBuildsVerifiedEmptyState() {
+        let state = MusicModuleState.fromResolvedSnapshot(
+            makeVerifiedSnapshot(playbackState: .unknown)
+        )
+
+        #expect(state == .empty(players: MusicPlayerCapability.v1Targets))
+    }
+
+    @Test func idlePlayerWithoutMetadataBuildsEmptyStateNotAnError() {
+        // A player just opened from the notch isn't playing yet: it reports no
+        // track and a stopped/unknown state. That's "nothing playing", not a
+        // "can't read metadata" error — it must fall back to the empty state.
+        let stopped = MusicModuleState.fromResolvedSnapshot(
+            makeVerifiedSnapshot(playbackState: .stopped, title: nil, artist: nil, duration: nil)
+        )
+        #expect(stopped == .empty(players: MusicPlayerCapability.v1Targets))
+
+        let unknown = MusicModuleState.fromResolvedSnapshot(
+            makeVerifiedSnapshot(playbackState: .unknown, title: nil, artist: nil, duration: nil)
+        )
+        #expect(unknown == .empty(players: MusicPlayerCapability.v1Targets))
+    }
+
+    @Test func controllerOpensPlayerWithoutControlAdapterByBundleIdentifier() async throws {
+        // Apple Music and Spotify are read via MediaRemote and have no control
+        // adapter, but opening them from the notch must still launch the app.
+        let runner = MusicProcessRunnerSpy()
+        let controller = DefaultMusicPlayerController(processRunner: runner)
+
+        try await controller.launch(bundleID: MusicPlayerCapability.appleMusic.bundleID)
+        #expect(await runner.lastInvocation() == [
+            "/usr/bin/open", "-g", "-b", "com.apple.Music"
+        ])
+
+        try await controller.launch(bundleID: MusicPlayerCapability.spotify.bundleID)
+        #expect(await runner.lastInvocation() == [
+            "/usr/bin/open", "-g", "-b", "com.spotify.client"
+        ])
+    }
+
+    @Test func supportedPlayerSymbolsStayStable() {
+        #expect(MusicPlayerCapability.qqMusic.symbolIdentifier == "qq")
+        #expect(MusicPlayerCapability.neteaseMusic.symbolIdentifier == "netease")
+        #expect(MusicPlayerCapability.kugouMusic.symbolIdentifier == "kugou")
+        #expect(MusicPlayerCapability.qishuiMusic.symbolIdentifier == "qishui")
+    }
+
+    @Test func permissionFactoriesBuildUIFacingShape() {
+        let metadata = MusicPermissionRequirement.metadataAccess
+        #expect(metadata.kind == .mediaLibrary)
+        #expect(metadata.title == "需要媒体信息权限")
+        #expect(metadata.message == "请授权音乐元数据读取权限以显示当前播放内容。")
+
+        let automation = MusicPermissionRequirement.automation(displayName: "QQ 音乐")
+        #expect(automation.kind == .automation)
+        #expect(automation.title == "需要自动化权限")
+        #expect(automation.message == "为了保证功能正常使用，请开启自动化权限。")
+        #expect(automation.isControlPermission)
+
+        let accessibility = MusicPermissionRequirement.accessibility(displayName: "QQ 音乐")
+        #expect(accessibility.kind == .accessibility)
+        #expect(accessibility.title == "需要辅助功能权限")
+        #expect(accessibility.message == "为了保证功能正常使用，请开启辅助功能。")
+        #expect(accessibility.isControlPermission)
+        #expect(metadata.isControlPermission == false)
+    }
+
+    @Test func permissionDeniedErrorCarriesSystemPermissionKind() {
+        let error = MusicProviderError.permissionDenied(kind: .automation)
+        #expect(error == .permissionDenied(kind: .automation))
+    }
+
+    @Test func resolverPrefersVerifiedPlayingSnapshot() {
+        let resolver = ActiveMusicSessionResolver(
+            v1BundleIDs: Set(MusicPlayerCapability.v1Targets.map(\.bundleID))
+        )
+        let result = resolver.resolve([
+            MusicPlayerSnapshot(
+                bundleID: "com.apple.Music",
+                displayName: "Apple Music",
+                isRunning: true,
+                playbackState: .playing,
+                trackKey: "apple-song",
+                title: "Song A",
+                artist: "Artist A",
+                artworkData: nil,
+                duration: 200,
+                elapsedTime: 10,
+                capability: .appleMusic,
+                permissionRequirement: nil,
+                source: .nowPlayingCLI,
+                capturedAt: Date(timeIntervalSince1970: 1_700_000_000)
+            ),
+            MusicPlayerSnapshot(
+                bundleID: "com.tencent.QQMusicMac",
+                displayName: "QQ 音乐",
+                isRunning: true,
+                playbackState: .playing,
+                trackKey: "qq-song",
+                title: "Song B",
+                artist: "Artist B",
+                artworkData: nil,
+                duration: 210,
+                elapsedTime: 25,
+                capability: .qqMusic,
+                permissionRequirement: nil,
+                source: .nowPlayingCLI,
+                capturedAt: Date(timeIntervalSince1970: 1_700_000_100)
+            )
+        ])
+
+        #expect(result?.bundleID == "com.tencent.QQMusicMac")
+    }
+
+    @Test func collapsedModeUsesLowFrequencyPolling() {
+        #expect(MusicPollSchedule.interval(for: .collapsedSummary(hasActivePlayback: true)) == 3.0)
+        #expect(MusicPollSchedule.interval(for: .collapsedSummary(hasActivePlayback: false)) == 8.0)
+        #expect(MusicPollSchedule.interval(for: .expandedVisible) == 1.0)
+        #expect(MusicPollSchedule.interval(for: .confirmationBurst) == 0.35)
+    }
+
+    @MainActor
+    @Test func runtimeUsesNowPlayingProviderWhenProcessRunnerIsSupplied() async {
+        let runner = MusicProcessRunnerStub(
+            stdout: """
+            {"bundleIdentifier":"com.tencent.QQMusicMac","title":"反方向的钟","artist":"周杰伦","album":"Jay","duration":245,"elapsedTime":15,"playbackRate":1}
+            """
+        )
+        let runtime = MusicModuleRuntime(processRunner: runner)
+
+        await runtime.refreshSnapshot()
+
+        guard case .playing(let session) = runtime.moduleState else {
+            Issue.record("Expected playing state after refresh, got \(runtime.moduleState)")
+            return
+        }
+
+        #expect(session.displayName == "QQ 音乐")
+        #expect(session.title == "反方向的钟")
+        #expect(session.artist == "周杰伦")
+        #expect(session.duration == 245)
+        #expect(session.elapsedTime == 15)
+    }
+
+    @MainActor
+    @Test func runtimeBeginsBackgroundRefreshBeforeFirstExpansion() async {
+        let runtime = MusicModuleRuntime(
+            snapshotProvider: SequencedSnapshotProviderStub(
+                snapshots: [
+                    makeVerifiedSnapshot(
+                        bundleID: MusicPlayerCapability.neteaseMusic.bundleID,
+                        displayName: MusicPlayerCapability.neteaseMusic.displayName,
+                        capability: .neteaseMusic,
+                        title: "一本书",
+                        artist: "庆庆",
+                        duration: 281
+                    )
+                ]
+            ),
+            pollSleep: { _ in throw CancellationError() }
+        )
+
+        let deadline = Date().addingTimeInterval(1.0)
+        while Date() < deadline {
+            if case .playing = runtime.moduleState {
+                break
+            }
+
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        guard case .playing(let session) = runtime.moduleState else {
+            Issue.record("Expected background polling to publish playback before expansion, got \(runtime.moduleState)")
+            return
+        }
+
+        #expect(session.bundleID == MusicPlayerCapability.neteaseMusic.bundleID)
+        #expect(session.title == "一本书")
+        #expect(runtime.collapsedSummary?.displayName == "网易云音乐")
+        #expect(runtime.collapsedSummary?.detailText == "一本书 · 庆庆")
+    }
+
+    @MainActor
+    @Test func moduleDidAppearRefreshesSnapshotIntoPlaybackState() async {
+        let runtime = MusicModuleRuntime(
+            snapshotProvider: SequencedSnapshotProviderStub(
+                snapshots: [makeVerifiedSnapshot(playbackState: .playing, trackKey: "appear-track")]
+            )
+        )
+
+        runtime.handleLifecycle(.moduleDidAppear)
+
+        for _ in 0..<10 {
+            if case .playing = runtime.moduleState {
+                break
+            }
+            await Task.yield()
+        }
+
+        guard case .playing(let session) = runtime.moduleState else {
+            Issue.record("Expected playing state after moduleDidAppear, got \(runtime.moduleState)")
+            return
+        }
+
+        #expect(session.bundleID == MusicPlayerCapability.qqMusic.bundleID)
+        #expect(session.trackKey == "appear-track")
+    }
+
+    @MainActor
+    @Test func viewModelBuildsPlaybackPresentation() {
+        let runtime = MusicModuleRuntime(
+            initialState: .playing(
+                MusicPlaybackSession(
+                    snapshot: makeVerifiedSnapshot(
+                        title: "淘金小镇",
+                        artist: "周杰伦",
+                        duration: 252
+                    )
+                )
+            )
+        )
+        let viewModel = MusicModuleViewModel(runtime: runtime)
+
+        guard case .playback(let playback) = viewModel.presentation else {
+            Issue.record("Expected playback presentation")
+            return
+        }
+
+        #expect(playback.playerMark.symbol == "qq")
+        #expect(playback.title == "淘金小镇")
+        #expect(playback.artist == "周杰伦")
+        #expect(playback.playPauseSymbol == "pause.fill")
+        #expect(playback.elapsedText(at: Date(timeIntervalSince1970: 1_700_000_000)) == "0:30")
+        #expect(playback.durationText == "4:12")
+        #expect(playback.sourceText == "Now Playing CLI")
+        #expect(playback.progressFraction(at: Date(timeIntervalSince1970: 1_700_000_000)) == 30.0 / 252.0)
+    }
+
+    @Test func musicControlVectorAssetsKeepSemanticDirections() throws {
+        let previousSVG = try String(
+            contentsOf: musicControlAssetURL(imagesetName: "MusicControlPrevious"),
+            encoding: .utf8
+        )
+        let nextSVG = try String(
+            contentsOf: musicControlAssetURL(imagesetName: "MusicControlNext"),
+            encoding: .utf8
+        )
+
+        #expect(previousSVG.contains("M13.5 11C12.6716"))
+        #expect(nextSVG.contains("M22.5 11C23.3284"))
+    }
+
+    @MainActor
+    @Test func playbackPresentationAdvancesElapsedTimeLocallyWhilePlaying() {
+        let runtime = MusicModuleRuntime(
+            initialState: .playing(
+                MusicPlaybackSession(
+                    snapshot: makeVerifiedSnapshot(
+                        title: "淘金小镇",
+                        artist: "周杰伦",
+                        duration: 252
+                    )
+                )
+            )
+        )
+        let viewModel = MusicModuleViewModel(runtime: runtime)
+
+        guard case .playback(let playback) = viewModel.presentation else {
+            Issue.record("Expected playback presentation")
+            return
+        }
+
+        let futureDate = Date(timeIntervalSince1970: 1_700_000_005)
+        #expect(playback.elapsedText(at: futureDate) == "0:35")
+        #expect(playback.progressFraction(at: futureDate) == 35.0 / 252.0)
+    }
+
+    @MainActor
+    @Test func playbackPresentationFreezesElapsedTimeWhilePaused() {
+        let runtime = MusicModuleRuntime(
+            initialState: .paused(
+                MusicPlaybackSession(
+                    snapshot: makeVerifiedSnapshot(
+                        playbackState: .paused,
+                        title: "淘金小镇",
+                        artist: "周杰伦",
+                        duration: 252
+                    )
+                )
+            )
+        )
+        let viewModel = MusicModuleViewModel(runtime: runtime)
+
+        guard case .playback(let playback) = viewModel.presentation else {
+            Issue.record("Expected playback presentation")
+            return
+        }
+
+        let futureDate = Date(timeIntervalSince1970: 1_700_000_005)
+        #expect(playback.elapsedText(at: futureDate) == "0:30")
+        #expect(playback.progressFraction(at: futureDate) == 30.0 / 252.0)
+    }
+
+    @MainActor
+    @Test func viewModelPlaybackPresentationCarriesArtworkData() {
+        let artworkData = Data([0x89, 0x50, 0x4E, 0x47])
+        let runtime = MusicModuleRuntime(
+            initialState: .playing(
+                MusicPlaybackSession(
+                    snapshot: makeVerifiedSnapshot(artworkData: artworkData)
+                )
+            )
+        )
+        let viewModel = MusicModuleViewModel(runtime: runtime)
+
+        guard case .playback(let playback) = viewModel.presentation else {
+            Issue.record("Expected playback presentation")
+            return
+        }
+
+        #expect(playback.artworkData == artworkData)
+    }
+
+    @MainActor
+    @Test func viewModelEmptyStateShowsApprovedSixLaunchTargets() {
+        let runtime = MusicModuleRuntime(initialState: .empty(players: MusicPlayerCapability.v1Targets))
+        let viewModel = MusicModuleViewModel(runtime: runtime)
+
+        guard case .empty(let emptyState) = viewModel.presentation else {
+            Issue.record("Expected empty presentation")
+            return
+        }
+
+        #expect(emptyState.message == "美好的一天，从音乐开始")
+        #expect(
+            emptyState.launchTargets.map(\.bundleID) == [
+                MusicPlayerCapability.appleMusic.bundleID,
+                MusicPlayerCapability.neteaseMusic.bundleID,
+                MusicPlayerCapability.qqMusic.bundleID,
+                MusicPlayerCapability.kugouMusic.bundleID,
+                MusicPlayerCapability.qishuiMusic.bundleID,
+                MusicPlayerCapability.spotify.bundleID,
+            ]
+        )
+        // Every launch tile must be tappable — including Apple Music and Spotify,
+        // which are opened via the adapter-less `open -b` launch fallback.
+        #expect(emptyState.launchTargets.map(\.isInteractive) == [true, true, true, true, true, true])
+    }
+
+    @MainActor
+    @Test func viewModelPresentationSnapshotsCurrentRuntimeState() {
+        let runtime = MusicModuleRuntime(initialState: .empty(players: MusicPlayerCapability.v1Targets))
+        let initialViewModel = MusicModuleViewModel(runtime: runtime)
+
+        runtime.updateModuleState(
+            .playing(
+                MusicPlaybackSession(
+                    snapshot: makeVerifiedSnapshot(
+                        bundleID: MusicPlayerCapability.neteaseMusic.bundleID,
+                        capability: .neteaseMusic,
+                        title: "一本书",
+                        artist: "庆庆",
+                        duration: 281
+                    )
+                )
+            )
+        )
+
+        let updatedViewModel = MusicModuleViewModel(runtime: runtime)
+
+        guard case .empty = initialViewModel.presentation else {
+            Issue.record("Expected initial presentation to remain empty")
+            return
+        }
+
+        guard case .playback(let playback) = updatedViewModel.presentation else {
+            Issue.record("Expected updated presentation to reflect playback")
+            return
+        }
+
+        #expect(playback.title == "一本书")
+        #expect(playback.artist == "庆庆")
+        #expect(playback.playerMark.symbol == "netease")
+    }
+
+    @MainActor
+    @Test func viewModelPermissionStateIsExplicitAndGuided() {
+        let runtime = MusicModuleRuntime(
+            initialState: .permissionRequired(.automation(displayName: "QQ 音乐"))
+        )
+        let viewModel = MusicModuleViewModel(runtime: runtime)
+
+        guard case .message(let message) = viewModel.presentation else {
+            Issue.record("Expected message presentation")
+            return
+        }
+
+        #expect(message.title == "需要自动化权限")
+        #expect(message.body == "为了保证功能正常使用，请开启自动化权限。")
+        #expect(message.emphasis == .warning)
+        // Offers a one-tap jump to the right System Settings pane.
+        #expect(message.settingsAction?.settingsURL.absoluteString.contains("Privacy_Automation") == true)
+    }
+
+    @MainActor
+    @Test func accessibilityPermissionOffersAccessibilitySettingsDeepLink() {
+        let runtime = MusicModuleRuntime(
+            initialState: .permissionRequired(.accessibility(displayName: "汽水音乐"))
+        )
+        let viewModel = MusicModuleViewModel(runtime: runtime)
+
+        guard case .message(let message) = viewModel.presentation else {
+            Issue.record("Expected message presentation")
+            return
+        }
+        #expect(message.title == "需要辅助功能权限")
+        let action = try? #require(message.settingsAction)
+        #expect(action?.settingsURL.absoluteString.contains("Privacy_Accessibility") == true)
+        #expect(action?.buttonTitle == "前往开启")
+    }
+
+    @MainActor
+    @Test func viewModelDismissesPinnedPermissionPromptThroughRuntime() async {
+        let runtime = MusicModuleRuntime(
+            initialState: .playing(
+                MusicPlaybackSession(snapshot: makeVerifiedSnapshot(trackKey: "before-vm-dismiss"))
+            ),
+            snapshotProvider: SequencedSnapshotProviderStub(
+                snapshots: [makeVerifiedSnapshot(playbackState: .paused, trackKey: "after-vm-dismiss")]
+            ),
+            playerController: ThrowingMusicPlayerControllerStub(
+                error: .permissionDenied(kind: .automation)
+            )
+        )
+        await runtime.performControl(.playPause)
+        #expect(runtime.moduleState == .permissionRequired(.automation(displayName: "QQ 音乐")))
+
+        await MusicModuleViewModel(runtime: runtime).dismissPermissionPrompt()
+
+        guard case .paused = runtime.moduleState else {
+            Issue.record("Expected the view model's 返回 to resume playback state")
+            return
+        }
+    }
+
+    @Test func qqAdapterLaunchesByBundleIdentifierInBackground() async throws {
+        let runner = MusicProcessRunnerSpy()
+        let adapter = QQMusicAdapter(processRunner: runner)
+
+        try await adapter.launch()
+
+        #expect(await runner.lastInvocation() == [
+            "/usr/bin/open",
+            "-g",
+            "-b",
+            "com.tencent.QQMusicMac"
+        ])
+    }
+
+    @Test func qqAdapterUsesSystemEventsMenuControlForPlayPause() async throws {
+        let runner = MusicProcessRunnerSpy()
+        let adapter = QQMusicAdapter(processRunner: runner)
+
+        try await adapter.perform(.playPause)
+
+        #expect(await runner.lastInvocation()?.first == "/usr/bin/osascript")
+        #expect(await runner.lastScript()?.contains("System Events") == true)
+        #expect(await runner.lastScript()?.contains("QQ音乐") == true)
+        #expect(await runner.lastScript()?.contains("menu bar item \"播放控制\"") == true)
+        // Click the first item by index — it's the play/pause toggle whose label
+        // flips between "暂停"/"播放". Matching a fixed label breaks: if the click
+        // for the current state fails transiently, falling back to the opposite
+        // label is guaranteed to miss (the state hasn't changed).
+        #expect(await runner.lastScript()?.contains("menu item 1 of menu \"播放控制\"") == true)
+        #expect(await runner.lastScript()?.contains("menu item \"暂停\"") == false)
+    }
+
+    @Test func qqAdapterDoesNotActivateQQMusicBeforeClickingPlaybackMenu() async throws {
+        let runner = MusicProcessRunnerSpy()
+        let adapter = QQMusicAdapter(processRunner: runner)
+
+        try await adapter.perform(.playPause)
+
+        let script = try #require(await runner.lastScript())
+        #expect(script.contains("System Events"))
+        #expect(script.contains("activate") == false)
+    }
+
+    @Test func qqAdapterUsesSystemEventsMenuControlForNextTrack() async throws {
+        let runner = MusicProcessRunnerSpy()
+        let adapter = QQMusicAdapter(processRunner: runner)
+
+        try await adapter.perform(.nextTrack)
+
+        #expect(await runner.lastInvocation()?.first == "/usr/bin/osascript")
+        #expect(await runner.lastScript()?.contains("menu bar item \"播放控制\"") == true)
+        #expect(await runner.lastScript()?.contains("下一首") == true)
+    }
+
+    @Test func qqAdapterUsesSystemEventsMenuControlForPreviousTrack() async throws {
+        let runner = MusicProcessRunnerSpy()
+        let adapter = QQMusicAdapter(processRunner: runner)
+
+        try await adapter.perform(.previousTrack)
+
+        #expect(await runner.lastInvocation()?.first == "/usr/bin/osascript")
+        #expect(await runner.lastScript()?.contains("menu bar item \"播放控制\"") == true)
+        #expect(await runner.lastScript()?.contains("上一首") == true)
+    }
+
+    @Test func qqAdapterMapsAccessibilityPermissionDenial() async {
+        let runner = MusicProcessRunnerSpy(stderr: "辅助功能权限 not permitted", status: 1)
+        let adapter = QQMusicAdapter(processRunner: runner)
+
+        await #expect(throws: MusicProviderError.permissionDenied(kind: .accessibility)) {
+            try await adapter.perform(.playPause)
+        }
+    }
+
+    @Test func qqAdapterLaunchMapsMissingPlayerToPlayerNotInstalled() async {
+        let runner = MusicProcessRunnerSpy(
+            stderr: "LSCopyApplicationURLsForBundleIdentifier() failed while trying to determine the application with bundle identifier com.tencent.QQMusicMac.",
+            status: 1
+        )
+        let adapter = QQMusicAdapter(processRunner: runner)
+
+        do {
+            try await adapter.launch()
+            Issue.record("Expected player-not-installed error")
+        } catch let error as MusicProviderError {
+            #expect(error == .playerNotInstalled)
+        } catch {
+            Issue.record("Expected MusicProviderError, got \(error)")
+        }
+    }
+
+    @Test func qqAdapterMapsAutomationPermissionDenial() async {
+        let runner = MusicProcessRunnerSpy(
+            stderr: "Not permitted to send Apple events to System Events. (-1743)",
+            status: 1
+        )
+        let adapter = QQMusicAdapter(processRunner: runner)
+
+        do {
+            try await adapter.perform(.playPause)
+            Issue.record("Expected automation permission denial")
+        } catch let error as MusicProviderError {
+            #expect(error == .permissionDenied(kind: .automation))
+        } catch {
+            Issue.record("Expected MusicProviderError, got \(error)")
+        }
+    }
+
+    // The app ships to zh_CN systems, where osascript localizes its error text and
+    // the automation-denial message carries none of the English keywords. Only the
+    // parenthesized AppleEvent error code (-1743) is locale-independent, so denial
+    // must be classified by code — otherwise it dead-ends at "控制失败" instead of
+    // guiding the user to the Automation toggle.
+    @Test func qqAdapterMapsLocalizedAutomationPermissionDenialByErrorCode() async {
+        let runner = MusicProcessRunnerSpy(
+            stderr: "“System Events”遇到一个错误：不允许发送 Apple 事件到“System Events”。 (-1743)",
+            status: 1
+        )
+        let adapter = QQMusicAdapter(processRunner: runner)
+
+        do {
+            try await adapter.perform(.playPause)
+            Issue.record("Expected automation permission denial")
+        } catch let error as MusicProviderError {
+            #expect(error == .permissionDenied(kind: .automation))
+        } catch {
+            Issue.record("Expected MusicProviderError, got \(error)")
+        }
+    }
+
+    @Test func qqAdapterPreservesGenericControlFailure() async {
+        let runner = MusicProcessRunnerSpy(stderr: "execution error: menu item missing", status: 1)
+        let adapter = QQMusicAdapter(processRunner: runner)
+
+        do {
+            try await adapter.perform(.playPause)
+            Issue.record("Expected generic control failure")
+        } catch let error as MusicProviderError {
+            #expect(error == .controlCommandFailed(stderr: "execution error: menu item missing"))
+        } catch {
+            Issue.record("Expected MusicProviderError, got \(error)")
+        }
+    }
+
+    // Captured verbatim from a hardened Release build on zh_CN: Automation was granted,
+    // but System Events UI scripting additionally requires Accessibility, and its
+    // Chinese denial says "不允许辅助访问" — containing neither "辅助功能" nor any
+    // English keyword, so it used to dead-end at "控制失败" instead of showing the
+    // accessibility permission card.
+    @Test func qqAdapterMapsLocalizedAssistiveAccessDenialToAccessibilityPermission() async {
+        let runner = MusicProcessRunnerSpy(
+            stderr: "55:136: execution error: “System Events”遇到一个错误：“osascript”不允许辅助访问。 (-1719)",
+            status: 1
+        )
+        let adapter = QQMusicAdapter(processRunner: runner)
+
+        do {
+            try await adapter.perform(.playPause)
+            Issue.record("Expected accessibility permission denial")
+        } catch let error as MusicProviderError {
+            #expect(error == .permissionDenied(kind: .accessibility))
+        } catch {
+            Issue.record("Expected MusicProviderError, got \(error)")
+        }
+    }
+
+    // A localized "no such object" (-1728, menu/process not found) is a genuine
+    // control failure, not a permission problem: code-based classification must not
+    // swallow it into a permission prompt.
+    @Test func qqAdapterKeepsLocalizedNoSuchObjectAsControlFailure() async {
+        let stderr = "“System Events”遇到一个错误：不能获得“menu item 1 of menu 播放控制”。 (-1728)"
+        let runner = MusicProcessRunnerSpy(stderr: stderr, status: 1)
+        let adapter = QQMusicAdapter(processRunner: runner)
+
+        do {
+            try await adapter.perform(.playPause)
+            Issue.record("Expected generic control failure")
+        } catch let error as MusicProviderError {
+            #expect(error == .controlCommandFailed(stderr: stderr))
+        } catch {
+            Issue.record("Expected MusicProviderError, got \(error)")
+        }
+    }
+
+    // Apple Music pushes an EMPTY artist for local/uploaded tracks (the artist gets
+    // merged into the title, e.g. "林俊杰 - 爱的鼓励"). Requiring title+artist+duration
+    // misclassified those as "can't read metadata"; title + duration are enough to
+    // display, artist is cosmetic — same as Control Center.
+    @Test func resolvedSnapshotWithMissingArtistStillMapsToPlaying() {
+        let snapshot = MusicPlayerSnapshot(
+            bundleID: MusicPlayerCapability.appleMusic.bundleID,
+            displayName: MusicPlayerCapability.appleMusic.displayName,
+            isRunning: true,
+            playbackState: .playing,
+            trackKey: nil,
+            title: "林俊杰 - 爱的鼓励",
+            artist: nil,
+            artworkData: nil,
+            duration: 228.8,
+            elapsedTime: 0,
+            capability: .appleMusic,
+            permissionRequirement: nil,
+            source: .nowPlayingCLI,
+            capturedAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+
+        guard case .playing(let session) = MusicModuleState.fromResolvedSnapshot(snapshot) else {
+            Issue.record("Expected playing state despite empty artist, got \(MusicModuleState.fromResolvedSnapshot(snapshot))")
+            return
+        }
+        #expect(session.title == "林俊杰 - 爱的鼓励")
+        #expect(session.artist.isEmpty)
+    }
+
+    @Test func collapsedSummaryFallsBackToTitleWhenArtistIsEmpty() {
+        let snapshot = MusicPlayerSnapshot(
+            bundleID: MusicPlayerCapability.appleMusic.bundleID,
+            displayName: MusicPlayerCapability.appleMusic.displayName,
+            isRunning: true,
+            playbackState: .playing,
+            trackKey: nil,
+            title: "林俊杰 - 爱的鼓励",
+            artist: nil,
+            artworkData: nil,
+            duration: 228.8,
+            elapsedTime: 0,
+            capability: .appleMusic,
+            permissionRequirement: nil,
+            source: .nowPlayingCLI,
+            capturedAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+
+        let summary = CollapsedMusicSummary(session: MusicPlaybackSession(snapshot: snapshot))
+
+        #expect(summary.detailText == "林俊杰 - 爱的鼓励")
+    }
+
+    // Pausing must not blank the collapsed bar. CollapsedMusicSummary carries isPlaying
+    // precisely so the notch can show a paused indicator; returning nil for .paused
+    // dropped the bar back to the generic "Notch" default the moment playback paused.
+    @Test func pausedPlaybackKeepsCollapsedSummary() {
+        let session = MusicPlaybackSession(
+            snapshot: makeVerifiedSnapshot(playbackState: .paused, trackKey: "paused-track")
+        )
+
+        let summary = MusicModuleState.paused(session).collapsedSummary
+
+        #expect(summary?.isPlaying == false)
+        #expect(summary?.displayName == "QQ 音乐")
+        #expect(summary?.detailText == "Track · Artist")
+    }
+
+    // The collapsed bar must keep expanding into the music module while paused —
+    // otherwise a tap falls through to whatever module was last active.
+    @Test func collapsedOverlayKeepsMusicExpansionWhilePaused() {
+        let summary = CollapsedMusicSummary(
+            displayName: "QQ 音乐",
+            symbol: "qq",
+            isPlaying: false,
+            detailText: "Track · Artist"
+        )
+
+        let presentation = CollapsedOverlayPresentation(activeModule: .clipboard, musicSummary: summary)
+
+        #expect(presentation.expansionModuleID == .music)
+        #expect(presentation.trailingAccessory == .playback(isPlaying: false))
+        #expect(presentation.titleText == "Track · Artist")
+    }
+
+    @MainActor
+    @Test func runtimeKeepsCollapsedSummaryAfterPlaybackPauses() async {
+        let runtime = MusicModuleRuntime(
+            initialState: .playing(
+                MusicPlaybackSession(snapshot: makeVerifiedSnapshot(trackKey: "pause-keeps-summary"))
+            ),
+            snapshotProvider: SequencedSnapshotProviderStub(
+                snapshots: [makeVerifiedSnapshot(playbackState: .paused, trackKey: "pause-keeps-summary")]
+            )
+        )
+
+        await runtime.refreshSnapshot()
+
+        guard case .paused = runtime.moduleState else {
+            Issue.record("Expected paused state, got \(runtime.moduleState)")
+            return
+        }
+        #expect(runtime.collapsedSummary?.isPlaying == false)
+        #expect(runtime.collapsedSummary?.detailText == "Track · Artist")
+    }
+
+    // Spotify/Apple Music read fine via MediaRemote but were phase-gated out of the
+    // display pipeline, so an active Spotify session rendered as "unsupported player"
+    // and the collapsed notch stayed blank.
+    @Test func resolvedSpotifySnapshotMapsToPlayingState() {
+        let snapshot = MusicPlayerSnapshot(
+            bundleID: MusicPlayerCapability.spotify.bundleID,
+            displayName: MusicPlayerCapability.spotify.displayName,
+            isRunning: true,
+            playbackState: .playing,
+            trackKey: "spotify-track",
+            title: "異邦人",
+            artist: "柴田淳",
+            artworkData: nil,
+            duration: 238,
+            elapsedTime: 94.5,
+            capability: .spotify,
+            permissionRequirement: nil,
+            source: .nowPlayingCLI,
+            capturedAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+
+        guard case .playing(let session) = MusicModuleState.fromResolvedSnapshot(snapshot) else {
+            Issue.record("Expected playing state for Spotify, got \(MusicModuleState.fromResolvedSnapshot(snapshot))")
+            return
+        }
+        #expect(session.displayName == "Spotify")
+    }
+
+    // Spotify and Apple Music expose real AppleScript dictionaries, so control goes
+    // straight to the app — no System Events UI scripting, no Accessibility, just the
+    // per-app Automation grant.
+    @Test func appleScriptAdapterUsesDirectApplicationScripting() async throws {
+        let runner = MusicProcessRunnerSpy()
+        let adapter = AppleScriptMusicAdapter.spotify(processRunner: runner)
+
+        try await adapter.perform(.playPause)
+        #expect(await runner.lastScript() == "tell application \"Spotify\" to playpause")
+
+        try await adapter.perform(.nextTrack)
+        #expect(await runner.lastScript() == "tell application \"Spotify\" to next track")
+
+        try await adapter.perform(.previousTrack)
+        #expect(await runner.lastScript() == "tell application \"Spotify\" to previous track")
+    }
+
+    @Test func appleScriptAdapterScriptsAppleMusicThroughMusicApplication() async throws {
+        let runner = MusicProcessRunnerSpy()
+        let adapter = AppleScriptMusicAdapter.appleMusic(processRunner: runner)
+
+        try await adapter.perform(.playPause)
+
+        #expect(await runner.lastScript() == "tell application \"Music\" to playpause")
+    }
+
+    @Test func appleScriptAdapterMapsLocalizedAutomationDenialByErrorCode() async {
+        let runner = MusicProcessRunnerSpy(
+            stderr: "执行错误：不允许发送 Apple 事件到“Spotify”。 (-1743)",
+            status: 1
+        )
+        let adapter = AppleScriptMusicAdapter.spotify(processRunner: runner)
+
+        do {
+            try await adapter.perform(.playPause)
+            Issue.record("Expected automation permission denial")
+        } catch let error as MusicProviderError {
+            #expect(error == .permissionDenied(kind: .automation))
+        } catch {
+            Issue.record("Expected MusicProviderError, got \(error)")
+        }
+    }
+
+    @MainActor
+    @Test func runtimeRoutesSpotifyControlsThroughAppleScriptAdapterRegistry() async {
+        let runner = MusicProcessRunnerSpy()
+        let spotifySnapshot = makeVerifiedSnapshot(
+            bundleID: MusicPlayerCapability.spotify.bundleID,
+            displayName: MusicPlayerCapability.spotify.displayName,
+            capability: .spotify,
+            trackKey: "spotify-track"
+        )
+        let runtime = MusicModuleRuntime(
+            initialState: .playing(MusicPlaybackSession(snapshot: spotifySnapshot)),
+            snapshotProvider: SequencedSnapshotProviderStub(snapshots: [spotifySnapshot]),
+            processRunner: runner
+        )
+
+        await runtime.performControl(.nextTrack)
+
+        #expect(await runner.lastInvocation()?.first == "/usr/bin/osascript")
+        #expect(await runner.lastScript() == "tell application \"Spotify\" to next track")
+    }
+
+    @Test func systemMediaControlAdapterLaunchesTheTargetBundleInBackground() async throws {
+        let runner = MusicProcessRunnerSpy()
+        let adapter = SystemMediaControlAdapter(
+            capability: .neteaseMusic,
+            processRunner: runner
+        )
+
+        try await adapter.launch()
+
+        #expect(await runner.lastInvocation() == [
+            "/usr/bin/open",
+            "-g",
+            "-b",
+            "com.netease.163music"
+        ])
+    }
+
+    @MainActor
+    @Test func systemMediaControlAdapterPostsSharedMediaKeysWithoutShellingOut() async throws {
+        let runner = MusicProcessRunnerSpy()
+        let mediaKeyPoster = MediaKeyPosterSpy()
+        let adapter = SystemMediaControlAdapter(
+            capability: .kugouMusic,
+            processRunner: runner,
+            mediaKeyPoster: mediaKeyPoster,
+            accessibilityTrustChecker: AccessibilityTrustCheckerStub(isTrusted: true)
+        )
+
+        try await adapter.perform(.playPause)
+        try await adapter.perform(.nextTrack)
+        try await adapter.perform(.previousTrack)
+
+        #expect(await runner.lastInvocation() == nil)
+        #expect(await mediaKeyPoster.recordedActions() == [.playPause, .next, .previous])
+    }
+
+    @MainActor
+    @Test func systemMediaControlAdapterMapsMissingAccessibilityTrustToPermissionDenied() async {
+        let runner = MusicProcessRunnerSpy()
+        let mediaKeyPoster = MediaKeyPosterSpy()
+        let adapter = SystemMediaControlAdapter(
+            capability: .neteaseMusic,
+            processRunner: runner,
+            mediaKeyPoster: mediaKeyPoster,
+            accessibilityTrustChecker: AccessibilityTrustCheckerStub(isTrusted: false)
+        )
+
+        await #expect(throws: MusicProviderError.permissionDenied(kind: .accessibility)) {
+            try await adapter.perform(.playPause)
+        }
+
+        #expect(await runner.lastInvocation() == nil)
+        #expect(await mediaKeyPoster.recordedActions().isEmpty)
+    }
+
+    @MainActor
+    @Test func systemMediaKeyPosterDispatchesOrderedEventsOnMainThread() throws {
+        let dispatcher = MediaKeyEventDispatcherSpy()
+        let poster = SystemMediaKeyPoster(dispatcher: dispatcher)
+
+        try poster.post(.next)
+
+        #expect(dispatcher.invocations == [
+            MediaKeyEventInvocation(keyCode: 17, isKeyDown: true, isMainThread: true),
+            MediaKeyEventInvocation(keyCode: 17, isKeyDown: false, isMainThread: true)
+        ])
+    }
+
+    @MainActor
+    @Test func runtimeRoutesQQControlsThroughQQAdapterRegistry() async {
+        let runner = MusicProcessRunnerSpy()
+        let runtime = MusicModuleRuntime(
+            initialState: .playing(
+                MusicPlaybackSession(snapshot: makeVerifiedSnapshot(trackKey: "qq-track"))
+            ),
+            snapshotProvider: SequencedSnapshotProviderStub(
+                snapshots: [makeVerifiedSnapshot(trackKey: "qq-track-next")]
+            ),
+            processRunner: runner
+        )
+
+        await runtime.performControl(.nextTrack)
+
+        #expect(await runner.lastInvocation()?.first == "/usr/bin/osascript")
+        #expect(await runner.lastScript()?.contains("QQ音乐") == true)
+        #expect(await runner.lastScript()?.contains("下一首") == true)
+    }
+
+    @MainActor
+    @Test func runtimeRoutesSharedPlayersThroughSystemMediaAdapterRegistry() async {
+        let sharedPlayers: [MusicPlayerCapability] = [
+            .neteaseMusic,
+            .kugouMusic,
+            .qishuiMusic
+        ]
+
+        for capability in sharedPlayers {
+            let runner = MusicProcessRunnerSpy()
+            let mediaKeyPoster = MediaKeyPosterSpy()
+            let runtime = MusicModuleRuntime(
+                initialState: .playing(
+                    MusicPlaybackSession(
+                        snapshot: makeVerifiedSnapshot(
+                            bundleID: capability.bundleID,
+                            displayName: capability.displayName,
+                            capability: capability,
+                            trackKey: capability.bundleID
+                        )
+                    )
+                ),
+                snapshotProvider: SequencedSnapshotProviderStub(
+                    snapshots: [
+                        makeVerifiedSnapshot(
+                            bundleID: capability.bundleID,
+                            displayName: capability.displayName,
+                            capability: capability,
+                            trackKey: "\(capability.bundleID)-next"
+                        )
+                    ]
+                ),
+                processRunner: runner,
+                mediaKeyPoster: mediaKeyPoster,
+                accessibilityTrustChecker: AccessibilityTrustCheckerStub(isTrusted: true)
+            )
+
+            await runtime.performControl(.nextTrack)
+
+            #expect(await runner.lastInvocation() == nil)
+            #expect(await mediaKeyPoster.recordedActions() == [.next])
+        }
+    }
+
+    @MainActor
+    @Test func runtimeLaunchesVerifiedPlayerThroughAdapterRegistry() async {
+        let runner = MusicProcessRunnerSpy()
+        let runtime = MusicModuleRuntime(
+            snapshotProvider: SequencedSnapshotProviderStub(snapshots: [nil]),
+            processRunner: runner,
+            launchEstablishmentRetryLimit: 1,
+            launchEstablishmentDelayNanoseconds: 0
+        )
+
+        await runtime.launchPlayer(bundleID: MusicPlayerCapability.qqMusic.bundleID)
+
+        // -g launches the player in the background so focus stays on the notch panel.
+        #expect(await runner.lastInvocation() == [
+            "/usr/bin/open",
+            "-g",
+            "-b",
+            MusicPlayerCapability.qqMusic.bundleID
+        ])
+        #expect(runtime.moduleState == .empty(players: MusicPlayerCapability.v1Targets))
+    }
+
+    @MainActor
+    @Test func runtimeLaunchPromotesToPausedStateWhenSupportedSnapshotAppears() async {
+        let snapshot = makeVerifiedSnapshot(playbackState: .paused, title: "淘金小镇", artist: "周杰伦")
+        let runtime = MusicModuleRuntime(
+            snapshotProvider: SequencedSnapshotProviderStub(snapshots: [snapshot]),
+            playerController: RecordingMusicPlayerControllerStub(),
+            launchEstablishmentRetryLimit: 1,
+            launchEstablishmentDelayNanoseconds: 0
+        )
+
+        await runtime.launchPlayer(bundleID: MusicPlayerCapability.qqMusic.bundleID)
+
+        #expect(runtime.moduleState == .paused(MusicPlaybackSession(snapshot: snapshot)))
+    }
+
+    @MainActor
+    @Test func runtimeLaunchReturnsToEmptyWhenSessionNeverAppearsAfterSuccessfulOpen() async {
+        let runtime = MusicModuleRuntime(
+            snapshotProvider: SequencedSnapshotProviderStub(snapshots: [nil, nil]),
+            playerController: RecordingMusicPlayerControllerStub(),
+            launchEstablishmentRetryLimit: 2,
+            launchEstablishmentDelayNanoseconds: 0
+        )
+
+        await runtime.launchPlayer(bundleID: MusicPlayerCapability.neteaseMusic.bundleID)
+
+        #expect(runtime.moduleState == .empty(players: MusicPlayerCapability.v1Targets))
+    }
+
+    @MainActor
+    @Test func runtimeContinuesObservingSuccessfulLaunchUntilPlaybackAppears() async {
+        let snapshot = makeVerifiedSnapshot(trackKey: "launch-follow-up")
+        let runtime = MusicModuleRuntime(
+            initialState: .empty(players: MusicPlayerCapability.v1Targets),
+            snapshotProvider: SequencedSnapshotProviderStub(snapshots: [nil, snapshot]),
+            playerController: RecordingMusicPlayerControllerStub(),
+            launchEstablishmentRetryLimit: 1,
+            launchEstablishmentDelayNanoseconds: 0,
+            postLaunchObservationRetryLimit: 1,
+            postLaunchObservationDelayNanoseconds: 0
+        )
+
+        await runtime.launchPlayer(bundleID: MusicPlayerCapability.qqMusic.bundleID)
+        for _ in 0..<10 where runtime.moduleState != .playing(MusicPlaybackSession(snapshot: snapshot)) {
+            await Task.yield()
+        }
+
+        #expect(runtime.moduleState == .playing(MusicPlaybackSession(snapshot: snapshot)))
+    }
+
+    @MainActor
+    @Test func runtimeMapsLaunchFailureToLaunchFailedState() async {
+        let runtime = MusicModuleRuntime(
+            processRunner: MusicProcessRunnerSpy(
+                stderr: "LSOpen failed",
+                status: 1
+            )
+        )
+
+        await runtime.launchPlayer(bundleID: MusicPlayerCapability.neteaseMusic.bundleID)
+
+        #expect(runtime.moduleState == .launchFailed(displayName: "网易云音乐"))
+    }
+
+    @MainActor
+    @Test func runtimeTracksPollingScheduleFromEnergyMode() {
+        let runtime = MusicModuleRuntime()
+
+        runtime.updateEnergyMode(.visible)
+        #expect(runtime.pollSchedule == .expandedVisible)
+        #expect(runtime.isPollingSuspended == false)
+
+        runtime.updateEnergyMode(.backgroundCore)
+        #expect(runtime.pollSchedule == .collapsedSummary(hasActivePlayback: false))
+        #expect(runtime.isPollingSuspended == false)
+
+        runtime.updateModuleState(
+            .playing(MusicPlaybackSession(snapshot: makeVerifiedSnapshot(trackKey: "active-track")))
+        )
+        runtime.updateEnergyMode(.collapsedSummary)
+        #expect(runtime.pollSchedule == .collapsedSummary(hasActivePlayback: true))
+
+        runtime.updateEnergyMode(.interactionBoost)
+        #expect(runtime.pollSchedule == .confirmationBurst)
+
+        runtime.updateEnergyMode(.suspended)
+        #expect(runtime.isPollingSuspended == true)
+    }
+
+    @MainActor
+    @Test func runtimePollsPausedCollapsedSessionAtActiveCadence() {
+        let runtime = MusicModuleRuntime(initialState: .empty(players: MusicPlayerCapability.v1Targets))
+
+        runtime.updateModuleState(
+            .paused(MusicPlaybackSession(snapshot: makeVerifiedSnapshot(
+                playbackState: .paused,
+                trackKey: "paused-collapsed"
+            )))
+        )
+        runtime.updateEnergyMode(.collapsedSummary)
+
+        #expect(runtime.pollSchedule == .collapsedSummary(hasActivePlayback: true))
+        #expect(MusicPollSchedule.interval(for: runtime.pollSchedule) == 3.0)
+    }
+
+    @MainActor
+    @Test func runtimeReactsToEnergyGovernorThroughRegisteredTask() {
+        let governor = EnergyGovernor()
+        let runtime = MusicModuleRuntime()
+
+        governor.register(runtime.energyManagedTask)
+        #expect(runtime.pollSchedule == .collapsedSummary(hasActivePlayback: false))
+
+        governor.applyOverlayState(.expanded(screenID: "screen-1", moduleID: .music))
+        #expect(runtime.pollSchedule == .expandedVisible)
+
+        governor.suspendForSleep()
+        #expect(runtime.isPollingSuspended == true)
+    }
+
+    @MainActor
+    @Test func runtimePreservesVisiblePollingScheduleAcrossStateUpdates() {
+        let runtime = MusicModuleRuntime()
+
+        runtime.updateEnergyMode(.visible)
+        runtime.updateModuleState(
+            .playing(MusicPlaybackSession(snapshot: makeVerifiedSnapshot(trackKey: "visible-refresh")))
+        )
+
+        #expect(runtime.pollSchedule == .expandedVisible)
+        #expect(runtime.isPollingSuspended == false)
+    }
+
+    @MainActor
+    @Test func runtimeMapsLifecycleVisibilityEventsToPollingSchedule() {
+        let runtime = MusicModuleRuntime(
+            initialState: .playing(
+                MusicPlaybackSession(snapshot: makeVerifiedSnapshot(trackKey: "visible-track"))
+            )
+        )
+
+        runtime.handleLifecycle(.panelDidExpand(screenID: "screen-1"))
+        #expect(runtime.pollSchedule == .expandedVisible)
+        #expect(runtime.isPollingSuspended == false)
+
+        runtime.handleLifecycle(.panelDidCollapse(reason: .pointerExit))
+        #expect(runtime.pollSchedule == .collapsedSummary(hasActivePlayback: true))
+
+        runtime.handleLifecycle(.appWillSleep)
+        #expect(runtime.isPollingSuspended == true)
+
+        runtime.handleLifecycle(.appDidWake)
+        #expect(runtime.pollSchedule == .collapsedSummary(hasActivePlayback: true))
+        #expect(runtime.isPollingSuspended == false)
+    }
+
+    @Test func nowPlayingProviderParsesRawJSONIntoSnapshot() async throws {
+        let runner = MusicProcessRunnerStub(
+            stdout: """
+            {"kMRMediaRemoteNowPlayingInfoClientBundleIdentifier":"com.tencent.QQMusicMac","kMRMediaRemoteNowPlayingInfoTitle":"淘金小镇","kMRMediaRemoteNowPlayingInfoArtist":"周杰伦","kMRMediaRemoteNowPlayingInfoDuration":252,"kMRMediaRemoteNowPlayingInfoElapsedTime":35,"kMRMediaRemoteNowPlayingInfoPlaybackRate":1}
+            """
+        )
+        let provider = NowPlayingSnapshotProvider(processRunner: runner, fileExists: { _ in true })
+
+        let snapshot = try await provider.fetchActiveSnapshot()
+
+        #expect(snapshot?.bundleID == "com.tencent.QQMusicMac")
+        #expect(snapshot?.displayName == "QQ 音乐")
+        #expect(snapshot?.title == "淘金小镇")
+        #expect(snapshot?.artist == "周杰伦")
+        #expect(snapshot?.duration == 252)
+        #expect(snapshot?.elapsedTime == 35)
+        #expect(snapshot?.source == .nowPlayingCLI)
+    }
+
+    @Test func nowPlayingProviderPrefersCalculatedPlaybackPositionWhenAvailable() async throws {
+        let runner = MusicProcessRunnerStub(
+            stdout: """
+            {"kMRMediaRemoteNowPlayingInfoClientBundleIdentifier":"com.tencent.QQMusicMac","kMRMediaRemoteNowPlayingInfoTitle":"淘金小镇","kMRMediaRemoteNowPlayingInfoArtist":"周杰伦","kMRMediaRemoteNowPlayingInfoDuration":252,"kMRMediaRemoteNowPlayingInfoElapsedTime":35,"calculatedPlaybackPosition":42.5,"kMRMediaRemoteNowPlayingInfoPlaybackRate":1}
+            """
+        )
+        let provider = NowPlayingSnapshotProvider(processRunner: runner, fileExists: { _ in true })
+
+        let snapshot = try await provider.fetchActiveSnapshot()
+
+        #expect(snapshot?.elapsedTime == 42.5)
+    }
+
+    @Test func nowPlayingProviderMapsPlaybackRateGreaterThanZeroToPlaying() async throws {
+        let runner = MusicProcessRunnerStub(
+            stdout: """
+            {"kMRMediaRemoteNowPlayingInfoClientBundleIdentifier":"com.tencent.QQMusicMac","kMRMediaRemoteNowPlayingInfoTitle":"淘金小镇","kMRMediaRemoteNowPlayingInfoArtist":"周杰伦","kMRMediaRemoteNowPlayingInfoDuration":252,"kMRMediaRemoteNowPlayingInfoElapsedTime":35,"kMRMediaRemoteNowPlayingInfoPlaybackRate":0.5}
+            """
+        )
+        let provider = NowPlayingSnapshotProvider(processRunner: runner, fileExists: { _ in true })
+
+        let snapshot = try await provider.fetchActiveSnapshot()
+
+        #expect(snapshot?.playbackState == .playing)
+    }
+
+    @Test func nowPlayingProviderUsesQQMenuStateWhenPlaybackRateStaysPlayingWhilePaused() async throws {
+        let runner = SequencedMusicProcessRunner(outputs: [
+            MusicProcessOutput(
+                stdout: """
+                {"kMRMediaRemoteNowPlayingInfoClientBundleIdentifier":"com.tencent.QQMusicMac","kMRMediaRemoteNowPlayingInfoTitle":"为你揭晓","kMRMediaRemoteNowPlayingInfoArtist":"张艺兴","kMRMediaRemoteNowPlayingInfoDuration":244,"kMRMediaRemoteNowPlayingInfoElapsedTime":0,"kMRMediaRemoteNowPlayingInfoPlaybackRate":1}
+                """,
+                stderr: "",
+                status: 0
+            ),
+            MusicProcessOutput(stdout: "播放\n", stderr: "", status: 0)
+        ])
+        let provider = NowPlayingSnapshotProvider(
+            processRunner: runner,
+            executableCandidates: ["/missing/nowplaying-cli"],
+            fileExists: { _ in true }
+        )
+
+        let snapshot = try #require(await provider.fetchActiveSnapshot())
+
+        #expect(snapshot.playbackState == .paused)
+        #expect(snapshot.elapsedTime == 0)
+        let invocations = await runner.recordedInvocations()
+        #expect(invocations.count == 2)
+        let menuProbeInvocation = try #require(invocations.dropFirst().first)
+        #expect(menuProbeInvocation.first == "/usr/bin/osascript")
+        #expect(menuProbeInvocation.dropFirst().first == "-e")
+        #expect(menuProbeInvocation.last?.contains("name of menu item 1") == true)
+        #expect(invocations.contains { Array($0.suffix(2)) == ["get", "elapsedTime"] } == false)
+    }
+
+    @Test func nowPlayingProviderAnchorsPausedQQSnapshotToRawSampleTime() async throws {
+        let runner = DelayedSequencedMusicProcessRunner(steps: [
+            DelayedSequencedMusicProcessRunner.Step(
+                output: MusicProcessOutput(
+                    stdout: """
+                    {"kMRMediaRemoteNowPlayingInfoClientBundleIdentifier":"com.tencent.QQMusicMac","kMRMediaRemoteNowPlayingInfoTitle":"为你揭晓","kMRMediaRemoteNowPlayingInfoArtist":"张艺兴","kMRMediaRemoteNowPlayingInfoDuration":244,"kMRMediaRemoteNowPlayingInfoElapsedTime":119,"kMRMediaRemoteNowPlayingInfoPlaybackRate":1}
+                    """,
+                    stderr: "",
+                    status: 0
+                ),
+                delayNanoseconds: 0
+            ),
+            DelayedSequencedMusicProcessRunner.Step(
+                output: MusicProcessOutput(stdout: "播放\n", stderr: "", status: 0),
+                delayNanoseconds: 350_000_000
+            )
+        ])
+        let provider = NowPlayingSnapshotProvider(
+            processRunner: runner,
+            executableCandidates: ["/missing/nowplaying-cli"],
+            fileExists: { _ in true }
+        )
+
+        let snapshot = try #require(await provider.fetchActiveSnapshot())
+        let rawSampledAt = try #require(await runner.completedAt(forInvocationAt: 0))
+        let menuProbeCompletedAt = try #require(await runner.completedAt(forInvocationAt: 1))
+
+        #expect(snapshot.playbackState == .paused)
+        #expect(snapshot.elapsedTime == 119)
+        #expect(abs(snapshot.capturedAt.timeIntervalSince(rawSampledAt)) < 0.1)
+        #expect(menuProbeCompletedAt.timeIntervalSince(snapshot.capturedAt) > 0.25)
+    }
+
+    @Test func nowPlayingProviderFallsBackToPlaybackRateWhenQQMenuStateProbeFails() async throws {
+        let runner = SequencedMusicProcessRunner(outputs: [
+            MusicProcessOutput(
+                stdout: """
+                {"kMRMediaRemoteNowPlayingInfoClientBundleIdentifier":"com.tencent.QQMusicMac","kMRMediaRemoteNowPlayingInfoTitle":"为你揭晓","kMRMediaRemoteNowPlayingInfoArtist":"张艺兴","kMRMediaRemoteNowPlayingInfoDuration":244,"kMRMediaRemoteNowPlayingInfoElapsedTime":0,"kMRMediaRemoteNowPlayingInfoPlaybackRate":1}
+                """,
+                stderr: "",
+                status: 0
+            ),
+            MusicProcessOutput(stdout: "", stderr: "not permitted", status: 1),
+            MusicProcessOutput(stdout: #"{"elapsedTime":18.5,"playing":true}"#, stderr: "", status: 0)
+        ])
+        let provider = NowPlayingSnapshotProvider(
+            processRunner: runner,
+            executableCandidates: ["/missing/nowplaying-cli"],
+            fileExists: { _ in true }
+        )
+
+        let snapshot = try #require(await provider.fetchActiveSnapshot())
+
+        #expect(snapshot.playbackState == .playing)
+        #expect(snapshot.elapsedTime == 18.5)
+        let invocations = await runner.recordedInvocations()
+        #expect(invocations.count == 3)
+        let menuProbeInvocation = try #require(invocations.dropFirst().first)
+        let positionProbeInvocation = try #require(invocations.dropFirst(2).first)
+        #expect(menuProbeInvocation.first == "/usr/bin/osascript")
+        #expect(positionProbeInvocation.first == "/usr/bin/perl")
+        #expect(positionProbeInvocation.last == "adapter_get_env")
+    }
+
+    // 汽水音乐 pushes elapsedTime once per state change (track start / pause) and then
+    // freezes it, so the raw value alone drifts ever further behind reality. MediaRemote
+    // pairs every elapsed push with the wall-clock `timestamp` of that push; only the
+    // bundled perl adapter exposes it (nowplaying-cli get-raw omits the key, and its
+    // `get elapsedTime` echoes the same frozen value). Live position while playing is
+    // elapsed + (now − timestamp) — the same math Control Center uses.
+    @Test func nowPlayingProviderComputesLiveElapsedFromAdapterTimestamp() async throws {
+        let formatter = ISO8601DateFormatter()
+        let pushedAt = formatter.string(from: Date().addingTimeInterval(-120))
+        let runner = SequencedMusicProcessRunner(outputs: [
+            MusicProcessOutput(
+                stdout: """
+                {"kMRMediaRemoteNowPlayingInfoClientBundleIdentifier":"com.soda.music","kMRMediaRemoteNowPlayingInfoTitle":"西西里Rumba Style","kMRMediaRemoteNowPlayingInfoArtist":"半度微醺","kMRMediaRemoteNowPlayingInfoDuration":127,"kMRMediaRemoteNowPlayingInfoElapsedTime":0,"kMRMediaRemoteNowPlayingInfoPlaybackRate":1}
+                """,
+                stderr: "",
+                status: 0
+            ),
+            MusicProcessOutput(
+                stdout: #"{"elapsedTime":0,"timestamp":"\#(pushedAt)","playing":true}"#,
+                stderr: "",
+                status: 0
+            )
+        ])
+        let provider = NowPlayingSnapshotProvider(
+            processRunner: runner,
+            executableCandidates: ["/bundle/Contents/MacOS/nowplaying-cli"],
+            fileExists: { _ in true }
+        )
+
+        let snapshot = try #require(await provider.fetchActiveSnapshot())
+
+        let elapsed = try #require(snapshot.elapsedTime)
+        #expect(elapsed >= 115 && elapsed <= 126)
+        let probeInvocation = try #require(await runner.recordedInvocations().dropFirst().first)
+        #expect(probeInvocation == [
+            "/usr/bin/perl",
+            "/bundle/Contents/share/nowplaying-cli/scripts/mediaremote-mini.pl",
+            "/bundle/Contents/lib/nowplaying-cli/MediaRemoteMini.dylib",
+            "adapter_get_env"
+        ])
+    }
+
+    // If the adapter reports the player as not playing (race against the raw payload),
+    // the anchored elapsed is returned without extrapolation.
+    @Test func nowPlayingProviderDoesNotExtrapolateWhenAdapterReportsPaused() async throws {
+        let formatter = ISO8601DateFormatter()
+        let pushedAt = formatter.string(from: Date().addingTimeInterval(-300))
+        let runner = SequencedMusicProcessRunner(outputs: [
+            MusicProcessOutput(
+                stdout: """
+                {"kMRMediaRemoteNowPlayingInfoClientBundleIdentifier":"com.soda.music","kMRMediaRemoteNowPlayingInfoTitle":"老歌","kMRMediaRemoteNowPlayingInfoArtist":"许嵩","kMRMediaRemoteNowPlayingInfoDuration":224,"kMRMediaRemoteNowPlayingInfoElapsedTime":10,"kMRMediaRemoteNowPlayingInfoPlaybackRate":1}
+                """,
+                stderr: "",
+                status: 0
+            ),
+            MusicProcessOutput(
+                stdout: #"{"elapsedTime":42,"timestamp":"\#(pushedAt)","playing":false}"#,
+                stderr: "",
+                status: 0
+            )
+        ])
+        let provider = NowPlayingSnapshotProvider(
+            processRunner: runner,
+            executableCandidates: ["/bundle/Contents/MacOS/nowplaying-cli"],
+            fileExists: { _ in true }
+        )
+
+        let snapshot = try #require(await provider.fetchActiveSnapshot())
+
+        #expect(snapshot.elapsedTime == 42)
+    }
+
+    // Spotify removes the PlaybackRate key from MediaRemote entirely while paused, which
+    // used to decode as .unknown → .empty → the collapsed bar vanished the moment playback
+    // paused. The perl adapter's `playing` flag is authoritative: rate missing + adapter
+    // says not playing = paused, with the raw elapsed kept frozen.
+    @Test func nowPlayingProviderTreatsMissingRateWithAdapterPausedAsPaused() async throws {
+        let runner = SequencedMusicProcessRunner(outputs: [
+            MusicProcessOutput(
+                stdout: """
+                {"kMRMediaRemoteNowPlayingInfoClientBundleIdentifier":"com.spotify.client","kMRMediaRemoteNowPlayingInfoTitle":"木綿のハンカチーフ","kMRMediaRemoteNowPlayingInfoArtist":"太田裕美","kMRMediaRemoteNowPlayingInfoDuration":240,"kMRMediaRemoteNowPlayingInfoElapsedTime":27.7}
+                """,
+                stderr: "",
+                status: 0
+            ),
+            MusicProcessOutput(stdout: #"{"elapsedTime":27.7,"playing":false}"#, stderr: "", status: 0)
+        ])
+        let provider = NowPlayingSnapshotProvider(
+            processRunner: runner,
+            executableCandidates: ["/bundle/Contents/MacOS/nowplaying-cli"],
+            fileExists: { _ in true }
+        )
+
+        let snapshot = try #require(await provider.fetchActiveSnapshot())
+
+        #expect(snapshot.playbackState == .paused)
+        #expect(snapshot.elapsedTime == 27.7)
+    }
+
+    // Missing rate but the adapter says the session IS playing: trust it and extrapolate
+    // the live position from the timestamp as usual.
+    @Test func nowPlayingProviderTreatsMissingRateWithAdapterPlayingAsPlaying() async throws {
+        let formatter = ISO8601DateFormatter()
+        let pushedAt = formatter.string(from: Date().addingTimeInterval(-60))
+        let runner = SequencedMusicProcessRunner(outputs: [
+            MusicProcessOutput(
+                stdout: """
+                {"kMRMediaRemoteNowPlayingInfoClientBundleIdentifier":"com.spotify.client","kMRMediaRemoteNowPlayingInfoTitle":"木綿のハンカチーフ","kMRMediaRemoteNowPlayingInfoArtist":"太田裕美","kMRMediaRemoteNowPlayingInfoDuration":240,"kMRMediaRemoteNowPlayingInfoElapsedTime":10}
+                """,
+                stderr: "",
+                status: 0
+            ),
+            MusicProcessOutput(
+                stdout: #"{"elapsedTime":10,"timestamp":"\#(pushedAt)","playing":true}"#,
+                stderr: "",
+                status: 0
+            )
+        ])
+        let provider = NowPlayingSnapshotProvider(
+            processRunner: runner,
+            executableCandidates: ["/bundle/Contents/MacOS/nowplaying-cli"],
+            fileExists: { _ in true }
+        )
+
+        let snapshot = try #require(await provider.fetchActiveSnapshot())
+
+        #expect(snapshot.playbackState == .playing)
+        let elapsed = try #require(snapshot.elapsedTime)
+        #expect(elapsed >= 65 && elapsed <= 76)
+    }
+
+    // Missing rate and the adapter probe fails outright: prefer a frozen paused bar over
+    // blanking the module — the session is still real (bundle + title + elapsed present).
+    @Test func nowPlayingProviderFallsBackToPausedWhenRateMissingAndProbeFails() async throws {
+        let runner = SequencedMusicProcessRunner(outputs: [
+            MusicProcessOutput(
+                stdout: """
+                {"kMRMediaRemoteNowPlayingInfoClientBundleIdentifier":"com.spotify.client","kMRMediaRemoteNowPlayingInfoTitle":"木綿のハンカチーフ","kMRMediaRemoteNowPlayingInfoArtist":"太田裕美","kMRMediaRemoteNowPlayingInfoDuration":240,"kMRMediaRemoteNowPlayingInfoElapsedTime":27.7}
+                """,
+                stderr: "",
+                status: 0
+            ),
+            MusicProcessOutput(stdout: "Failed to load dylib", stderr: "", status: 1)
+        ])
+        let provider = NowPlayingSnapshotProvider(
+            processRunner: runner,
+            executableCandidates: ["/bundle/Contents/MacOS/nowplaying-cli"],
+            fileExists: { _ in true }
+        )
+
+        let snapshot = try #require(await provider.fetchActiveSnapshot())
+
+        #expect(snapshot.playbackState == .paused)
+        #expect(snapshot.elapsedTime == 27.7)
+    }
+
+    // Adapter garbage (crash text, partial JSON) must never poison the snapshot — the
+    // raw elapsed from get-raw stays in place.
+    @Test func nowPlayingProviderKeepsRawElapsedWhenAdapterProbeReturnsGarbage() async throws {
+        let runner = SequencedMusicProcessRunner(outputs: [
+            MusicProcessOutput(
+                stdout: """
+                {"kMRMediaRemoteNowPlayingInfoClientBundleIdentifier":"com.soda.music","kMRMediaRemoteNowPlayingInfoTitle":"老歌","kMRMediaRemoteNowPlayingInfoArtist":"许嵩","kMRMediaRemoteNowPlayingInfoDuration":224,"kMRMediaRemoteNowPlayingInfoElapsedTime":35,"kMRMediaRemoteNowPlayingInfoPlaybackRate":1}
+                """,
+                stderr: "",
+                status: 0
+            ),
+            MusicProcessOutput(stdout: "Failed to load dylib: dlopen(...)", stderr: "", status: 0)
+        ])
+        let provider = NowPlayingSnapshotProvider(
+            processRunner: runner,
+            executableCandidates: ["/bundle/Contents/MacOS/nowplaying-cli"],
+            fileExists: { _ in true }
+        )
+
+        let snapshot = try #require(await provider.fetchActiveSnapshot())
+
+        #expect(snapshot.elapsedTime == 35)
+    }
+
+    @Test func nowPlayingProviderTreatsEmptyPayloadAsNoActiveSession() async throws {
+        let runner = MusicProcessRunnerStub(stdout: "{}")
+        let provider = NowPlayingSnapshotProvider(processRunner: runner, fileExists: { _ in true })
+
+        let snapshot = try await provider.fetchActiveSnapshot()
+
+        #expect(snapshot == nil)
+    }
+
+    @Test func nowPlayingProviderSnapshotPreservesCommandFailure() async {
+        let runner = MusicProcessRunnerStub(stderr: "nowplaying-cli failed", status: 1)
+        let provider = NowPlayingSnapshotProvider(processRunner: runner, fileExists: { _ in true })
+
+        do {
+            _ = try await provider.snapshot()
+            Issue.record("Expected metadata command failure")
+        } catch let error as MusicProviderError {
+            #expect(error == .metadataCommandFailed(stderr: "nowplaying-cli failed"))
+        } catch {
+            Issue.record("Expected MusicProviderError, got \(error)")
+        }
+    }
+
+    @Test func nowPlayingProviderSurfacesMetadataCommandFailure() async {
+        let runner = MusicProcessRunnerStub(stderr: "nowplaying-cli failed", status: 1)
+        let provider = NowPlayingSnapshotProvider(processRunner: runner, fileExists: { _ in true })
+
+        await #expect(throws: MusicProviderError.metadataCommandFailed(stderr: "nowplaying-cli failed")) {
+            try await provider.fetchActiveSnapshot()
+        }
+    }
+
+    @Test func nowPlayingProviderSurfacesMalformedJSONAsMetadataFailure() async {
+        let runner = MusicProcessRunnerStub(stdout: "{not-json")
+        let provider = NowPlayingSnapshotProvider(processRunner: runner, fileExists: { _ in true })
+
+        do {
+            _ = try await provider.fetchActiveSnapshot()
+            Issue.record("Expected metadata command failure")
+        } catch let error as MusicProviderError {
+            guard case .metadataCommandFailed(let stderr) = error else {
+                Issue.record("Expected metadata command failure, got \(error)")
+                return
+            }
+
+            #expect(!stderr.isEmpty)
+        } catch {
+            Issue.record("Expected MusicProviderError, got \(error)")
+        }
+    }
+
+    @Test func nowPlayingProviderPrefersExplicitExecutableCandidates() async throws {
+        let runner = MusicProcessRunnerSpy(stdout: "{}")
+        let provider = NowPlayingSnapshotProvider(
+            processRunner: runner,
+            executableCandidates: [
+                "/opt/homebrew/bin/nowplaying-cli",
+                "/usr/local/bin/nowplaying-cli"
+            ],
+            fileExists: { $0 == "/opt/homebrew/bin/nowplaying-cli" }
+        )
+
+        _ = try await provider.fetchActiveSnapshot()
+
+        let invocations = await runner.recordedInvocations()
+        #expect(invocations == [["/opt/homebrew/bin/nowplaying-cli", "get-raw"]])
+    }
+
+    @Test func defaultExecutableCandidatesPreferBundledHelper() throws {
+        // The bundled helper is resolved first so DEBUG runs exercise the exact
+        // helper that ships in Release. The bundled path points at the .bundle's
+        // main executable, whose sibling Contents/lib + Contents/share carry the
+        // MediaRemote adapter that lets it read now-playing on macOS 15.4+.
+        let first = try #require(NowPlayingSnapshotProvider.defaultExecutableCandidates.first)
+        #expect(first.hasSuffix("Contents/Helpers/nowplaying-cli.bundle/Contents/MacOS/nowplaying-cli"))
+    }
+
+    @Test func defaultExecutableCandidatesExcludeUserWritablePathsInReleaseBuilds() {
+        let candidates = NowPlayingSnapshotProvider.defaultExecutableCandidates
+        #if DEBUG
+        // Homebrew fallbacks are a dev convenience only.
+        #expect(candidates.contains("/opt/homebrew/bin/nowplaying-cli"))
+        #else
+        // Release ships only the bundled helper; no user-writable directory is
+        // ever probed for an executable to run.
+        #expect(candidates == candidates.filter { $0.contains("Contents/Helpers/") })
+        #expect(!candidates.contains { $0.hasPrefix("/opt/homebrew") || $0.hasPrefix("/usr/local") })
+        #endif
+    }
+
+    @Test func nowPlayingProviderReturnsNoSnapshotWhenNoExecutableIsAvailable() async throws {
+        let runner = MusicProcessRunnerSpy(stdout: "{}")
+        let provider = NowPlayingSnapshotProvider(
+            processRunner: runner,
+            executableCandidates: [
+                "/opt/homebrew/bin/nowplaying-cli",
+                "/usr/local/bin/nowplaying-cli"
+            ],
+            fileExists: { _ in false }
+        )
+
+        let snapshot = try await provider.fetchActiveSnapshot()
+
+        // No PATH-search fallback: an absent helper yields no snapshot and never
+        // spawns a process.
+        #expect(snapshot == nil)
+        let invocations = await runner.recordedInvocations()
+        #expect(invocations.isEmpty)
+    }
+
+    @Test func foundationMusicProcessRunnerCapturesStdoutStderrAndExitStatus() async throws {
+        let runner = FoundationMusicProcessRunner()
+
+        let output = try await runner.run(
+            "/bin/sh",
+            arguments: ["-c", "printf 'stdout'; printf 'stderr' >&2; exit 7"]
+        )
+
+        #expect(output.stdout == "stdout")
+        #expect(output.stderr == "stderr")
+        #expect(output.status == 7)
+    }
+
+    @Test func foundationMusicProcessRunnerDrainsLargeStdoutBeforeWaitingForExit() async throws {
+        let runner = FoundationMusicProcessRunner()
+
+        let output = try await withTimeout(seconds: 2) {
+            try await runner.run(
+                "/usr/bin/python3",
+                arguments: ["-c", "import sys; sys.stdout.write('x' * 200000); sys.stderr.write('done')"]
+            )
+        }
+
+        #expect(output.stdout.count == 200000)
+        #expect(output.stderr == "done")
+        #expect(output.status == 0)
+    }
+
+    @Test func foundationMusicProcessRunnerSurfacesMissingEnvCommand() async throws {
+        let runner = FoundationMusicProcessRunner()
+        let missingCommand = "__notchtoolbox_missing_nowplaying_cli__"
+
+        let output = try await runner.run(
+            "/usr/bin/env",
+            arguments: [missingCommand]
+        )
+
+        #expect(output.status != 0)
+        #expect(
+            output.stderr.localizedCaseInsensitiveContains(missingCommand)
+                || output.stderr.localizedCaseInsensitiveContains("not found")
+        )
+    }
+
+    @Test func foundationMusicProcessRunnerDoesNotLaunchProcessAfterPrelaunchCancellation() async throws {
+        let tempFileURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString)
+        defer {
+            try? FileManager.default.removeItem(at: tempFileURL)
+        }
+
+        let gate = LaunchGate()
+        let runner = FoundationMusicProcessRunner(beforeLaunch: {
+            await gate.hold()
+        })
+        let task = Task {
+            try await runner.run(
+                "/bin/sh",
+                arguments: ["-c", "touch \"$1\"", "sh", tempFileURL.path]
+            )
+        }
+
+        await gate.waitUntilHeld()
+        task.cancel()
+        await gate.release()
+
+        await #expect(throws: CancellationError.self) {
+            try await task.value
+        }
+        #expect(FileManager.default.fileExists(atPath: tempFileURL.path) == false)
+    }
+
+    // Cancelling mid-run SIGTERMs the child (exit status 15). That poisoned output must
+    // surface as CancellationError, not as a normal result: panel collapse cancels the
+    // in-flight poll, and one status-15 "failure" used to blank the whole music module
+    // back to the default notch.
+    @Test func foundationMusicProcessRunnerThrowsCancellationInsteadOfTerminatedOutput() async {
+        let runner = FoundationMusicProcessRunner()
+        let task = Task {
+            try await runner.run("/bin/sleep", arguments: ["5"])
+        }
+
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        task.cancel()
+
+        do {
+            let output = try await task.value
+            Issue.record("Expected CancellationError, got output with status \(output.status)")
+        } catch is CancellationError {
+            // Expected: the cancelled probe reports cancellation, never a fake result.
+        } catch {
+            Issue.record("Expected CancellationError, got \(error)")
+        }
+    }
+
+    @MainActor
+    @Test func foundationMusicProcessRunnerDoesNotBlockMainActorWhileChildProcessRuns() async throws {
+        let runner = FoundationMusicProcessRunner()
+        let tickTask = Task { @MainActor in
+            await Task.yield()
+            return Date()
+        }
+
+        _ = try await runner.run(
+            "/bin/sh",
+            arguments: ["-c", "sleep 0.1; printf 'done'"]
+        )
+        let completionTime = Date()
+        let tickTime = await tickTask.value
+
+        #expect(tickTime < completionTime)
+    }
+
+    @Test func nowPlayingProviderSurfacesRunnerLaunchFailureAsMetadataFailure() async {
+        let runner = MusicProcessRunnerStub(runError: MusicProcessRunnerStubError.launchFailed)
+        let provider = NowPlayingSnapshotProvider(processRunner: runner, fileExists: { _ in true })
+
+        do {
+            _ = try await provider.fetchActiveSnapshot()
+            Issue.record("Expected metadata command failure")
+        } catch let error as MusicProviderError {
+            guard case .metadataCommandFailed(let stderr) = error else {
+                Issue.record("Expected metadata command failure, got \(error)")
+                return
+            }
+
+            #expect(!stderr.isEmpty)
+        } catch {
+            Issue.record("Expected MusicProviderError, got \(error)")
+        }
+    }
+
+    @Test func nowPlayingProviderPreservesCancellation() async {
+        let runner = MusicProcessRunnerStub(runError: MusicProcessRunnerStubError.cancelled)
+        let provider = NowPlayingSnapshotProvider(processRunner: runner, fileExists: { _ in true })
+
+        do {
+            _ = try await provider.fetchActiveSnapshot()
+            Issue.record("Expected cancellation")
+        } catch is CancellationError {
+        } catch {
+            Issue.record("Expected CancellationError, got \(error)")
+        }
+    }
+
+    @Test func nowPlayingProviderDecodesMediaRemotePayloadFromCurrentQQShape() async throws {
+        let runner = MusicProcessRunnerStub(
+            stdout: """
+            {"kMRMediaRemoteNowPlayingInfoClientBundleIdentifier":"com.tencent.QQMusicMac","kMRMediaRemoteNowPlayingInfoTitle":"P.S.I Love You (Live)","kMRMediaRemoteNowPlayingInfoArtist":"张敬轩","kMRMediaRemoteNowPlayingInfoAlbum":"The Brightest Darkness","kMRMediaRemoteNowPlayingInfoDuration":279,"kMRMediaRemoteNowPlayingInfoElapsedTime":0,"kMRMediaRemoteNowPlayingInfoPlaybackRate":1,"kMRMediaRemoteNowPlayingInfoArtworkData":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB"}
+            """
+        )
+        let provider = NowPlayingSnapshotProvider(processRunner: runner, fileExists: { _ in true })
+        let expectedArtworkData = try #require(
+            Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB")
+        )
+
+        let snapshot = try #require(await provider.fetchActiveSnapshot())
+
+        #expect(snapshot.bundleID == MusicPlayerCapability.qqMusic.bundleID)
+        #expect(snapshot.displayName == MusicPlayerCapability.qqMusic.displayName)
+        #expect(snapshot.playbackState == .playing)
+        #expect(snapshot.title == "P.S.I Love You (Live)")
+        #expect(snapshot.artist == "张敬轩")
+        #expect(snapshot.duration == 279)
+        #expect(snapshot.elapsedTime == 0)
+        #expect(snapshot.artworkData == expectedArtworkData)
+        #expect(snapshot.source == .nowPlayingCLI)
+    }
+
+    @MainActor
+    @Test func runtimeRefreshesIntoPlayingStateFromMediaRemotePayload() async {
+        let runner = MusicProcessRunnerStub(
+            stdout: """
+            {"kMRMediaRemoteNowPlayingInfoClientBundleIdentifier":"com.tencent.QQMusicMac","kMRMediaRemoteNowPlayingInfoTitle":"P.S.I Love You (Live)","kMRMediaRemoteNowPlayingInfoArtist":"张敬轩","kMRMediaRemoteNowPlayingInfoAlbum":"The Brightest Darkness","kMRMediaRemoteNowPlayingInfoDuration":279,"kMRMediaRemoteNowPlayingInfoElapsedTime":0,"kMRMediaRemoteNowPlayingInfoPlaybackRate":1}
+            """
+        )
+        let runtime = MusicModuleRuntime(processRunner: runner)
+
+        await runtime.refreshSnapshot()
+
+        guard case .playing(let session) = runtime.moduleState else {
+            Issue.record("Expected playing state after media remote refresh, got \(runtime.moduleState)")
+            return
+        }
+
+        #expect(session.bundleID == MusicPlayerCapability.qqMusic.bundleID)
+        #expect(session.title == "P.S.I Love You (Live)")
+        #expect(session.artist == "张敬轩")
+        #expect(session.duration == 279)
+    }
+
+    @MainActor
+    @Test func runtimeClearsStalePlaybackWhenMetadataPipelineFails() async {
+        let initialState = MusicModuleState.playing(
+            MusicPlaybackSession(snapshot: makeVerifiedSnapshot(trackKey: "track-1"))
+        )
+        let runtime = MusicModuleRuntime(
+            initialState: initialState,
+            snapshotProvider: ThrowingSnapshotProviderStub(
+                error: .metadataCommandFailed(stderr: "malformed output")
+            )
+        )
+
+        await runtime.refreshSnapshot()
+
+        #expect(runtime.lastProviderError == .metadataCommandFailed(stderr: "malformed output"))
+        #expect(runtime.moduleState == .empty(players: MusicPlayerCapability.v1Targets))
+        #expect(runtime.collapsedSummary == nil)
+    }
+
+    @MainActor
+    @Test func runtimeIgnoresCancelledRefreshInsteadOfPublishingProviderError() async {
+        let initialState = MusicModuleState.playing(
+            MusicPlaybackSession(snapshot: makeVerifiedSnapshot(trackKey: "track-2"))
+        )
+        let runtime = MusicModuleRuntime(
+            initialState: initialState,
+            snapshotProvider: CancellingSnapshotProviderStub()
+        )
+
+        await runtime.refreshSnapshot()
+
+        #expect(runtime.lastProviderError == nil)
+        #expect(runtime.moduleState == initialState)
+    }
+
+    @MainActor
+    @Test func runtimeMapsControlPermissionFailuresToPermissionRequiredState() async {
+        let runtime = MusicModuleRuntime(
+            initialState: .playing(
+                MusicPlaybackSession(snapshot: makeVerifiedSnapshot(trackKey: "permission-track"))
+            ),
+            playerController: ThrowingMusicPlayerControllerStub(
+                error: .permissionDenied(kind: .automation)
+            )
+        )
+
+        await runtime.performControl(.playPause)
+
+        #expect(runtime.moduleState == .permissionRequired(.automation(displayName: "QQ 音乐")))
+    }
+
+    @MainActor
+    @Test func controlPermissionPromptStaysPinnedAcrossBackgroundRefresh() async {
+        // A readable now-playing snapshot: reading never needs the control
+        // permission, so a background poll would otherwise overwrite the prompt.
+        let readableSnapshot = makeVerifiedSnapshot(trackKey: "readable-while-denied")
+        let runtime = MusicModuleRuntime(
+            initialState: .playing(
+                MusicPlaybackSession(snapshot: makeVerifiedSnapshot(trackKey: "before-denied"))
+            ),
+            snapshotProvider: SequencedSnapshotProviderStub(snapshots: [readableSnapshot, readableSnapshot]),
+            playerController: ThrowingMusicPlayerControllerStub(
+                error: .permissionDenied(kind: .automation)
+            )
+        )
+
+        await runtime.performControl(.playPause)
+        #expect(runtime.moduleState == .permissionRequired(.automation(displayName: "QQ 音乐")))
+
+        // The 1s background poll fires while the card is up. It must not clobber it.
+        await runtime.refreshSnapshot()
+
+        #expect(runtime.moduleState == .permissionRequired(.automation(displayName: "QQ 音乐")))
+    }
+
+    @MainActor
+    @Test func accessibilityControlPromptAutoReturnsOncePermissionGranted() async {
+        // Reading now-playing never needs the control permission, so each poll yields a
+        // playable snapshot; the card stays up only because the prompt is pinned.
+        let readableSnapshot = makeVerifiedSnapshot(trackKey: "auto-return-after-grant")
+        let trustChecker = MutableAccessibilityTrustCheckerStub(isTrusted: false)
+        let runtime = MusicModuleRuntime(
+            initialState: .playing(
+                MusicPlaybackSession(snapshot: makeVerifiedSnapshot(trackKey: "before-accessibility-denied"))
+            ),
+            snapshotProvider: SequencedSnapshotProviderStub(
+                snapshots: [readableSnapshot, readableSnapshot, readableSnapshot]
+            ),
+            playerController: ThrowingMusicPlayerControllerStub(
+                error: .permissionDenied(kind: .accessibility)
+            ),
+            accessibilityTrustChecker: trustChecker
+        )
+
+        await runtime.performControl(.playPause)
+        #expect(runtime.moduleState == .permissionRequired(.accessibility(displayName: "QQ 音乐")))
+
+        // Still untrusted: a background poll keeps the card pinned.
+        await runtime.refreshSnapshot()
+        #expect(runtime.moduleState == .permissionRequired(.accessibility(displayName: "QQ 音乐")))
+
+        // User grants Accessibility in System Settings; the next poll auto-returns to playback.
+        trustChecker.isTrusted = true
+        await runtime.refreshSnapshot()
+        guard case .playing = runtime.moduleState else {
+            Issue.record("Expected playback to auto-resume after accessibility granted, got \(runtime.moduleState)")
+            return
+        }
+    }
+
+    @MainActor
+    @Test func dismissingControlPermissionPromptResumesModuleState() async {
+        let resumedSnapshot = makeVerifiedSnapshot(
+            playbackState: .paused,
+            trackKey: "resumed-after-dismiss"
+        )
+        let runtime = MusicModuleRuntime(
+            initialState: .playing(
+                MusicPlaybackSession(snapshot: makeVerifiedSnapshot(trackKey: "before-dismiss"))
+            ),
+            snapshotProvider: SequencedSnapshotProviderStub(snapshots: [resumedSnapshot]),
+            playerController: ThrowingMusicPlayerControllerStub(
+                error: .permissionDenied(kind: .automation)
+            )
+        )
+
+        await runtime.performControl(.playPause)
+        #expect(runtime.moduleState == .permissionRequired(.automation(displayName: "QQ 音乐")))
+
+        // 返回: dismiss the pinned prompt and fall back to the real playback state.
+        await runtime.dismissPermissionPrompt()
+
+        guard case .paused = runtime.moduleState else {
+            Issue.record("Expected playback to resume after dismissing the prompt")
+            return
+        }
+    }
+
+    @MainActor
+    @Test func runtimeRefreshesPlaybackStateImmediatelyAfterSuccessfulControl() async {
+        let pausedSnapshot = makeVerifiedSnapshot(
+            playbackState: .paused,
+            trackKey: "paused-after-control"
+        )
+        let runtime = MusicModuleRuntime(
+            initialState: .playing(
+                MusicPlaybackSession(snapshot: makeVerifiedSnapshot(trackKey: "playing-before-control"))
+            ),
+            snapshotProvider: SequencedSnapshotProviderStub(snapshots: [pausedSnapshot]),
+            playerController: RecordingMusicPlayerControllerStub()
+        )
+
+        await runtime.performControl(.playPause)
+
+        #expect(runtime.moduleState == .paused(MusicPlaybackSession(snapshot: pausedSnapshot)))
+    }
+
+    @MainActor
+    @Test func runtimeUsesConfirmationBurstAfterSuccessfulControl() async {
+        let runtime = MusicModuleRuntime(
+            initialState: .playing(
+                MusicPlaybackSession(snapshot: makeVerifiedSnapshot(trackKey: "burst-control"))
+            ),
+            snapshotProvider: SequencedSnapshotProviderStub(
+                snapshots: [makeVerifiedSnapshot(trackKey: "burst-control-next")]
+            ),
+            playerController: RecordingMusicPlayerControllerStub()
+        )
+        runtime.updateEnergyMode(.visible)
+
+        await runtime.performControl(.nextTrack)
+
+        #expect(runtime.pollSchedule == .confirmationBurst)
+    }
+
+    @MainActor
+    @Test func runtimeKeepsConfirmationBurstWhenFirstFollowUpRefreshIsStillStale() async {
+        let staleSnapshot = makeVerifiedSnapshot(trackKey: "burst-control")
+        let updatedSnapshot = makeVerifiedSnapshot(trackKey: "burst-control-next")
+        let runtime = MusicModuleRuntime(
+            initialState: .playing(
+                MusicPlaybackSession(snapshot: makeVerifiedSnapshot(trackKey: "burst-control"))
+            ),
+            snapshotProvider: SequencedSnapshotProviderStub(
+                snapshots: [staleSnapshot, staleSnapshot, updatedSnapshot]
+            ),
+            playerController: RecordingMusicPlayerControllerStub()
+        )
+        runtime.updateEnergyMode(.visible)
+
+        await runtime.performControl(.nextTrack)
+        await runtime.refreshSnapshot()
+
+        #expect(runtime.pollSchedule == .confirmationBurst)
+    }
+
+    @MainActor
+    @Test func runtimeKeepsSameTrackPlayingProgressMonotonicWhenProviderElapsedRegresses() async {
+        let initialSnapshot = makeVerifiedSnapshot(
+            trackKey: "same-track",
+            elapsedTime: 120,
+            capturedAt: Date(timeIntervalSince1970: 1_000)
+        )
+        let regressedSnapshot = makeVerifiedSnapshot(
+            trackKey: "same-track",
+            elapsedTime: 90,
+            capturedAt: Date(timeIntervalSince1970: 1_005)
+        )
+        let runtime = MusicModuleRuntime(
+            initialState: .playing(MusicPlaybackSession(snapshot: initialSnapshot)),
+            snapshotProvider: SequencedSnapshotProviderStub(snapshots: [regressedSnapshot])
+        )
+
+        await runtime.refreshSnapshot()
+
+        guard case .playing(let session) = runtime.moduleState else {
+            Issue.record("Expected playing state, got \(runtime.moduleState)")
+            return
+        }
+
+        #expect(session.trackKey == "same-track")
+        #expect(session.elapsedTime == 125)
+    }
+
+    @MainActor
+    @Test func runtimeKeepsSameTrackPausedProgressFromMovingBackwards() async {
+        let initialSnapshot = makeVerifiedSnapshot(
+            playbackState: .paused,
+            trackKey: "same-track",
+            elapsedTime: 188,
+            capturedAt: Date(timeIntervalSince1970: 2_000)
+        )
+        let regressedSnapshot = makeVerifiedSnapshot(
+            playbackState: .paused,
+            trackKey: "same-track",
+            elapsedTime: 161,
+            capturedAt: Date(timeIntervalSince1970: 2_005)
+        )
+        let runtime = MusicModuleRuntime(
+            initialState: .paused(MusicPlaybackSession(snapshot: initialSnapshot)),
+            snapshotProvider: SequencedSnapshotProviderStub(snapshots: [regressedSnapshot])
+        )
+
+        await runtime.refreshSnapshot()
+
+        guard case .paused(let session) = runtime.moduleState else {
+            Issue.record("Expected paused state, got \(runtime.moduleState)")
+            return
+        }
+
+        #expect(session.trackKey == "same-track")
+        #expect(session.elapsedTime == 188)
+    }
+
+    @MainActor
+    @Test func runtimeAcceptsNewTrackMetadataInsteadOfHoldingOldTimeline() async {
+        let initialSnapshot = makeVerifiedSnapshot(
+            trackKey: "old-track",
+            title: "Old",
+            artist: "Artist A",
+            elapsedTime: 188,
+            capturedAt: Date(timeIntervalSince1970: 3_000)
+        )
+        let nextSnapshot = makeVerifiedSnapshot(
+            trackKey: "new-track",
+            title: "New",
+            artist: "Artist B",
+            elapsedTime: 12,
+            capturedAt: Date(timeIntervalSince1970: 3_002)
+        )
+        let runtime = MusicModuleRuntime(
+            initialState: .playing(MusicPlaybackSession(snapshot: initialSnapshot)),
+            snapshotProvider: SequencedSnapshotProviderStub(snapshots: [nextSnapshot])
+        )
+
+        await runtime.refreshSnapshot()
+
+        guard case .playing(let session) = runtime.moduleState else {
+            Issue.record("Expected playing state, got \(runtime.moduleState)")
+            return
+        }
+
+        #expect(session.trackKey == "new-track")
+        #expect(session.title == "New")
+        #expect(session.artist == "Artist B")
+        #expect(session.elapsedTime == 12)
+    }
+
+    @MainActor
+    @Test func runtimeFreezesPauseIntentWhenImmediateProviderResponseIsStillPlaying() async {
+        let initialSnapshot = makeVerifiedSnapshot(
+            playbackState: .playing,
+            trackKey: "pause-track",
+            elapsedTime: 120,
+            capturedAt: Date(timeIntervalSince1970: 4_000)
+        )
+        let stalePlayingSnapshot = makeVerifiedSnapshot(
+            playbackState: .playing,
+            trackKey: "pause-track",
+            elapsedTime: 120,
+            capturedAt: Date()
+        )
+        let runtime = MusicModuleRuntime(
+            initialState: .playing(MusicPlaybackSession(snapshot: initialSnapshot)),
+            snapshotProvider: SequencedSnapshotProviderStub(snapshots: [stalePlayingSnapshot]),
+            playerController: RecordingMusicPlayerControllerStub()
+        )
+
+        await runtime.performControl(.playPause)
+
+        guard case .paused(let session) = runtime.moduleState else {
+            Issue.record("Expected optimistic paused state, got \(runtime.moduleState)")
+            return
+        }
+
+        #expect(session.trackKey == "pause-track")
+        #expect(session.elapsedTime >= 120)
+    }
+
+    @MainActor
+    @Test func runtimeKeepsPauseIntentFrozenAcrossDemoGraceWindow() async {
+        let now = Date()
+        let initialSnapshot = makeVerifiedSnapshot(
+            playbackState: .playing,
+            trackKey: "pause-track",
+            elapsedTime: 120,
+            capturedAt: now.addingTimeInterval(-4)
+        )
+        let immediateStalePlayingSnapshot = makeVerifiedSnapshot(
+            playbackState: .playing,
+            trackKey: "pause-track",
+            elapsedTime: 120,
+            capturedAt: now
+        )
+        let followUpStalePlayingSnapshot = makeVerifiedSnapshot(
+            playbackState: .playing,
+            trackKey: "pause-track",
+            elapsedTime: 121.8,
+            capturedAt: now.addingTimeInterval(1.95)
+        )
+        let runtime = MusicModuleRuntime(
+            initialState: .playing(MusicPlaybackSession(snapshot: initialSnapshot)),
+            snapshotProvider: SequencedSnapshotProviderStub(
+                snapshots: [immediateStalePlayingSnapshot, followUpStalePlayingSnapshot]
+            ),
+            playerController: RecordingMusicPlayerControllerStub()
+        )
+
+        await runtime.performControl(.playPause)
+
+        guard case .paused(let frozenSession) = runtime.moduleState else {
+            Issue.record("Expected initial pause intent to publish paused state, got \(runtime.moduleState)")
+            return
+        }
+
+        await runtime.refreshSnapshot()
+
+        guard case .paused(let session) = runtime.moduleState else {
+            Issue.record("Expected pause intent to keep stale same-track playback frozen, got \(runtime.moduleState)")
+            return
+        }
+
+        #expect(session.trackKey == "pause-track")
+        #expect(session.elapsedTime == frozenSession.elapsedTime)
+    }
+
+    @MainActor
+    @Test func runtimeClearsPlaybackStateWhenProviderReturnsNoActiveSession() async {
+        let runtime = MusicModuleRuntime(
+            initialState: .playing(
+                MusicPlaybackSession(snapshot: makeVerifiedSnapshot(trackKey: "exiting-track"))
+            ),
+            snapshotProvider: SequencedSnapshotProviderStub(snapshots: [nil])
+        )
+
+        await runtime.refreshSnapshot()
+
+        #expect(runtime.moduleState == .empty(players: MusicPlayerCapability.v1Targets))
+        #expect(runtime.collapsedSummary == nil)
+    }
+
+    @MainActor
+    @Test func runtimeMapsGenericControlFailuresToControlFailedState() async {
+        let runtime = MusicModuleRuntime(
+            initialState: .playing(
+                MusicPlaybackSession(snapshot: makeVerifiedSnapshot(trackKey: "control-track"))
+            ),
+            playerController: ThrowingMusicPlayerControllerStub(
+                error: .controlCommandFailed(stderr: "execution error")
+            )
+        )
+
+        await runtime.performControl(.nextTrack)
+
+        #expect(runtime.moduleState == .controlFailed(displayName: "QQ 音乐", action: .nextTrack))
+    }
+
+    private func makeVerifiedSnapshot(
+        bundleID: String = MusicPlayerCapability.qqMusic.bundleID,
+        displayName: String = MusicPlayerCapability.qqMusic.displayName,
+        capability: MusicPlayerCapability = .qqMusic,
+        playbackState: MusicPlaybackState = .playing,
+        trackKey: String? = "track-0",
+        title: String? = "Track",
+        artist: String? = "Artist",
+        artworkData: Data? = nil,
+        duration: TimeInterval? = 240,
+        elapsedTime: TimeInterval? = 30,
+        capturedAt: Date = Date(timeIntervalSince1970: 1_700_000_000),
+        permissionRequirement: MusicPermissionRequirement? = nil
+    ) -> MusicPlayerSnapshot {
+        MusicPlayerSnapshot(
+            bundleID: bundleID,
+            displayName: displayName,
+            isRunning: true,
+            playbackState: playbackState,
+            trackKey: trackKey,
+            title: title,
+            artist: artist,
+            artworkData: artworkData,
+            duration: duration,
+            elapsedTime: elapsedTime,
+            capability: capability,
+            permissionRequirement: permissionRequirement,
+            source: .nowPlayingCLI,
+            capturedAt: capturedAt
+        )
+    }
+
+    private func musicControlAssetURL(imagesetName: String) -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("NotchToolbox")
+            .appendingPathComponent("Assets.xcassets")
+            .appendingPathComponent("\(imagesetName).imageset")
+            .appendingPathComponent("icon.svg")
+    }
+
+}
+
+private struct MusicProcessRunnerStub: MusicProcessRunning {
+    var stdout: String = ""
+    var stderr: String = ""
+    var status: Int32 = 0
+    var runError: MusicProcessRunnerStubError?
+
+    func run(_ launchPath: String, arguments: [String]) async throws -> MusicProcessOutput {
+        if let runError {
+            switch runError {
+            case .launchFailed:
+                throw runError
+            case .cancelled:
+                throw CancellationError()
+            }
+        }
+        return MusicProcessOutput(stdout: stdout, stderr: stderr, status: status)
+    }
+}
+
+private enum MusicProcessRunnerStubError: Error {
+    case launchFailed
+    case cancelled
+}
+
+private actor SequencedMusicProcessRunner: MusicProcessRunning {
+    private var outputs: [MusicProcessOutput]
+    private var invocations: [[String]] = []
+
+    init(outputs: [MusicProcessOutput]) {
+        self.outputs = outputs
+    }
+
+    func run(_ launchPath: String, arguments: [String]) async throws -> MusicProcessOutput {
+        invocations.append([launchPath] + arguments)
+        guard outputs.isEmpty == false else {
+            return MusicProcessOutput(stdout: "", stderr: "", status: 0)
+        }
+
+        return outputs.removeFirst()
+    }
+
+    func recordedInvocations() -> [[String]] {
+        invocations
+    }
+}
+
+private actor DelayedSequencedMusicProcessRunner: MusicProcessRunning {
+    struct Step {
+        let output: MusicProcessOutput
+        let delayNanoseconds: UInt64
+    }
+
+    private var steps: [Step]
+    private var completedDates: [Date] = []
+
+    init(steps: [Step]) {
+        self.steps = steps
+    }
+
+    func run(_ launchPath: String, arguments: [String]) async throws -> MusicProcessOutput {
+        guard steps.isEmpty == false else {
+            completedDates.append(Date())
+            return MusicProcessOutput(stdout: "", stderr: "", status: 0)
+        }
+
+        let step = steps.removeFirst()
+        if step.delayNanoseconds > 0 {
+            try await Task.sleep(nanoseconds: step.delayNanoseconds)
+        }
+        completedDates.append(Date())
+        return step.output
+    }
+
+    func completedAt(forInvocationAt index: Int) -> Date? {
+        guard completedDates.indices.contains(index) else {
+            return nil
+        }
+
+        return completedDates[index]
+    }
+}
+
+private actor MusicProcessRunnerSpy: MusicProcessRunning {
+    private let stdout: String
+    private let stderr: String
+    private let status: Int32
+    private var invocations: [[String]] = []
+
+    init(stdout: String = "", stderr: String = "", status: Int32 = 0) {
+        self.stdout = stdout
+        self.stderr = stderr
+        self.status = status
+    }
+
+    func run(_ launchPath: String, arguments: [String]) async throws -> MusicProcessOutput {
+        invocations.append([launchPath] + arguments)
+        return MusicProcessOutput(stdout: stdout, stderr: stderr, status: status)
+    }
+
+    func recordedInvocations() -> [[String]] {
+        invocations
+    }
+
+    func lastInvocation() -> [String]? {
+        invocations.last
+    }
+
+    func lastScript() -> String? {
+        guard
+            let invocation = invocations.last,
+            invocation.count >= 3,
+            invocation[0] == "/usr/bin/osascript",
+            invocation[1] == "-e"
+        else {
+            return nil
+        }
+
+        return invocation[2]
+    }
+}
+
+@MainActor
+private final class MediaKeyPosterSpy: MediaKeyPosting {
+    private var actions: [SystemMediaKeyAction] = []
+
+    func post(_ action: SystemMediaKeyAction) throws {
+        actions.append(action)
+    }
+
+    func recordedActions() -> [SystemMediaKeyAction] {
+        actions
+    }
+}
+
+private struct AccessibilityTrustCheckerStub: AccessibilityTrustChecking {
+    let isTrusted: Bool
+
+    func isTrustedForMediaKeyPosting() -> Bool {
+        isTrusted
+    }
+}
+
+// Reference-type variant so a test can flip the trust value mid-run, simulating the
+// user toggling Accessibility on in System Settings between two background polls.
+private final class MutableAccessibilityTrustCheckerStub: AccessibilityTrustChecking, @unchecked Sendable {
+    var isTrusted: Bool
+
+    init(isTrusted: Bool) {
+        self.isTrusted = isTrusted
+    }
+
+    func isTrustedForMediaKeyPosting() -> Bool {
+        isTrusted
+    }
+}
+
+private enum TestTimeoutError: Error {
+    case timedOut
+}
+
+private func withTimeout<Value: Sendable>(
+    seconds: TimeInterval,
+    operation: @escaping @Sendable () async throws -> Value
+) async throws -> Value {
+    try await withThrowingTaskGroup(of: Value.self) { group in
+        group.addTask {
+            try await operation()
+        }
+        group.addTask {
+            try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            throw TestTimeoutError.timedOut
+        }
+
+        let result = try await group.next()
+        group.cancelAll()
+        return try #require(result)
+    }
+}
+
+private struct MediaKeyEventInvocation: Equatable {
+    let keyCode: Int
+    let isKeyDown: Bool
+    let isMainThread: Bool
+}
+
+@MainActor
+private final class MediaKeyEventDispatcherSpy: MediaKeyEventDispatching {
+    private(set) var invocations: [MediaKeyEventInvocation] = []
+
+    func dispatch(keyCode: Int, isKeyDown: Bool) throws {
+        invocations.append(
+            MediaKeyEventInvocation(
+                keyCode: keyCode,
+                isKeyDown: isKeyDown,
+                isMainThread: Thread.isMainThread
+            )
+        )
+    }
+}
+
+private struct ThrowingSnapshotProviderStub: MusicSnapshotProviding {
+    let error: MusicProviderError
+
+    func snapshot() async throws -> MusicPlayerSnapshot? {
+        throw error
+    }
+}
+
+private struct CancellingSnapshotProviderStub: MusicSnapshotProviding {
+    func snapshot() async throws -> MusicPlayerSnapshot? {
+        throw CancellationError()
+    }
+}
+
+private actor SequencedSnapshotProviderStub: MusicSnapshotProviding {
+    private var snapshots: [MusicPlayerSnapshot?]
+
+    init(snapshots: [MusicPlayerSnapshot?]) {
+        self.snapshots = snapshots
+    }
+
+    func snapshot() async throws -> MusicPlayerSnapshot? {
+        guard !snapshots.isEmpty else {
+            return nil
+        }
+
+        return snapshots.removeFirst()
+    }
+}
+
+private struct ThrowingMusicPlayerControllerStub: MusicPlayerControlling {
+    let error: MusicProviderError
+
+    func launch(bundleID: String) async throws {
+        throw error
+    }
+
+    func perform(_ action: MusicControlAction, for bundleID: String?) async throws {
+        throw error
+    }
+}
+
+private struct RecordingMusicPlayerControllerStub: MusicPlayerControlling {
+    func launch(bundleID: String) async throws {}
+
+    func perform(_ action: MusicControlAction, for bundleID: String?) async throws {}
+}
+
+private actor LaunchGate {
+    private var isHeld = false
+    private var holdWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+
+    func hold() async {
+        isHeld = true
+        holdWaiters.forEach { $0.resume() }
+        holdWaiters.removeAll()
+
+        await withCheckedContinuation { continuation in
+            releaseContinuation = continuation
+        }
+    }
+
+    func waitUntilHeld() async {
+        guard !isHeld else {
+            return
+        }
+
+        await withCheckedContinuation { continuation in
+            holdWaiters.append(continuation)
+        }
+    }
+
+    func release() {
+        releaseContinuation?.resume()
+        releaseContinuation = nil
+    }
+}
