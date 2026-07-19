@@ -23,9 +23,13 @@ struct CollapsedMusicSummary: Equatable {
             displayName: session.displayName,
             symbol: session.capability.symbolIdentifier,
             isPlaying: session.isPlaying,
-            detailText: session.title.isEmpty || session.artist.isEmpty
+            // Artist can legitimately be empty (Apple Music local tracks merge the
+            // artist into the title) — fall back to the bare title, not to nothing.
+            detailText: session.title.isEmpty
                 ? nil
-                : "\(session.title) · \(session.artist)"
+                : session.artist.isEmpty
+                    ? session.title
+                    : "\(session.title) · \(session.artist)"
         )
     }
 }

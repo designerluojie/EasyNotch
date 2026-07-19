@@ -76,6 +76,13 @@ struct NowPlayingSnapshotProvider: MusicSnapshotProviding {
         return (executablePath, arguments)
     }
 
+    // Players like 汽水音乐 push elapsedTime once per state change (track start /
+    // pause / seek) and then freeze it, so the raw value drifts ever further behind
+    // reality while playing. MediaRemote pairs every elapsed push with the wall-clock
+    // `timestamp` of that push, and live position is elapsed + (now − timestamp) —
+    // the same math Control Center uses. Only the bundled perl adapter exposes the
+    // timestamp: nowplaying-cli's get-raw omits the key, and its `get elapsedTime`
+    // echoes the same frozen value.
     private func fetchCalculatedPlaybackPosition(
         for payload: NowPlayingPayload,
         playbackStateOverride: MusicPlaybackState?
@@ -84,7 +91,7 @@ struct NowPlayingSnapshotProvider: MusicSnapshotProviding {
             return nil
         }
 
-        guard let command = resolveCommand(arguments: ["get", "elapsedTime"]) else {
+        guard let command = resolveAdapterProbeCommand() else {
             return nil
         }
 
@@ -94,14 +101,55 @@ struct NowPlayingSnapshotProvider: MusicSnapshotProviding {
                 return nil
             }
 
-            guard let elapsedTime = TimeInterval(output.stdout.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            let position: AdapterPositionPayload
+            do {
+                position = try JSONDecoder().decode(
+                    AdapterPositionPayload.self,
+                    from: Data(output.stdout.utf8)
+                )
+            } catch {
                 return nil
             }
 
-            return SampledPlaybackPosition(elapsedTime: elapsedTime, capturedAt: Date())
+            guard let elapsedTime = position.elapsedTime else {
+                return nil
+            }
+
+            let capturedAt = Date()
+            var liveElapsedTime = elapsedTime
+            if position.playing == true,
+               let timestamp = position.timestamp,
+               let pushedAt = ISO8601DateFormatter().date(from: timestamp) {
+                liveElapsedTime += max(0, capturedAt.timeIntervalSince(pushedAt))
+            }
+
+            return SampledPlaybackPosition(elapsedTime: liveElapsedTime, capturedAt: capturedAt)
         } catch {
             return nil
         }
+    }
+
+    // The adapter is invoked exactly the way nowplaying-cli invokes it internally:
+    // `/usr/bin/perl <script> <dylib> adapter_get_env`. Both files ship next to the
+    // resolved executable (Contents/{share,lib} in the bundle, <prefix>/{share,lib}
+    // for Homebrew), so resolving the executable is enough. Paths must be absolute —
+    // hardened perl refuses to dlopen a relative dylib path.
+    private func resolveAdapterProbeCommand() -> (launchPath: String, arguments: [String])? {
+        guard let executablePath = executableCandidates.first(where: fileExists) else {
+            return nil
+        }
+
+        let root = URL(fileURLWithPath: executablePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let script = root
+            .appending(path: "share/nowplaying-cli/scripts/mediaremote-mini.pl")
+            .path(percentEncoded: false)
+        let dylib = root
+            .appending(path: "lib/nowplaying-cli/MediaRemoteMini.dylib")
+            .path(percentEncoded: false)
+
+        return ("/usr/bin/perl", [script, dylib, "adapter_get_env"])
     }
 
     private func fetchPlaybackStateOverride(for payload: NowPlayingPayload) async -> MusicPlaybackState? {
@@ -183,6 +231,14 @@ struct NowPlayingSnapshotProvider: MusicSnapshotProviding {
 private struct SampledPlaybackPosition {
     let elapsedTime: TimeInterval
     let capturedAt: Date
+}
+
+// Minimal slice of the perl adapter's `adapter_get_env` JSON — just the fields the
+// live-position math needs. Unknown fields (artwork, queue info, …) are ignored.
+private struct AdapterPositionPayload: Decodable {
+    let elapsedTime: TimeInterval?
+    let timestamp: String?
+    let playing: Bool?
 }
 
 private struct NowPlayingPayload: Decodable {

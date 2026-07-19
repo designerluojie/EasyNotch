@@ -44,6 +44,12 @@ struct DefaultMusicPlayerController: MusicPlayerControlling {
                 processRunner: processRunner,
                 mediaKeyPoster: mediaKeyPoster,
                 accessibilityTrustChecker: accessibilityTrustChecker
+            ),
+            MusicPlayerCapability.spotify.bundleID: AppleScriptMusicAdapter.spotify(
+                processRunner: processRunner
+            ),
+            MusicPlayerCapability.appleMusic.bundleID: AppleScriptMusicAdapter.appleMusic(
+                processRunner: processRunner
             )
         ]
     }
@@ -54,9 +60,9 @@ struct DefaultMusicPlayerController: MusicPlayerControlling {
             return
         }
 
-        // Players read via MediaRemote but without a control adapter (Apple
-        // Music, Spotify) still need to open when tapped from the notch — just
-        // launch them by bundle id, same as the adapters do.
+        // Players read via MediaRemote but without a control adapter still need
+        // to open when tapped from the notch — just launch them by bundle id,
+        // same as the adapters do.
         let output = try await processRunner.run(
             "/usr/bin/open",
             arguments: ["-g", "-b", bundleID]
@@ -115,6 +121,7 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
 
     private let snapshotProvider: any MusicSnapshotProviding
     private let playerController: any MusicPlayerControlling
+    private let accessibilityTrustChecker: any AccessibilityTrustChecking
     private let sessionResolver: ActiveMusicSessionResolver
     private let launchEstablishmentRetryLimit: Int
     private let launchEstablishmentDelayNanoseconds: UInt64
@@ -175,13 +182,15 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
         self.snapshotProvider = snapshotProvider ?? NowPlayingSnapshotProvider(
             processRunner: resolvedProcessRunner
         )
+        let resolvedTrustChecker = accessibilityTrustChecker ?? AccessibilityTrustChecker()
+        self.accessibilityTrustChecker = resolvedTrustChecker
         if let playerController {
             self.playerController = playerController
         } else {
             self.playerController = DefaultMusicPlayerController(
                 processRunner: resolvedProcessRunner,
                 mediaKeyPoster: mediaKeyPoster ?? SystemMediaKeyPoster(),
-                accessibilityTrustChecker: accessibilityTrustChecker ?? AccessibilityTrustChecker()
+                accessibilityTrustChecker: resolvedTrustChecker
             )
         }
         self.canonicalTimeline = MusicCanonicalTimeline(state: resolvedState)
@@ -311,8 +320,17 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
         // on its next tick, making it flash and vanish before it can be acted on.
         if case .permissionRequired(let requirement) = state, requirement.isControlPermission {
             pinnedControlPermission = requirement
-        } else if pinnedControlPermission != nil {
-            return
+        } else if let pinned = pinnedControlPermission {
+            // A pinned accessibility prompt clears itself the moment the user actually
+            // grants the permission, so the card returns to the player on the next poll
+            // without a manual 返回 tap. Automation has no cheap synchronous trust probe,
+            // so it still needs an explicit dismissal.
+            let accessibilityNowGranted = pinned.kind == .accessibility
+                && accessibilityTrustChecker.isTrustedForMediaKeyPosting()
+            guard accessibilityNowGranted else {
+                return
+            }
+            pinnedControlPermission = nil
         }
 
         moduleState = state

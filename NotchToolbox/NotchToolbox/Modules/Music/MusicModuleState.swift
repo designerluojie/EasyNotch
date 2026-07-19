@@ -41,7 +41,10 @@ extension MusicModuleState {
         case .playing, .paused:
             break
         }
-        if snapshot.title == nil || snapshot.artist == nil || snapshot.duration == nil {
+        // Artist is deliberately NOT required: Apple Music pushes an empty artist for
+        // local/uploaded tracks (it merges the artist into the title). Title plus
+        // duration are enough to render — same standard Control Center applies.
+        if snapshot.title == nil || snapshot.duration == nil {
             return .metadataUnavailable(displayName: snapshot.displayName)
         }
         let session = MusicPlaybackSession(snapshot: snapshot)

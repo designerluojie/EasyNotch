@@ -58,26 +58,29 @@ extension MusicPlayerCapability {
         phase: .verified
     )
 
+    // Apple Music/Spotify read via MediaRemote like everyone else and are controlled
+    // through their official AppleScript dictionaries (AppleScriptMusicAdapter) — no
+    // System Events UI scripting, so only the per-app Automation grant is needed.
     static let appleMusic = MusicPlayerCapability(
         bundleID: "com.apple.Music",
         displayName: "Apple Music",
         symbolIdentifier: "applemusic",
-        launch: .target,
-        metadata: .target,
-        playPause: .target,
-        skip: .target,
-        phase: .target
+        launch: .verified,
+        metadata: .verified,
+        playPause: .verified,
+        skip: .verified,
+        phase: .verified
     )
 
     static let spotify = MusicPlayerCapability(
         bundleID: "com.spotify.client",
         displayName: "Spotify",
         symbolIdentifier: "spotify",
-        launch: .target,
-        metadata: .target,
-        playPause: .target,
-        skip: .target,
-        phase: .target
+        launch: .verified,
+        metadata: .verified,
+        playPause: .verified,
+        skip: .verified,
+        phase: .verified
     )
 
     static let v1Targets = [
