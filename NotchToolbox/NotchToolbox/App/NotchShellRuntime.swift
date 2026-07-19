@@ -5,6 +5,7 @@ import Combine
 final class NotchShellRuntime: NSObject {
     let compositionRoot: AppCompositionRoot
     let interactions: OverlayPanelInteractions
+    let updateController: AppUpdateController
 
     private let coordinator: OverlayCoordinator
     private let fileDragMonitor = GlobalFileDragMonitor()
@@ -29,6 +30,7 @@ final class NotchShellRuntime: NSObject {
     init(
         compositionRoot: AppCompositionRoot,
         interactions: OverlayPanelInteractions,
+        updateController: AppUpdateController = AppUpdateController(),
         topologyProvider: DisplayTopologyProviding,
         panelPresenter: OverlayPanelPresenting,
         primaryScreenID: String? = nil,
@@ -41,6 +43,7 @@ final class NotchShellRuntime: NSObject {
     ) {
         self.compositionRoot = compositionRoot
         self.interactions = interactions
+        self.updateController = updateController
         self.globalShortcutService = globalShortcutService ?? CarbonGlobalShortcutService()
         self.launchAtLoginService = launchAtLoginService ?? SMAppServiceLaunchAtLoginService()
         self.appLifecycleObserver = appLifecycleObserver ?? AppLifecycleObserver()
@@ -67,17 +70,23 @@ final class NotchShellRuntime: NSObject {
     }
 
     convenience override init() {
+        self.init(updateController: AppUpdateController())
+    }
+
+    convenience init(updateController: AppUpdateController) {
         let sharedServices = SharedCoreServices.live()
         let compositionRoot = AppCompositionRoot(sharedServices: sharedServices)
         let interactions = OverlayPanelInteractions()
         let panelPresenter = MultiScreenPanelPresenter(
             compositionRoot: compositionRoot,
-            interactions: interactions
+            interactions: interactions,
+            updateController: updateController
         )
 
         self.init(
             compositionRoot: compositionRoot,
             interactions: interactions,
+            updateController: updateController,
             topologyProvider: DisplayTopologyService(),
             panelPresenter: panelPresenter,
             simulateNotchOnNonNotchScreen: sharedServices

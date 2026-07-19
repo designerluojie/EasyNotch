@@ -14,7 +14,6 @@ build/
 
 # Swift Package Manager
 .build/
-Package.resolved
 
 # Local environment
 .env
