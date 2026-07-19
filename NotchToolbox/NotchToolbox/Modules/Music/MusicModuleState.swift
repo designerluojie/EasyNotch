@@ -51,10 +51,16 @@ extension MusicModuleState {
         return snapshot.playbackState == .playing ? .playing(session) : .paused(session)
     }
 
+    // Paused counts as an active session: the summary carries isPlaying so the collapsed
+    // bar can show a paused indicator and still expand into the music module. Restricting
+    // this to .playing made the bar vanish into the generic "Notch" default on pause —
+    // and it already matches how the runtime schedules polling (paused == active playback).
     var collapsedSummary: CollapsedMusicSummary? {
-        guard case .playing(let session) = self else {
+        switch self {
+        case .playing(let session), .paused(let session):
+            return CollapsedMusicSummary(session: session)
+        default:
             return nil
         }
-        return CollapsedMusicSummary(session: session)
     }
 }

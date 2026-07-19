@@ -803,6 +803,59 @@ struct MusicModuleTests {
         #expect(summary.detailText == "林俊杰 - 爱的鼓励")
     }
 
+    // Pausing must not blank the collapsed bar. CollapsedMusicSummary carries isPlaying
+    // precisely so the notch can show a paused indicator; returning nil for .paused
+    // dropped the bar back to the generic "Notch" default the moment playback paused.
+    @Test func pausedPlaybackKeepsCollapsedSummary() {
+        let session = MusicPlaybackSession(
+            snapshot: makeVerifiedSnapshot(playbackState: .paused, trackKey: "paused-track")
+        )
+
+        let summary = MusicModuleState.paused(session).collapsedSummary
+
+        #expect(summary?.isPlaying == false)
+        #expect(summary?.displayName == "QQ 音乐")
+        #expect(summary?.detailText == "Track · Artist")
+    }
+
+    // The collapsed bar must keep expanding into the music module while paused —
+    // otherwise a tap falls through to whatever module was last active.
+    @Test func collapsedOverlayKeepsMusicExpansionWhilePaused() {
+        let summary = CollapsedMusicSummary(
+            displayName: "QQ 音乐",
+            symbol: "qq",
+            isPlaying: false,
+            detailText: "Track · Artist"
+        )
+
+        let presentation = CollapsedOverlayPresentation(activeModule: .clipboard, musicSummary: summary)
+
+        #expect(presentation.expansionModuleID == .music)
+        #expect(presentation.trailingAccessory == .playback(isPlaying: false))
+        #expect(presentation.titleText == "Track · Artist")
+    }
+
+    @MainActor
+    @Test func runtimeKeepsCollapsedSummaryAfterPlaybackPauses() async {
+        let runtime = MusicModuleRuntime(
+            initialState: .playing(
+                MusicPlaybackSession(snapshot: makeVerifiedSnapshot(trackKey: "pause-keeps-summary"))
+            ),
+            snapshotProvider: SequencedSnapshotProviderStub(
+                snapshots: [makeVerifiedSnapshot(playbackState: .paused, trackKey: "pause-keeps-summary")]
+            )
+        )
+
+        await runtime.refreshSnapshot()
+
+        guard case .paused = runtime.moduleState else {
+            Issue.record("Expected paused state, got \(runtime.moduleState)")
+            return
+        }
+        #expect(runtime.collapsedSummary?.isPlaying == false)
+        #expect(runtime.collapsedSummary?.detailText == "Track · Artist")
+    }
+
     // Spotify/Apple Music read fine via MediaRemote but were phase-gated out of the
     // display pipeline, so an active Spotify session rendered as "unsupported player"
     // and the collapsed notch stayed blank.

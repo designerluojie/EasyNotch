@@ -29,7 +29,9 @@ struct MusicModuleViewModelTests {
             "MusicPlayerSoda",
             "MusicPlayerSpotify"
         ])
-        #expect(empty.launchTargets.map(\.isInteractive) == [false, true, true, true, true, false])
+        // Every tile is tappable: Apple Music/Spotify were non-interactive until 8e1bfad,
+        // which is exactly why they couldn't be opened from the notch.
+        #expect(empty.launchTargets.map(\.isInteractive) == [true, true, true, true, true, true])
     }
 
     @Test func playbackPresentationUsesActivePlayerAssetName() throws {
