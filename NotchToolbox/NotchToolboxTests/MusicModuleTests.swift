@@ -1469,6 +1469,90 @@ struct MusicModuleTests {
         #expect(snapshot.elapsedTime == 42)
     }
 
+    // Spotify removes the PlaybackRate key from MediaRemote entirely while paused, which
+    // used to decode as .unknown → .empty → the collapsed bar vanished the moment playback
+    // paused. The perl adapter's `playing` flag is authoritative: rate missing + adapter
+    // says not playing = paused, with the raw elapsed kept frozen.
+    @Test func nowPlayingProviderTreatsMissingRateWithAdapterPausedAsPaused() async throws {
+        let runner = SequencedMusicProcessRunner(outputs: [
+            MusicProcessOutput(
+                stdout: """
+                {"kMRMediaRemoteNowPlayingInfoClientBundleIdentifier":"com.spotify.client","kMRMediaRemoteNowPlayingInfoTitle":"木綿のハンカチーフ","kMRMediaRemoteNowPlayingInfoArtist":"太田裕美","kMRMediaRemoteNowPlayingInfoDuration":240,"kMRMediaRemoteNowPlayingInfoElapsedTime":27.7}
+                """,
+                stderr: "",
+                status: 0
+            ),
+            MusicProcessOutput(stdout: #"{"elapsedTime":27.7,"playing":false}"#, stderr: "", status: 0)
+        ])
+        let provider = NowPlayingSnapshotProvider(
+            processRunner: runner,
+            executableCandidates: ["/bundle/Contents/MacOS/nowplaying-cli"],
+            fileExists: { _ in true }
+        )
+
+        let snapshot = try #require(await provider.fetchActiveSnapshot())
+
+        #expect(snapshot.playbackState == .paused)
+        #expect(snapshot.elapsedTime == 27.7)
+    }
+
+    // Missing rate but the adapter says the session IS playing: trust it and extrapolate
+    // the live position from the timestamp as usual.
+    @Test func nowPlayingProviderTreatsMissingRateWithAdapterPlayingAsPlaying() async throws {
+        let formatter = ISO8601DateFormatter()
+        let pushedAt = formatter.string(from: Date().addingTimeInterval(-60))
+        let runner = SequencedMusicProcessRunner(outputs: [
+            MusicProcessOutput(
+                stdout: """
+                {"kMRMediaRemoteNowPlayingInfoClientBundleIdentifier":"com.spotify.client","kMRMediaRemoteNowPlayingInfoTitle":"木綿のハンカチーフ","kMRMediaRemoteNowPlayingInfoArtist":"太田裕美","kMRMediaRemoteNowPlayingInfoDuration":240,"kMRMediaRemoteNowPlayingInfoElapsedTime":10}
+                """,
+                stderr: "",
+                status: 0
+            ),
+            MusicProcessOutput(
+                stdout: #"{"elapsedTime":10,"timestamp":"\#(pushedAt)","playing":true}"#,
+                stderr: "",
+                status: 0
+            )
+        ])
+        let provider = NowPlayingSnapshotProvider(
+            processRunner: runner,
+            executableCandidates: ["/bundle/Contents/MacOS/nowplaying-cli"],
+            fileExists: { _ in true }
+        )
+
+        let snapshot = try #require(await provider.fetchActiveSnapshot())
+
+        #expect(snapshot.playbackState == .playing)
+        let elapsed = try #require(snapshot.elapsedTime)
+        #expect(elapsed >= 65 && elapsed <= 76)
+    }
+
+    // Missing rate and the adapter probe fails outright: prefer a frozen paused bar over
+    // blanking the module — the session is still real (bundle + title + elapsed present).
+    @Test func nowPlayingProviderFallsBackToPausedWhenRateMissingAndProbeFails() async throws {
+        let runner = SequencedMusicProcessRunner(outputs: [
+            MusicProcessOutput(
+                stdout: """
+                {"kMRMediaRemoteNowPlayingInfoClientBundleIdentifier":"com.spotify.client","kMRMediaRemoteNowPlayingInfoTitle":"木綿のハンカチーフ","kMRMediaRemoteNowPlayingInfoArtist":"太田裕美","kMRMediaRemoteNowPlayingInfoDuration":240,"kMRMediaRemoteNowPlayingInfoElapsedTime":27.7}
+                """,
+                stderr: "",
+                status: 0
+            ),
+            MusicProcessOutput(stdout: "Failed to load dylib", stderr: "", status: 1)
+        ])
+        let provider = NowPlayingSnapshotProvider(
+            processRunner: runner,
+            executableCandidates: ["/bundle/Contents/MacOS/nowplaying-cli"],
+            fileExists: { _ in true }
+        )
+
+        let snapshot = try #require(await provider.fetchActiveSnapshot())
+
+        #expect(snapshot.playbackState == .paused)
+        #expect(snapshot.elapsedTime == 27.7)
+    }
+
     // Adapter garbage (crash text, partial JSON) must never poison the snapshot — the
     // raw elapsed from get-raw stays in place.
     @Test func nowPlayingProviderKeepsRawElapsedWhenAdapterProbeReturnsGarbage() async throws {
@@ -1673,6 +1757,29 @@ struct MusicModuleTests {
             try await task.value
         }
         #expect(FileManager.default.fileExists(atPath: tempFileURL.path) == false)
+    }
+
+    // Cancelling mid-run SIGTERMs the child (exit status 15). That poisoned output must
+    // surface as CancellationError, not as a normal result: panel collapse cancels the
+    // in-flight poll, and one status-15 "failure" used to blank the whole music module
+    // back to the default notch.
+    @Test func foundationMusicProcessRunnerThrowsCancellationInsteadOfTerminatedOutput() async {
+        let runner = FoundationMusicProcessRunner()
+        let task = Task {
+            try await runner.run("/bin/sleep", arguments: ["5"])
+        }
+
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        task.cancel()
+
+        do {
+            let output = try await task.value
+            Issue.record("Expected CancellationError, got output with status \(output.status)")
+        } catch is CancellationError {
+            // Expected: the cancelled probe reports cancellation, never a fake result.
+        } catch {
+            Issue.record("Expected CancellationError, got \(error)")
+        }
     }
 
     @MainActor

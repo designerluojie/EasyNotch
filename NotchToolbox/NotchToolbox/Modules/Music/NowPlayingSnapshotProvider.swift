@@ -56,10 +56,20 @@ struct NowPlayingSnapshotProvider: MusicSnapshotProviding {
             for: payload,
             playbackStateOverride: playbackStateOverride
         )
+
+        // Spotify removes the PlaybackRate key entirely while paused, which used to decode
+        // as .unknown → .empty and blank the module mid-session. When rate is missing but
+        // the session is real, the adapter's `playing` flag is authoritative; if even the
+        // probe fails, prefer a frozen paused bar over vanishing.
+        var effectiveStateOverride = playbackStateOverride
+        if payload.playbackState(overriddenBy: playbackStateOverride) == .unknown {
+            effectiveStateOverride = calculatedPlaybackPosition?.playing == true ? .playing : .paused
+        }
+
         return payload.snapshot(
             capturedAt: calculatedPlaybackPosition?.capturedAt ?? rawSampledAt,
             calculatedPlaybackPosition: calculatedPlaybackPosition?.elapsedTime,
-            playbackStateOverride: playbackStateOverride
+            playbackStateOverride: effectiveStateOverride
         )
     }
 
@@ -123,7 +133,11 @@ struct NowPlayingSnapshotProvider: MusicSnapshotProviding {
                 liveElapsedTime += max(0, capturedAt.timeIntervalSince(pushedAt))
             }
 
-            return SampledPlaybackPosition(elapsedTime: liveElapsedTime, capturedAt: capturedAt)
+            return SampledPlaybackPosition(
+                elapsedTime: liveElapsedTime,
+                capturedAt: capturedAt,
+                playing: position.playing
+            )
         } catch {
             return nil
         }
@@ -231,6 +245,9 @@ struct NowPlayingSnapshotProvider: MusicSnapshotProviding {
 private struct SampledPlaybackPosition {
     let elapsedTime: TimeInterval
     let capturedAt: Date
+    // The adapter's kMRMediaRemoteNowPlayingApplicationIsPlaying — authoritative when
+    // the raw payload omits PlaybackRate (Spotify does this while paused).
+    let playing: Bool?
 }
 
 // Minimal slice of the perl adapter's `adapter_get_env` JSON — just the fields the
@@ -308,10 +325,13 @@ private struct NowPlayingPayload: Decodable {
         bundleIdentifier?.trimmedNonEmpty == MusicPlayerCapability.qqMusic.bundleID
     }
 
+    // Probes while .unknown as well: a session whose payload omits PlaybackRate
+    // (Spotify paused) needs the adapter's `playing` flag to classify correctly.
     func shouldFetchCalculatedPlaybackPosition(playbackStateOverride: MusicPlaybackState?) -> Bool {
-        bundleIdentifier?.trimmedNonEmpty != nil
+        let state = playbackState(overriddenBy: playbackStateOverride)
+        return bundleIdentifier?.trimmedNonEmpty != nil
             && calculatedPlaybackPosition == nil
-            && playbackState(overriddenBy: playbackStateOverride) == .playing
+            && (state == .playing || state == .unknown)
     }
 
     func snapshot(
@@ -353,7 +373,7 @@ private struct NowPlayingPayload: Decodable {
         playbackState(overriddenBy: nil)
     }
 
-    private func playbackState(overriddenBy playbackStateOverride: MusicPlaybackState?) -> MusicPlaybackState {
+    func playbackState(overriddenBy playbackStateOverride: MusicPlaybackState?) -> MusicPlaybackState {
         if let playbackStateOverride {
             return playbackStateOverride
         }
