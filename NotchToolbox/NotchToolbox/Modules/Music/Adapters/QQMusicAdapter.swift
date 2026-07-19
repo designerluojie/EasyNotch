@@ -66,7 +66,11 @@ private extension QQMusicAdapter {
         end tell
         """
     }
+}
 
+extension QQMusicAdapter {
+    // Shared osascript failure classification — also used by AppleScriptMusicAdapter
+    // (Spotify/Apple Music), whose denials carry the same locale-independent codes.
     static func throwIfCommandFailed(_ output: MusicProcessOutput) throws {
         guard output.status != 0 else {
             return
@@ -74,6 +78,28 @@ private extension QQMusicAdapter {
 
         let stderr = output.stderr
         let normalized = stderr.lowercased()
+
+        // osascript localizes its error text, and this app ships to zh_CN systems, so the
+        // human-readable message can't be matched by English keywords. The parenthesized
+        // AppleEvent error code is always present and locale-independent — classify on it
+        // first. -1743 errAEEventNotPermitted / -10004 errAEPrivilegeError => automation
+        // (send-Apple-events) not granted. Without this, a Chinese denial message matches
+        // none of the keywords below and dead-ends at "控制失败" instead of prompting the
+        // user to enable Automation.
+        if stderr.contains("(-1743)") || stderr.contains("(-10004)") {
+            throw MusicProviderError.permissionDenied(kind: .automation)
+        }
+
+        // Second gate on the same chain: even with Automation granted, System Events
+        // UI scripting (clicking QQ's menus) requires the app to hold Accessibility.
+        // Observed verbatim on zh_CN: `“osascript”不允许辅助访问。 (-1719)` — the
+        // message says 辅助访问, not 辅助功能, and carries no English keyword, so only
+        // the code and these exact wordings identify it.
+        if stderr.contains("(-1719)")
+            || stderr.contains("辅助访问")
+            || normalized.contains("assistive access") {
+            throw MusicProviderError.permissionDenied(kind: .accessibility)
+        }
 
         if normalized.contains("not authorized")
             || normalized.contains("apple events")
