@@ -8,6 +8,7 @@ protocol SettingsPresenting: AnyObject {
 
 enum SettingsWindowMetrics {
     static let windowSize = CGSize(width: 600, height: 400)
+    static let cornerRadius: CGFloat = 16
     static let shadowMargin: CGFloat = 48
     static let outerSize = CGSize(
         width: windowSize.width + shadowMargin * 2,
@@ -22,7 +23,10 @@ final class SettingsWindowController: SettingsPresenting {
 
     private let hostingView: NSHostingView<SettingsWindow>
 
-    init(compositionRoot: AppCompositionRoot) {
+    init(
+        compositionRoot: AppCompositionRoot,
+        updateController: AppUpdateController = AppUpdateController()
+    ) {
         self.compositionRoot = compositionRoot
         let metadataStore = LocalAIProviderMetadataStore(
             localFileStore: compositionRoot.sharedServices.localFileStore
@@ -46,6 +50,7 @@ final class SettingsWindowController: SettingsPresenting {
         self.hostingView = NSHostingView(
             rootView: SettingsWindow(
                 viewModel: viewModel,
+                updateController: updateController,
                 onClose: { [weak panel] in
                     panel?.orderOut(nil)
                 }

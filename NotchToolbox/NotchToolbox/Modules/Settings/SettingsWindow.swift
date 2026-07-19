@@ -4,6 +4,7 @@ import SwiftUI
 
 struct SettingsWindow: View {
     @ObservedObject var viewModel: SettingsViewModel
+    @ObservedObject var updateController: AppUpdateController
     let onClose: () -> Void
 
     @State private var selectedTab: SettingsTab = .general
@@ -12,10 +13,10 @@ struct SettingsWindow: View {
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: SettingsWindowMetrics.cornerRadius, style: .continuous)
                 .fill(Color.clear)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    RoundedRectangle(cornerRadius: SettingsWindowMetrics.cornerRadius, style: .continuous)
                         .stroke(Color.white.opacity(0.2), lineWidth: 1)
                 )
                 .shadow(color: .black.opacity(0.40), radius: 20, y: 8)
@@ -26,7 +27,7 @@ struct SettingsWindow: View {
                 content
                     .frame(width: 400)
             }
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: SettingsWindowMetrics.cornerRadius, style: .continuous))
 
             trafficLights
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -36,7 +37,7 @@ struct SettingsWindow: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.98)))
             }
 
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: SettingsWindowMetrics.cornerRadius, style: .continuous)
                 .strokeBorder(Color.white.opacity(0.2), lineWidth: 1)
                 .allowsHitTesting(false)
         }
@@ -126,7 +127,7 @@ struct SettingsWindow: View {
             case .features:
                 SettingsFeaturesPane(viewModel: viewModel)
             case .about:
-                SettingsAboutPane()
+                SettingsAboutPane(updateController: updateController)
             }
         }
     }
@@ -392,21 +393,28 @@ private struct SettingsFeaturesScrollMetricsKey: PreferenceKey {
 }
 
 private struct SettingsAboutPane: View {
+    @ObservedObject var updateController: AppUpdateController
+
     var body: some View {
         VStack(spacing: 0) {
-            SettingsSectionHeader("版本")
             VStack(spacing: 10) {
                 Image("AboutLogo")
                     .resizable()
                     .frame(width: 96, height: 96)
 
-                VStack(spacing: 2) {
-                    Text("NotchWork")
-                        .font(.system(size: 13, weight: .medium))
-                    Text(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0")
-                        .font(.system(size: 12, weight: .regular))
+                VStack(spacing: 4) {
+                    Text("EasyNotch")
+                        .font(.system(size: 14, weight: .medium))
+                        .frame(height: 19)
+                    Text("版本：\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0")")
+                        .font(.system(size: 13, weight: .regular))
+                        .frame(height: 18)
                 }
                 .foregroundStyle(.white)
+
+                if updateController.supportsInAppUpdates {
+                    SettingsUpdateButton(updateController: updateController)
+                }
             }
             .frame(width: 344)
             .padding(.vertical, 17)
@@ -416,24 +424,76 @@ private struct SettingsAboutPane: View {
             )
             .padding(.horizontal, 16)
 
-            SettingsSectionHeader("新手引导")
             HStack {
-                Text("重新播放首次启动的欢迎动画")
+                Text("了解我们")
                     .font(SettingsWindowTheme.bodyFont)
-                    .foregroundStyle(.white.opacity(0.7))
+                    .foregroundStyle(.white)
                 Spacer()
-                SettingsTextButton(title: "重播引导") {
-                    NotificationCenter.default.post(
-                        name: OnboardingCoordinator.replayRequestedNotification,
-                        object: nil
-                    )
+                HStack(spacing: 8) {
+                    Button {
+                        guard let websiteURL = URL(string: "https://easynotch.designbento.cn") else {
+                            return
+                        }
+                        NSWorkspace.shared.open(websiteURL)
+                    } label: {
+                        SettingsValuePill(text: "官方网站")
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        guard let githubURL = URL(string: "https://github.com/designerluojie/EasyNotch-website") else {
+                            return
+                        }
+                        NSWorkspace.shared.open(githubURL)
+                    } label: {
+                        SettingsValuePill(text: "Github")
+                    }
+                    .buttonStyle(.plain)
                 }
             }
+            .frame(height: 36)
+            .padding(.top, 16)
             .padding(.horizontal, 16)
+
             Spacer()
         }
         .padding(.top, 40)
         .padding(.horizontal, 12)
+    }
+}
+
+private struct SettingsUpdateButton: View {
+    @ObservedObject var updateController: AppUpdateController
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: updateController.performPrimaryAction) {
+            Text(updateController.buttonTitle)
+                .font(SettingsWindowTheme.bodyFont)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 8)
+                .frame(height: 24)
+                .background(
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(Color.white.opacity(isHovered ? 0.08 : 0))
+                )
+                .overlay(alignment: .topTrailing) {
+                    if updateController.isUpdateAvailable {
+                        Circle()
+                            .fill(Color(red: 1, green: 70 / 255, blue: 78 / 255))
+                            .frame(width: 6, height: 6)
+                            .overlay(Circle().stroke(Color(red: 43 / 255, green: 43 / 255, blue: 43 / 255), lineWidth: 1))
+                            .offset(x: 3, y: -3)
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .disabled(updateController.canCheckForUpdates == false)
+        .opacity(updateController.canCheckForUpdates ? 1 : 0.45)
+        .onHover { isHovered = $0 }
+        .animation(.easeOut(duration: SettingsControlInteractionMetrics.animationDuration), value: isHovered)
+        .animation(.easeOut(duration: SettingsControlInteractionMetrics.animationDuration), value: updateController.isUpdateAvailable)
     }
 }
 
@@ -608,6 +668,7 @@ private struct SettingsProviderConfigurationOverlay: View {
                 )
             }
         }
+        .clipShape(RoundedRectangle(cornerRadius: SettingsWindowMetrics.cornerRadius, style: .continuous))
     }
 }
 

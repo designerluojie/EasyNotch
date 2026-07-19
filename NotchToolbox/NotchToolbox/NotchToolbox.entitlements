@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- QQ 音乐控制走 osascript → System Events(Apple 事件)。强化运行时下没有
+	     这个 entitlement 时,Apple 事件被直接拦截(-1743)且不会弹自动化授权框,
+	     用户无从授权 — 正式包 QQ 控制因此完全不可用。 -->
+	<key>com.apple.security.automation.apple-events</key>
+	<true/>
+</dict>
+</plist>
