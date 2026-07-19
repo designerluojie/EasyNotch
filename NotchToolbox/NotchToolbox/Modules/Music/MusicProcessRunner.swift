@@ -39,7 +39,7 @@ struct FoundationMusicProcessRunner: MusicProcessRunning {
         try await beforeLaunch()
         try Task.checkCancellation()
 
-        return try await withTaskCancellationHandler {
+        let output = try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<MusicProcessOutput, Error>) in
                 Self.processQueue.async {
                     do {
@@ -83,6 +83,14 @@ struct FoundationMusicProcessRunner: MusicProcessRunning {
         } onCancel: {
             processBox.cancel()
         }
+
+        // onCancel SIGTERMs the child, which then exits with status 15 and resumes the
+        // continuation like any other run. Returning that output would let one cancelled
+        // poll masquerade as a real probe failure — panel collapse cancels the in-flight
+        // poll, and that fake failure used to blank the music module back to the default
+        // notch. A cancelled run reports cancellation, never a result.
+        try Task.checkCancellation()
+        return output
     }
 
 }
