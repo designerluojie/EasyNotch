@@ -62,6 +62,10 @@ final class SettingsViewModel: ObservableObject {
         update { $0.launchAtLogin = value }
     }
 
+    func setAnalyticsEnabled(_ value: Bool) {
+        update { $0.isAnalyticsEnabled = value }
+    }
+
     func setGlobalShortcutEnabled(_ value: Bool) {
         update { $0.isGlobalShortcutEnabled = value }
     }
