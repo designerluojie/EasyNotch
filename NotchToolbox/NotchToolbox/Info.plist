@@ -26,6 +26,10 @@
     <string>Notch 需要控制音乐播放器（如 QQ 音乐）以在灵动岛上为你显示和操作正在播放的音乐。</string>
     <key>SUPublicEDKey</key>
     <string>vbSfmAlW4HuU/unq3Qnk2Gd+9wj7cZl4Q7/hGGcJA0I=</string>
+    <key>EASYNOTCH_UMAMI_ENDPOINT</key>
+    <string>$(EASYNOTCH_UMAMI_ENDPOINT)</string>
+    <key>EASYNOTCH_UMAMI_WEBSITE_ID</key>
+    <string>$(EASYNOTCH_UMAMI_WEBSITE_ID)</string>
     <key>SUFeedURL</key>
     <string>$(EASYNOTCH_APPCAST_FEED_URL)</string>
     <key>SUEnableAutomaticChecks</key>

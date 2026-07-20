@@ -7,6 +7,7 @@ import SwiftUI
 final class AppCompositionRoot: ObservableObject {
     let sharedServices: SharedCoreServices
     let energyGovernor: EnergyGovernor
+    let analyticsReporter: AnalyticsReporter
     let musicRuntime: MusicModuleRuntime
     let fileStashCore: FileStashCore
     let clipboardCore: ClipboardCore
@@ -49,6 +50,21 @@ final class AppCompositionRoot: ObservableObject {
     ) {
         let resolvedSharedServices = sharedServices ?? SharedCoreServices.fallback()
         let resolvedEnergyGovernor = energyGovernor ?? EnergyGovernor()
+
+        // 埋点：配置经 Info.plist 注入（Debug 配置留空 → DisabledAnalyticsTransport，
+        // 开发与测试不触网）。isEnabled 用闭包每次读最新设置，用户关闭开关即刻生效。
+        let umamiConfiguration = UmamiConfiguration(
+            endpointString: Bundle.main.object(forInfoDictionaryKey: "EASYNOTCH_UMAMI_ENDPOINT") as? String ?? "",
+            websiteID: Bundle.main.object(forInfoDictionaryKey: "EASYNOTCH_UMAMI_WEBSITE_ID") as? String ?? ""
+        )
+        let analyticsTransport: any AnalyticsTransport = umamiConfiguration
+            .map { UmamiAnalyticsTransport(configuration: $0) } ?? DisabledAnalyticsTransport()
+        let settingsStoreForAnalytics = resolvedSharedServices.settingsStore
+        self.analyticsReporter = AnalyticsReporter(
+            transport: analyticsTransport,
+            dedupStore: AnalyticsDailyDedupStore(),
+            isEnabled: { settingsStoreForAnalytics.settings.isAnalyticsEnabled }
+        )
         let resolvedRestVariantStore = restVariantStore ?? RestVariantStore()
         let resolvedRestVariantContentRegistry = restVariantContentRegistry ?? RestVariantContentRegistry()
         let resolvedModuleDescriptors = moduleDescriptors ?? NotchModuleDescriptor.defaultDescriptors
