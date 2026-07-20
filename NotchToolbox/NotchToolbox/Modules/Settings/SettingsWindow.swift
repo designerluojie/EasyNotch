@@ -127,7 +127,7 @@ struct SettingsWindow: View {
             case .features:
                 SettingsFeaturesPane(viewModel: viewModel)
             case .about:
-                SettingsAboutPane(updateController: updateController)
+                SettingsAboutPane(updateController: updateController, viewModel: viewModel)
             }
         }
     }
@@ -394,6 +394,7 @@ private struct SettingsFeaturesScrollMetricsKey: PreferenceKey {
 
 private struct SettingsAboutPane: View {
     @ObservedObject var updateController: AppUpdateController
+    @ObservedObject var viewModel: SettingsViewModel
     @StateObject private var toast = PanelToastPresenter()
 
     var body: some View {
@@ -471,6 +472,14 @@ private struct SettingsAboutPane: View {
             }
             .frame(height: 36)
             .padding(.horizontal, 16)
+
+            SettingsAboutToggleRow(
+                title: "优化改进计划",
+                subtitle: "仅统计功能使用次数，不含任何个人信息与聊天内容",
+                isOn: viewModel.settings.isAnalyticsEnabled,
+                action: { viewModel.setAnalyticsEnabled(!viewModel.settings.isAnalyticsEnabled) }
+            )
+            .padding(.top, 4)
 
             Spacer()
         }
@@ -1271,6 +1280,37 @@ private struct SettingsValuePill: View {
                 Color.white.opacity(SettingsControlInteractionMetrics.baseFillOpacity),
                 in: RoundedRectangle(cornerRadius: 4, style: .continuous)
             )
+    }
+}
+
+/// 「关于」页专用的开关行：标题与副标题在左，勾选控件在右。
+/// 与该页其它行（了解我们 / 反馈问题）保持「左标题、右控件」的布局，
+/// 而非通用的 SettingsCheckboxRow（那个是勾选框在左）。
+private struct SettingsAboutToggleRow: View {
+    let title: String
+    let subtitle: String
+    let isOn: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(SettingsWindowTheme.bodyFont)
+                        .foregroundStyle(.white)
+                    Text(subtitle)
+                        .font(.system(size: 11, weight: .regular))
+                        .foregroundStyle(.white.opacity(0.45))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                SettingsCheckboxGlyph(isOn: isOn)
+            }
+            .padding(.horizontal, 16)
+        }
+        .buttonStyle(.plain)
+        .contentShape(Rectangle())
     }
 }
 
