@@ -27,6 +27,18 @@ nonisolated final class AnalyticsDailyDedupStore: @unchecked Sendable {
         return true
     }
 
+    /// 撤销 `key` 在 `day` 的标记（仅当当前标记恰为该天），让当天后续触发可以重试。
+    /// 只清「同一天」是为了避免慢速失败回调误清掉次日的新标记。
+    func clearIfMarked(key: String, day: String) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        let storageKey = Self.keyPrefix + key
+        if defaults.string(forKey: storageKey) == day {
+            defaults.removeObject(forKey: storageKey)
+        }
+    }
+
     /// 本地时区的自然日，格式 yyyy-MM-dd。
     func dayString(for date: Date = Date()) -> String {
         let formatter = DateFormatter()

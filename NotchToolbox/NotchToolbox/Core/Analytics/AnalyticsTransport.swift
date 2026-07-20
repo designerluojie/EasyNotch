@@ -2,12 +2,16 @@ import Foundation
 
 nonisolated protocol AnalyticsTransport: Sendable {
     /// 发送一条事件。实现必须吞掉所有错误——埋点绝不允许影响主体验。
-    func send(name: String, properties: [String: String]) async
+    /// 返回是否确认送达：按天去重的事件在失败时会撤销当天标记以便稍后重试
+    /// （合盖唤醒后 Wi-Fi 未连上是刘海工具最典型的使用时刻，首次 app_active
+    /// 若丢失且不重试，当天日活会系统性低估）。
+    func send(name: String, properties: [String: String]) async -> Bool
 }
 
 /// 未配置 Umami 时使用：吞掉一切事件，不产生任何网络请求。
+/// 报告"成功"：若报失败，去重标记会被撤销，未配置的构建将反复空转重试。
 nonisolated struct DisabledAnalyticsTransport: AnalyticsTransport {
-    func send(name: String, properties: [String: String]) async {}
+    func send(name: String, properties: [String: String]) async -> Bool { true }
 }
 
 nonisolated struct UmamiConfiguration: Equatable, Sendable {
@@ -74,16 +78,22 @@ nonisolated struct UmamiAnalyticsTransport: AnalyticsTransport {
         return request
     }
 
-    func send(name: String, properties: [String: String]) async {
+    func send(name: String, properties: [String: String]) async -> Bool {
         guard let request = Self.makeRequest(
             configuration: configuration,
             name: name,
             properties: properties
         ) else {
-            return
+            // 构造请求失败属于编程错误而非网络问题，重试也不会变好——按成功处理，
+            // 避免去重标记被反复撤销
+            return true
         }
 
-        // 失败静默丢弃：不重试、不落盘、不向用户暴露
-        _ = try? await session.data(for: request)
+        // 失败静默：不落盘、不向用户暴露；只把结果告知调用方用于去重撤销
+        guard let (_, response) = try? await session.data(for: request),
+              let httpResponse = response as? HTTPURLResponse else {
+            return false
+        }
+        return (200...299).contains(httpResponse.statusCode)
     }
 }
