@@ -475,11 +475,9 @@ private struct SettingsAboutPane: View {
 
             SettingsAboutToggleRow(
                 title: "优化改进计划",
-                subtitle: "仅统计功能使用次数，不含任何个人信息与聊天内容",
                 isOn: viewModel.settings.isAnalyticsEnabled,
                 action: { viewModel.setAnalyticsEnabled(!viewModel.settings.isAnalyticsEnabled) }
             )
-            .padding(.top, 4)
 
             Spacer()
         }
@@ -1283,30 +1281,69 @@ private struct SettingsValuePill: View {
     }
 }
 
-/// 「关于」页专用的开关行：标题与副标题在左，勾选控件在右。
+/// 「关于」页专用的开关行：标题在左，勾选控件在右。
 /// 与该页其它行（了解我们 / 反馈问题）保持「左标题、右控件」的布局，
 /// 而非通用的 SettingsCheckboxRow（那个是勾选框在左）。
+///
+/// 采集边界放在悬停提示里而非副标题：界面保持简洁，但用户想了解时仍能看到，
+/// 这是本 App 唯一的埋点告知载体（官网不另设隐私说明页）。
 private struct SettingsAboutToggleRow: View {
     let title: String
-    let subtitle: String
     let isOn: Bool
     let action: () -> Void
 
+    @State private var isInfoHovered = false
+    @State private var isTooltipVisible = false
+    @State private var tooltipTask: Task<Void, Never>?
+
+    private static let tooltipText = "仅统计功能使用次数，不含任何个人信息与聊天内容"
+
     var body: some View {
         Button(action: action) {
-            HStack(alignment: .center) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(SettingsWindowTheme.bodyFont)
-                        .foregroundStyle(.white)
-                    Text(subtitle)
-                        .font(.system(size: 11, weight: .regular))
-                        .foregroundStyle(.white.opacity(0.45))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+            HStack(alignment: .center, spacing: 6) {
+                Text(title)
+                    .font(SettingsWindowTheme.bodyFont)
+                    .foregroundStyle(.white)
+                // 采集边界的告知载体（官网不另设隐私说明页）：悬停图标显示说明。
+                // 系统 .help 在这个自定义面板窗口里不弹，改为自绘 tooltip——
+                // 悬停 0.5s 后出现，配色与设置页下拉菜单一致。
+                Image(systemName: "info.circle")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white.opacity(isInfoHovered ? 0.9 : 0.4))
+                    .animation(.easeOut(duration: 0.12), value: isInfoHovered)
+                    .onHover { hovering in
+                        isInfoHovered = hovering
+                        tooltipTask?.cancel()
+                        if hovering {
+                            tooltipTask = Task {
+                                try? await Task.sleep(for: .milliseconds(500))
+                                guard Task.isCancelled == false else { return }
+                                isTooltipVisible = true
+                            }
+                        } else {
+                            isTooltipVisible = false
+                        }
+                    }
+                    .overlay(alignment: .topLeading) {
+                        if isTooltipVisible {
+                            Text(Self.tooltipText)
+                                .font(SettingsWindowTheme.bodyFont)
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(SettingsFloatingMenuBackground())
+                                .clipShape(RoundedRectangle(cornerRadius: SettingsFloatingMenuMetrics.cornerRadius, style: .continuous))
+                                .fixedSize()
+                                .offset(x: -12, y: -34)
+                                .allowsHitTesting(false)
+                                .transition(.opacity)
+                        }
+                    }
+                    .animation(.easeOut(duration: 0.12), value: isTooltipVisible)
                 Spacer()
                 SettingsCheckboxGlyph(isOn: isOn)
             }
+            .frame(height: 36)
             .padding(.horizontal, 16)
         }
         .buttonStyle(.plain)
