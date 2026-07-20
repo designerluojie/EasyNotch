@@ -53,13 +53,15 @@ struct AnalyticsTransportTests {
         #expect(config.endpoint.absoluteString == "https://cloud.umami.is/api/send")
     }
 
-    // 未配置 Umami 时用的空实现：调用它不得产生任何副作用或崩溃
-    @Test func disabledTransportSwallowsEverything() async {
+    // 未配置 Umami 时用的空实现：不产生副作用，且视为"成功"——
+    // 若报失败，去重标记会被撤销，未配置的构建将在每次触发时反复重试，纯属空转
+    @Test func disabledTransportSwallowsEverythingAndReportsSuccess() async {
         let transport = DisabledAnalyticsTransport()
 
-        await transport.send(name: "app_active", properties: [:])
-        await transport.send(name: "module_opened", properties: ["module": "music"])
+        let first = await transport.send(name: "app_active", properties: [:])
+        let second = await transport.send(name: "module_opened", properties: ["module": "music"])
 
-        #expect(Bool(true))
+        #expect(first)
+        #expect(second)
     }
 }

@@ -5,26 +5,21 @@ import Testing
 private final class SpyTransport: AnalyticsTransport, @unchecked Sendable {
     private let lock = NSLock()
     private var _sent: [(name: String, properties: [String: String])] = []
+    private let succeeds: Bool
+
+    init(succeeds: Bool = true) {
+        self.succeeds = succeeds
+    }
 
     var sent: [(name: String, properties: [String: String])] {
         lock.lock(); defer { lock.unlock() }
         return _sent
     }
 
-    func send(name: String, properties: [String: String]) async {
+    func send(name: String, properties: [String: String]) async -> Bool {
         lock.lock(); defer { lock.unlock() }
         _sent.append((name, properties))
-    }
-}
-
-/// 每次发送都抛错的传输层——用于验证 track 不会把错误漏给调用方。
-private struct ThrowingTransport: AnalyticsTransport {
-    struct Failure: Error {}
-
-    func send(name: String, properties: [String: String]) async {
-        // AnalyticsTransport 约定实现自行吞错；这里模拟一个内部出错但不外泄的实现
-        let result: Result<Void, Failure> = .failure(Failure())
-        _ = try? result.get()
+        return succeeds
     }
 }
 
@@ -101,14 +96,49 @@ struct AnalyticsReporterTests {
         #expect(transport.sent.count == 3)
     }
 
-    @Test func trackDoesNotThrowOrCrashWhenTransportMisbehaves() async {
-        let reporter = makeReporter(transport: ThrowingTransport())
+    @Test func trackDoesNotThrowOrCrashWhenTransportFails() async {
+        let reporter = makeReporter(transport: SpyTransport(succeeds: false))
 
         reporter.track(.appActive)
         await reporter.drainForTesting()
 
         // 只要走到这里没崩、没把错误抛给调用方就算通过
         #expect(Bool(true))
+    }
+
+    // 合盖唤醒后 Wi-Fi 未连上是刘海工具最典型的使用时刻。首次 app_active 若发送
+    // 失败就永久打上「今天已报」，该用户当天的日活会系统性丢失——失败必须撤销
+    // 标记，让当天的后续触发重试。
+    @Test func failedDedupedSendAllowsRetryLaterTheSameDay() async {
+        let transport = SpyTransport(succeeds: false)
+        let defaults = makeDefaults()
+        let reporter = AnalyticsReporter(
+            transport: transport,
+            dedupStore: AnalyticsDailyDedupStore(defaults: defaults),
+            isEnabled: { true },
+            currentDay: { "2026-07-20" }
+        )
+
+        reporter.track(.appActive)
+        await reporter.drainForTesting()
+        reporter.track(.appActive)
+        await reporter.drainForTesting()
+
+        // 两次都实际尝试了发送（失败 → 撤销标记 → 重试）
+        #expect(transport.sent.count == 2)
+    }
+
+    // 成功后标记保持，当天不再重发（防守：撤销逻辑不能误伤成功路径）
+    @Test func successfulDedupedSendStaysDedupedForTheDay() async {
+        let transport = SpyTransport(succeeds: true)
+        let reporter = makeReporter(transport: transport)
+
+        reporter.track(.appActive)
+        await reporter.drainForTesting()
+        reporter.track(.appActive)
+        await reporter.drainForTesting()
+
+        #expect(transport.sent.count == 1)
     }
 
     // 跨天后同一个去重键必须能再次上报，否则次日的日活会全部丢失
