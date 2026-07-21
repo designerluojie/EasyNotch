@@ -478,7 +478,6 @@ final class OverlayCoordinator {
         case .expanded(let previousScreenID, let previousModuleID):
             if previousModuleID != moduleID {
                 lifecycleDispatcher.send(.moduleDidAppear, to: moduleID)
-                analyticsReporter?.track(.moduleOpened(moduleID))
             }
             if previousScreenID != targetScreenID {
                 lifecycleDispatcher.send(.screenDidMigrate(to: targetScreenID), to: previousModuleID)
@@ -486,9 +485,10 @@ final class OverlayCoordinator {
         default:
             lifecycleDispatcher.send(.moduleDidAppear, to: moduleID)
             lifecycleDispatcher.send(.panelDidExpand(screenID: targetScreenID), to: moduleID)
-            // 从收起态展开：既是当天的一次「使用」，也是打开了某个模块
+            // 从收起态展开 = 当天的一次「使用」。模块本身的上报收口在
+            // AppCompositionRoot.selectActiveModule，那条路径覆盖面板内切换标签页，
+            // 这里再报一次会重复。
             analyticsReporter?.track(.appActive)
-            analyticsReporter?.track(.moduleOpened(moduleID))
         }
     }
 }
