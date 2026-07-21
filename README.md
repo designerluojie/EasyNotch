@@ -38,26 +38,8 @@ EasyNotch 是一款为 macOS 刘海屏打造的轻量效率工具箱。它将音
 
 ## 下载
 
-### 最新版本：v1.0.4
+前往 [Releases](https://github.com/designerluojie/EasyNotch/releases) 查看最新版本、下载应用并了解更新记录。
 
-[立即下载 EasyNotch v1.0.4（macOS DMG）](https://github.com/designerluojie/EasyNotch/releases/download/v1.0.4/EasyNotch-1.0.4.dmg)
+## 反馈
 
-也可以前往 [Releases](https://github.com/designerluojie/EasyNotch/releases) 查看所有版本和更新记录。
-
-## 系统要求
-
-- macOS 13.0 或更高版本
-- AI Chat 需要配置对应服务商的 API Key
-- 音乐控制功能可能需要根据播放器授权媒体信息、自动化或辅助功能权限
-
-## 安装
-
-1. 下载最新版本的 DMG 安装包。
-2. 打开安装包，将 EasyNotch 拖入「应用程序」文件夹。
-3. 启动 EasyNotch，根据系统提示完成必要的权限设置。
-
-## 相关链接
-
-- [EasyNotch 官网](https://easynotch.designbento.cn)
-- [GitHub Releases](https://github.com/designerluojie/EasyNotch/releases)
-- 反馈邮箱：easynotch@163.com
+反馈邮箱：easynotch@163.com
