@@ -64,6 +64,36 @@ struct AnalyticsIntegrationTests {
         #expect(transport.sent.first?.properties == ["key": "launchAtLogin", "value": "true"])
     }
 
+    // 菜单里重复点选当前已选中的项会照常调用 setter，但那不是一次「设置变更」。
+    // 计入会让数据虚高——看上去用户在频繁改设置，实际只是翻了翻菜单。
+    @Test func settingSetToItsCurrentValueReportsNothing() async throws {
+        let transport = SpyTransport()
+        let reporter = makeReporter(transport: transport)
+        let viewModel = try makeViewModel()
+        viewModel.attachAnalytics(reporter)
+
+        let current = viewModel.settings.animationMode
+        viewModel.setAnimationMode(current)
+        await reporter.drainForTesting()
+
+        #expect(transport.sent.isEmpty)
+    }
+
+    @Test func repeatedIdenticalTogglesReportOnlyTheRealChanges() async throws {
+        let transport = SpyTransport()
+        let reporter = makeReporter(transport: transport)
+        let viewModel = try makeViewModel()
+        viewModel.attachAnalytics(reporter)
+
+        viewModel.setLaunchAtLogin(true)   // 变了 → 上报
+        viewModel.setLaunchAtLogin(true)   // 没变 → 不报
+        viewModel.setLaunchAtLogin(false)  // 变了 → 上报
+        await reporter.drainForTesting()
+
+        #expect(transport.sent.count == 2)
+        #expect(transport.sent.map { $0.properties["value"] } == ["true", "false"])
+    }
+
     @Test func setGlobalShortcutReportsNothing() async throws {
         let transport = SpyTransport()
         let reporter = makeReporter(transport: transport)
