@@ -41,6 +41,7 @@ final class SettingsWindowController: SettingsPresenting {
             configurationService: configurationService,
             metadataStore: metadataStore
         )
+        viewModel.attachAnalytics(compositionRoot.analyticsReporter)
         self.panel = SettingsPanel(
             contentRect: NSRect(origin: .zero, size: SettingsWindowMetrics.outerSize),
             styleMask: [.borderless],
@@ -53,7 +54,8 @@ final class SettingsWindowController: SettingsPresenting {
                 updateController: updateController,
                 onClose: { [weak panel] in
                     panel?.orderOut(nil)
-                }
+                },
+                analyticsReporter: compositionRoot.analyticsReporter
             )
         )
 

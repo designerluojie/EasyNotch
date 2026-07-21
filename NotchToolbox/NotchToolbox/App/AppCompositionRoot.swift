@@ -7,6 +7,7 @@ import SwiftUI
 final class AppCompositionRoot: ObservableObject {
     let sharedServices: SharedCoreServices
     let energyGovernor: EnergyGovernor
+    private(set) var analyticsReporter: AnalyticsReporter
     let musicRuntime: MusicModuleRuntime
     let fileStashCore: FileStashCore
     let clipboardCore: ClipboardCore
@@ -49,6 +50,21 @@ final class AppCompositionRoot: ObservableObject {
     ) {
         let resolvedSharedServices = sharedServices ?? SharedCoreServices.fallback()
         let resolvedEnergyGovernor = energyGovernor ?? EnergyGovernor()
+
+        // 埋点：配置经 Info.plist 注入（Debug 配置留空 → DisabledAnalyticsTransport，
+        // 开发与测试不触网）。isEnabled 用闭包每次读最新设置，用户关闭开关即刻生效。
+        let umamiConfiguration = UmamiConfiguration(
+            endpointString: Bundle.main.object(forInfoDictionaryKey: "EASYNOTCH_UMAMI_ENDPOINT") as? String ?? "",
+            websiteID: Bundle.main.object(forInfoDictionaryKey: "EASYNOTCH_UMAMI_WEBSITE_ID") as? String ?? ""
+        )
+        let analyticsTransport: any AnalyticsTransport = umamiConfiguration
+            .map { UmamiAnalyticsTransport(configuration: $0) } ?? DisabledAnalyticsTransport()
+        let settingsStoreForAnalytics = resolvedSharedServices.settingsStore
+        self.analyticsReporter = AnalyticsReporter(
+            transport: analyticsTransport,
+            dedupStore: AnalyticsDailyDedupStore(),
+            isEnabled: { settingsStoreForAnalytics.settings.isAnalyticsEnabled }
+        )
         let resolvedRestVariantStore = restVariantStore ?? RestVariantStore()
         let resolvedRestVariantContentRegistry = restVariantContentRegistry ?? RestVariantContentRegistry()
         let resolvedModuleDescriptors = moduleDescriptors ?? NotchModuleDescriptor.defaultDescriptors
@@ -210,6 +226,11 @@ final class AppCompositionRoot: ObservableObject {
         }
     }
 
+    /// 仅供测试注入替身 reporter；正式路径在 init 中构造。
+    func attachAnalytics(_ reporter: AnalyticsReporter) {
+        analyticsReporter = reporter
+    }
+
     func selectActiveModule(_ moduleID: NotchModuleID) {
         if case .expanded(let screenID, let expandedModuleID) = overlayState,
            expandedModuleID != moduleID {
@@ -221,6 +242,10 @@ final class AppCompositionRoot: ObservableObject {
         }
 
         activeModule = moduleID
+        // 埋点收口在这里而非 OverlayCoordinator.expand：面板内点标签页切换模块
+        // 走的是本方法，不经过 expand；挂在 expand 上会漏掉除首个模块外的全部切换。
+        // 上面的 guard 已保证重复点选同一模块不会重复上报。
+        analyticsReporter.track(.moduleOpened(moduleID))
         updatePointerExitCollapseSuppression()
         updateImagePickerCollapseSuppression()
         syncClipboardRestVariantForActiveModule()
