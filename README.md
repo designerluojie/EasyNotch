@@ -6,9 +6,9 @@
   <p>把常用工具放进 Mac 顶部刘海区，让工作流更顺手。</p>
 
   <p>
-    <a href="https://easynotch.designbento.cn">官方网站</a>
+    <a href="https://easynotch.designbento.cn">官网</a>
     ·
-    <a href="https://github.com/designerluojie/EasyNotch/releases">版本与下载</a>
+    <a href="https://github.com/designerluojie/EasyNotch/releases">下载</a>
   </p>
 </div>
 
