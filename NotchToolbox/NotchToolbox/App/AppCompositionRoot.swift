@@ -7,7 +7,7 @@ import SwiftUI
 final class AppCompositionRoot: ObservableObject {
     let sharedServices: SharedCoreServices
     let energyGovernor: EnergyGovernor
-    let analyticsReporter: AnalyticsReporter
+    private(set) var analyticsReporter: AnalyticsReporter
     let musicRuntime: MusicModuleRuntime
     let fileStashCore: FileStashCore
     let clipboardCore: ClipboardCore
@@ -226,6 +226,11 @@ final class AppCompositionRoot: ObservableObject {
         }
     }
 
+    /// 仅供测试注入替身 reporter；正式路径在 init 中构造。
+    func attachAnalytics(_ reporter: AnalyticsReporter) {
+        analyticsReporter = reporter
+    }
+
     func selectActiveModule(_ moduleID: NotchModuleID) {
         if case .expanded(let screenID, let expandedModuleID) = overlayState,
            expandedModuleID != moduleID {
@@ -237,6 +242,10 @@ final class AppCompositionRoot: ObservableObject {
         }
 
         activeModule = moduleID
+        // 埋点收口在这里而非 OverlayCoordinator.expand：面板内点标签页切换模块
+        // 走的是本方法，不经过 expand；挂在 expand 上会漏掉除首个模块外的全部切换。
+        // 上面的 guard 已保证重复点选同一模块不会重复上报。
+        analyticsReporter.track(.moduleOpened(moduleID))
         updatePointerExitCollapseSuppression()
         updateImagePickerCollapseSuppression()
         syncClipboardRestVariantForActiveModule()

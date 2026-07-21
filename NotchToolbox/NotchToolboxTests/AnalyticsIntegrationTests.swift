@@ -94,6 +94,45 @@ struct AnalyticsIntegrationTests {
         #expect(transport.sent.map { $0.properties["value"] } == ["true", "false"])
     }
 
+    // 面板内点标签页切换模块走的是 selectActiveModule，不经过 OverlayCoordinator.expand。
+    // 埋点只挂在 expand 上时，除「展开时的首个模块」外全部漏报。
+    @MainActor
+    @Test func switchingModuleInsidePanelReportsModuleOpened() async {
+        let transport = SpyTransport()
+        let reporter = makeReporter(transport: transport)
+        let compositionRoot = AppCompositionRoot()
+        compositionRoot.attachAnalytics(reporter)
+
+        compositionRoot.selectActiveModule(.clipboard)
+        compositionRoot.selectActiveModule(.music)
+        await reporter.drainForTesting()
+
+        let modules = transport.sent
+            .filter { $0.name == "module_opened" }
+            .compactMap { $0.properties["module"] }
+        #expect(modules.contains("clipboard"))
+        #expect(modules.contains("music"))
+    }
+
+    // 重复点选当前已激活的模块不应重复上报
+    @MainActor
+    @Test func reselectingTheActiveModuleReportsOnce() async {
+        let transport = SpyTransport()
+        let reporter = makeReporter(transport: transport)
+        let compositionRoot = AppCompositionRoot()
+        compositionRoot.attachAnalytics(reporter)
+
+        compositionRoot.selectActiveModule(.pomodoro)
+        compositionRoot.selectActiveModule(.pomodoro)
+        compositionRoot.selectActiveModule(.pomodoro)
+        await reporter.drainForTesting()
+
+        let pomodoroEvents = transport.sent.filter {
+            $0.name == "module_opened" && $0.properties["module"] == "pomodoro"
+        }
+        #expect(pomodoroEvents.count == 1)
+    }
+
     @Test func setGlobalShortcutReportsNothing() async throws {
         let transport = SpyTransport()
         let reporter = makeReporter(transport: transport)
