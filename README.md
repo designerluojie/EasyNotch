@@ -12,6 +12,10 @@
   </p>
 </div>
 
+<p align="center">
+  <img src="assets/demo.gif" alt="EasyNotch 功能演示" width="640" />
+</p>
+
 EasyNotch 是一款为 macOS 刘海屏打造的轻量效率工具箱。它将音乐控制、文件暂存、AI 对话、剪贴板和专注计时等常用功能，集中在屏幕顶部，减少窗口切换，让信息与操作随手可得。
 
 ## 功能
