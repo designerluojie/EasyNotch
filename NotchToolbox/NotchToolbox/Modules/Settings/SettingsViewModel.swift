@@ -56,6 +56,21 @@ final class SettingsViewModel: ObservableObject {
         analyticsReporter = reporter
     }
 
+    /// 仅在取值真的发生变化时上报。菜单里重复点选当前已选中的项会照常调用 setter，
+    /// 但那并不是一次「设置变更」，计入会让数据虚高——看上去用户在频繁改设置，
+    /// 实际只是翻了翻菜单。
+    private func trackSettingChange<T: Equatable>(
+        _ key: String,
+        from oldValue: T,
+        to newValue: T,
+        display: String
+    ) {
+        guard oldValue != newValue else {
+            return
+        }
+        analyticsReporter?.track(.settingChanged(key: key, value: display))
+    }
+
     var sortableModuleOrder: [NotchModuleID] {
         let configured = settings.moduleOrder.filter { $0 != .settings }
         return configured.isEmpty
@@ -64,21 +79,24 @@ final class SettingsViewModel: ObservableObject {
     }
 
     func setLaunchAtLogin(_ value: Bool) {
+        let oldValue = settings.launchAtLogin
         update { $0.launchAtLogin = value }
-        analyticsReporter?.track(.settingChanged(key: "launchAtLogin", value: "\(value)"))
+        trackSettingChange("launchAtLogin", from: oldValue, to: value, display: "\(value)")
     }
 
     func setAnalyticsEnabled(_ value: Bool) {
+        let oldValue = settings.isAnalyticsEnabled
         update { $0.isAnalyticsEnabled = value }
         // 仅在开启时上报；关闭动作若也上报，等于在用户已表达拒绝后仍发一次
         if value {
-            analyticsReporter?.track(.settingChanged(key: "isAnalyticsEnabled", value: "true"))
+            trackSettingChange("isAnalyticsEnabled", from: oldValue, to: value, display: "true")
         }
     }
 
     func setGlobalShortcutEnabled(_ value: Bool) {
+        let oldValue = settings.isGlobalShortcutEnabled
         update { $0.isGlobalShortcutEnabled = value }
-        analyticsReporter?.track(.settingChanged(key: "isGlobalShortcutEnabled", value: "\(value)"))
+        trackSettingChange("isGlobalShortcutEnabled", from: oldValue, to: value, display: "\(value)")
     }
 
     func setGlobalShortcut(_ value: KeyboardShortcutDescriptor) {
@@ -86,18 +104,21 @@ final class SettingsViewModel: ObservableObject {
     }
 
     func setSimulateNotch(_ value: Bool) {
+        let oldValue = settings.simulateNotchOnNonNotchScreen
         update { $0.simulateNotchOnNonNotchScreen = value }
-        analyticsReporter?.track(.settingChanged(key: "simulateNotchOnNonNotchScreen", value: "\(value)"))
+        trackSettingChange("simulateNotchOnNonNotchScreen", from: oldValue, to: value, display: "\(value)")
     }
 
     func setAnimationMode(_ value: AnimationMode) {
+        let oldValue = settings.animationMode
         update { $0.animationMode = value }
-        analyticsReporter?.track(.settingChanged(key: "animationMode", value: value.rawValue))
+        trackSettingChange("animationMode", from: oldValue, to: value, display: value.rawValue)
     }
 
     func setAnimationSpeed(_ value: AnimationSpeed) {
+        let oldValue = settings.animationSpeed
         update { $0.animationSpeed = value }
-        analyticsReporter?.track(.settingChanged(key: "animationSpeed", value: value.rawValue))
+        trackSettingChange("animationSpeed", from: oldValue, to: value, display: value.rawValue)
     }
 
     func setModuleOrder(_ value: [NotchModuleID]) {
@@ -127,26 +148,30 @@ final class SettingsViewModel: ObservableObject {
     }
 
     func setFileStashCleanupPolicy(_ value: CleanupPolicy) {
+        let oldValue = settings.fileStashAutoCleanupPolicy
         update { $0.fileStashAutoCleanupPolicy = value }
-        analyticsReporter?.track(.settingChanged(key: "fileStashAutoCleanupPolicy", value: value.rawValue))
+        trackSettingChange("fileStashAutoCleanupPolicy", from: oldValue, to: value, display: value.rawValue)
     }
 
     func setClipboardMaxItems(_ value: Int) {
         guard supportedClipboardMaxItems.contains(value) else {
             return
         }
+        let oldValue = settings.clipboardMaxItems
         update { $0.clipboardMaxItems = value }
-        analyticsReporter?.track(.settingChanged(key: "clipboardMaxItems", value: "\(value)"))
+        trackSettingChange("clipboardMaxItems", from: oldValue, to: value, display: "\(value)")
     }
 
     func setClipboardCleanupPolicy(_ value: CleanupPolicy) {
+        let oldValue = settings.clipboardAutoCleanupPolicy
         update { $0.clipboardAutoCleanupPolicy = value }
-        analyticsReporter?.track(.settingChanged(key: "clipboardAutoCleanupPolicy", value: value.rawValue))
+        trackSettingChange("clipboardAutoCleanupPolicy", from: oldValue, to: value, display: value.rawValue)
     }
 
     func setAIChatHistoryRetention(_ value: AIChatHistoryRetention) {
+        let oldValue = settings.aiChatHistoryRetention
         update { $0.aiChatHistoryRetention = value }
-        analyticsReporter?.track(.settingChanged(key: "aiChatHistoryRetention", value: value.rawValue))
+        trackSettingChange("aiChatHistoryRetention", from: oldValue, to: value, display: value.rawValue)
     }
 
     func beginProviderConfiguration(_ provider: AIProviderKind) {
