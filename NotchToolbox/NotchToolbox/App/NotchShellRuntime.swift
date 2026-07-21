@@ -60,7 +60,8 @@ final class NotchShellRuntime: NSObject {
             panelPresenter: panelPresenter,
             primaryScreenID: primaryScreenID,
             simulateNotchOnNonNotchScreen: simulateNotchOnNonNotchScreen,
-            lifecycleDispatcher: lifecycleDispatcher
+            lifecycleDispatcher: lifecycleDispatcher,
+            analyticsReporter: compositionRoot.analyticsReporter
         )
         self.onboardingCoordinator = OnboardingCoordinator(
             compositionRoot: compositionRoot,
