@@ -18,9 +18,14 @@ struct AnalyticsTransportTests {
         #expect(request.url?.absoluteString == "https://cloud.umami.is/api/send")
         #expect(request.httpMethod == "POST")
         #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
-        // Umami 没有 User-Agent 会直接拒绝请求
+
+        // Umami Cloud 会对非浏览器形态的 User-Agent 做机器人拦截：返回 200 但丢弃数据
+        // （响应体是 {"beep":"boop"} 而非正常的 {"cache":"..."}）。实测 "EasyNotch (macOS)"
+        // 被拦，标准浏览器 UA 才被接收。这里锁住浏览器形态 + 保留 EasyNotch 来源标识。
         let userAgent = try #require(request.value(forHTTPHeaderField: "User-Agent"))
-        #expect(userAgent.isEmpty == false)
+        #expect(userAgent.hasPrefix("Mozilla/5.0"))
+        #expect(userAgent.contains("Macintosh"))
+        #expect(userAgent.contains("EasyNotch/"))
 
         let body = try #require(request.httpBody)
         let json = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
@@ -51,6 +56,21 @@ struct AnalyticsTransportTests {
 
         #expect(config.websiteID == "abc-123")
         #expect(config.endpoint.absoluteString == "https://cloud.umami.is/api/send")
+    }
+
+    // 机器人拦截与正常接收都是 HTTP 200，只有响应体不同。仅看状态码会把被丢弃的
+    // 数据误判为送达，从而保留去重标记、当天不再重试。
+    @Test func botBlockedResponseBodyIsNotTreatedAsDelivered() {
+        let blocked = Data(#"{"beep":"boop"}"#.utf8)
+        let accepted = Data(#"{"cache":"eyJhbGciOiJIUzI1NiJ9.payload.sig"}"#.utf8)
+
+        #expect(UmamiAnalyticsTransport.isAcceptedResponseBody(blocked) == false)
+        #expect(UmamiAnalyticsTransport.isAcceptedResponseBody(accepted))
+    }
+
+    // 解析不了的响应体不武断判负：状态码已是 2xx，按送达处理，避免无谓重试
+    @Test func unparseableResponseBodyIsTreatedAsDelivered() {
+        #expect(UmamiAnalyticsTransport.isAcceptedResponseBody(Data("ok".utf8)))
     }
 
     // 未配置 Umami 时用的空实现：不产生副作用，且视为"成功"——
