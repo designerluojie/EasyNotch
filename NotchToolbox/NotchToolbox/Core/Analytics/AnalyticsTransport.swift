@@ -51,6 +51,16 @@ nonisolated struct UmamiAnalyticsTransport: AnalyticsTransport {
     /// Umami 用 hostname 归类来源。原生 App 没有域名，用固定标识占位。
     static let hostname = "app.easynotch"
 
+    /// Umami Cloud 对非浏览器形态的 User-Agent 做机器人拦截——返回 200 但静默丢弃数据
+    /// （响应体为 {"beep":"boop"}，而非正常的 {"cache":"..."}）。实测 "EasyNotch (macOS)"
+    /// 会被拦掉，必须是浏览器形态才被接收。这里用标准 macOS Chrome UA 打底，
+    /// 尾部保留 EasyNotch/版本 以便在后台仍能识别真实来源，而非纯粹伪装成浏览器。
+    static var userAgent: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+        return "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+            + "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 EasyNotch/\(version)"
+    }
+
     static func makeRequest(
         configuration: UmamiConfiguration,
         name: String,
@@ -71,8 +81,7 @@ nonisolated struct UmamiAnalyticsTransport: AnalyticsTransport {
         var request = URLRequest(url: configuration.endpoint)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        // Umami 对缺少 User-Agent 的请求直接返回 403
-        request.setValue("EasyNotch (macOS)", forHTTPHeaderField: "User-Agent")
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         request.httpBody = data
         request.timeoutInterval = 10
         return request
@@ -90,10 +99,23 @@ nonisolated struct UmamiAnalyticsTransport: AnalyticsTransport {
         }
 
         // 失败静默：不落盘、不向用户暴露；只把结果告知调用方用于去重撤销
-        guard let (_, response) = try? await session.data(for: request),
-              let httpResponse = response as? HTTPURLResponse else {
+        guard let (data, response) = try? await session.data(for: request),
+              let httpResponse = response as? HTTPURLResponse,
+              (200...299).contains(httpResponse.statusCode) else {
             return false
         }
-        return (200...299).contains(httpResponse.statusCode)
+
+        // 机器人拦截也是 200，只有响应体不同——仅看状态码会把被丢弃的数据误判为送达，
+        // 进而错误地保留去重标记，当天不再重试。
+        return Self.isAcceptedResponseBody(data)
+    }
+
+    /// Umami 接收成功返回 `{"cache":"<token>"}`；被机器人拦截返回 `{"beep":"boop"}`。
+    static func isAcceptedResponseBody(_ data: Data) -> Bool {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            // 响应体解析不了时不武断判负：状态码已是 2xx，按送达处理，避免无谓重试
+            return true
+        }
+        return json["beep"] == nil
     }
 }
