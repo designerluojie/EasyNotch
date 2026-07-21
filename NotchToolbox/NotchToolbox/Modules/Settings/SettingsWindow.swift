@@ -1326,15 +1326,17 @@ private struct SettingsAboutToggleRow: View {
                     }
                     .overlay(alignment: .topLeading) {
                         if isTooltipVisible {
+                            // 限宽换行：单行放不下这句话，会被设置窗口的圆角裁切
                             Text(Self.tooltipText)
-                                .font(SettingsWindowTheme.bodyFont)
+                                .font(.system(size: 11, weight: .regular))
                                 .foregroundStyle(.white)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(width: 180, alignment: .leading)
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 6)
                                 .background(SettingsFloatingMenuBackground())
                                 .clipShape(RoundedRectangle(cornerRadius: SettingsFloatingMenuMetrics.cornerRadius, style: .continuous))
-                                .fixedSize()
-                                .offset(x: -12, y: -34)
+                                .offset(x: -12, y: -46)
                                 .allowsHitTesting(false)
                                 .transition(.opacity)
                         }
