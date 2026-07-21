@@ -6,6 +6,7 @@ struct SettingsWindow: View {
     @ObservedObject var viewModel: SettingsViewModel
     @ObservedObject var updateController: AppUpdateController
     let onClose: () -> Void
+    let analyticsReporter: AnalyticsReporter?
 
     @State private var selectedTab: SettingsTab = .general
     @State private var isTrafficHovered = false
@@ -89,6 +90,12 @@ struct SettingsWindow: View {
         .frame(width: SettingsWindowMetrics.outerSize.width, height: SettingsWindowMetrics.outerSize.height)
         .preferredColorScheme(.dark)
         .animation(.easeOut(duration: 0.12), value: viewModel.providerDraft)
+        .onAppear {
+            analyticsReporter?.track(.settingsPaneViewed(pane: selectedTab.analyticsName))
+        }
+        .onChange(of: selectedTab) { newValue in
+            analyticsReporter?.track(.settingsPaneViewed(pane: newValue.analyticsName))
+        }
     }
 
     private var sidebar: some View {
@@ -127,7 +134,7 @@ struct SettingsWindow: View {
             case .features:
                 SettingsFeaturesPane(viewModel: viewModel)
             case .about:
-                SettingsAboutPane(updateController: updateController)
+                SettingsAboutPane(updateController: updateController, viewModel: viewModel)
             }
         }
     }
@@ -394,6 +401,7 @@ private struct SettingsFeaturesScrollMetricsKey: PreferenceKey {
 
 private struct SettingsAboutPane: View {
     @ObservedObject var updateController: AppUpdateController
+    @ObservedObject var viewModel: SettingsViewModel
     @StateObject private var toast = PanelToastPresenter()
 
     var body: some View {
@@ -471,6 +479,12 @@ private struct SettingsAboutPane: View {
             }
             .frame(height: 36)
             .padding(.horizontal, 16)
+
+            SettingsAboutToggleRow(
+                title: "优化改进计划",
+                isOn: viewModel.settings.isAnalyticsEnabled,
+                action: { viewModel.setAnalyticsEnabled(!viewModel.settings.isAnalyticsEnabled) }
+            )
 
             Spacer()
         }
@@ -1274,6 +1288,78 @@ private struct SettingsValuePill: View {
     }
 }
 
+/// 「关于」页专用的开关行：标题在左，勾选控件在右。
+/// 与该页其它行（了解我们 / 反馈问题）保持「左标题、右控件」的布局，
+/// 而非通用的 SettingsCheckboxRow（那个是勾选框在左）。
+///
+/// 采集边界放在悬停提示里而非副标题：界面保持简洁，但用户想了解时仍能看到，
+/// 这是本 App 唯一的埋点告知载体（官网不另设隐私说明页）。
+private struct SettingsAboutToggleRow: View {
+    let title: String
+    let isOn: Bool
+    let action: () -> Void
+
+    @State private var isInfoHovered = false
+    @State private var isTooltipVisible = false
+    @State private var tooltipTask: Task<Void, Never>?
+
+    private static let tooltipText = "仅统计功能使用次数，不含任何个人信息与聊天内容"
+
+    var body: some View {
+        Button(action: action) {
+            HStack(alignment: .center, spacing: 6) {
+                Text(title)
+                    .font(SettingsWindowTheme.bodyFont)
+                    .foregroundStyle(.white)
+                // 采集边界的告知载体（官网不另设隐私说明页）：悬停图标显示说明。
+                // 系统 .help 在这个自定义面板窗口里不弹，改为自绘 tooltip——
+                // 悬停 0.5s 后出现，配色与设置页下拉菜单一致。
+                Image(systemName: "info.circle")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white.opacity(isInfoHovered ? 0.9 : 0.4))
+                    .animation(.easeOut(duration: 0.12), value: isInfoHovered)
+                    .onHover { hovering in
+                        isInfoHovered = hovering
+                        tooltipTask?.cancel()
+                        if hovering {
+                            tooltipTask = Task {
+                                try? await Task.sleep(for: .milliseconds(500))
+                                guard Task.isCancelled == false else { return }
+                                isTooltipVisible = true
+                            }
+                        } else {
+                            isTooltipVisible = false
+                        }
+                    }
+                    .overlay(alignment: .topLeading) {
+                        if isTooltipVisible {
+                            // 限宽换行：单行放不下这句话，会被设置窗口的圆角裁切
+                            Text(Self.tooltipText)
+                                .font(.system(size: 11, weight: .regular))
+                                .foregroundStyle(.white)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(width: 180, alignment: .leading)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(SettingsFloatingMenuBackground())
+                                .clipShape(RoundedRectangle(cornerRadius: SettingsFloatingMenuMetrics.cornerRadius, style: .continuous))
+                                .offset(x: -12, y: -46)
+                                .allowsHitTesting(false)
+                                .transition(.opacity)
+                        }
+                    }
+                    .animation(.easeOut(duration: 0.12), value: isTooltipVisible)
+                Spacer()
+                SettingsCheckboxGlyph(isOn: isOn)
+            }
+            .frame(height: 36)
+            .padding(.horizontal, 16)
+        }
+        .buttonStyle(.plain)
+        .contentShape(Rectangle())
+    }
+}
+
 private struct SettingsTextButton: View {
     let title: String
     let action: () -> Void
@@ -1421,6 +1507,14 @@ private enum SettingsTab: CaseIterable, Identifiable {
             return "SettingsTabFunctionIcon"
         case .about:
             return "SettingsTabInfoIcon"
+        }
+    }
+
+    var analyticsName: String {
+        switch self {
+        case .general: return "general"
+        case .features: return "features"
+        case .about: return "about"
         }
     }
 }

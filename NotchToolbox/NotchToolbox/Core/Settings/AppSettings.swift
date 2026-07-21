@@ -73,6 +73,7 @@ nonisolated struct AppSettings: Codable, Equatable {
     var aiChatHistoryRetention: AIChatHistoryRetention
     var lastAIChatHistoryPrunedAt: Date?
     var hasCompletedOnboarding: Bool
+    var isAnalyticsEnabled: Bool
 
     init(
         launchAtLogin: Bool,
@@ -88,7 +89,8 @@ nonisolated struct AppSettings: Codable, Equatable {
         aiProviderConfigSummaries: [AIProviderConfigSummary],
         aiChatHistoryRetention: AIChatHistoryRetention = .threeMonths,
         lastAIChatHistoryPrunedAt: Date? = nil,
-        hasCompletedOnboarding: Bool = false
+        hasCompletedOnboarding: Bool = false,
+        isAnalyticsEnabled: Bool = true
     ) {
         self.launchAtLogin = launchAtLogin
         self.isGlobalShortcutEnabled = isGlobalShortcutEnabled
@@ -104,6 +106,7 @@ nonisolated struct AppSettings: Codable, Equatable {
         self.aiChatHistoryRetention = aiChatHistoryRetention
         self.lastAIChatHistoryPrunedAt = lastAIChatHistoryPrunedAt
         self.hasCompletedOnboarding = hasCompletedOnboarding
+        self.isAnalyticsEnabled = isAnalyticsEnabled
     }
 
     static let defaultValue = AppSettings(
@@ -120,7 +123,8 @@ nonisolated struct AppSettings: Codable, Equatable {
         clipboardMaxItems: 20,
         clipboardAutoCleanupPolicy: .none,
         fileStashAutoCleanupPolicy: .none,
-        aiProviderConfigSummaries: AIProviderConfigSummary.defaultSummaries
+        aiProviderConfigSummaries: AIProviderConfigSummary.defaultSummaries,
+        isAnalyticsEnabled: true
     )
 }
 
@@ -140,6 +144,7 @@ extension AppSettings {
         case aiChatHistoryRetention
         case lastAIChatHistoryPrunedAt
         case hasCompletedOnboarding
+        case isAnalyticsEnabled
     }
 
     nonisolated init(from decoder: Decoder) throws {
@@ -163,7 +168,9 @@ extension AppSettings {
             ),
             aiChatHistoryRetention: try container.decodeIfPresent(AIChatHistoryRetention.self, forKey: .aiChatHistoryRetention) ?? defaults.aiChatHistoryRetention,
             lastAIChatHistoryPrunedAt: try container.decodeIfPresent(Date.self, forKey: .lastAIChatHistoryPrunedAt),
-            hasCompletedOnboarding: try container.decodeIfPresent(Bool.self, forKey: .hasCompletedOnboarding) ?? defaults.hasCompletedOnboarding
+            hasCompletedOnboarding: try container.decodeIfPresent(Bool.self, forKey: .hasCompletedOnboarding) ?? defaults.hasCompletedOnboarding,
+            // 老版本的配置文件没有这个键；缺省视为开启，与全新安装保持一致
+            isAnalyticsEnabled: try container.decodeIfPresent(Bool.self, forKey: .isAnalyticsEnabled) ?? defaults.isAnalyticsEnabled
         )
     }
 

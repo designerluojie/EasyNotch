@@ -11,6 +11,7 @@ final class OverlayCoordinator {
     private let lifecycleDispatcher: ModuleLifecycleDispatcher
     private let interactionStateMachine: InteractionStateMachine
     private let energyGovernor: EnergyGovernor
+    private let analyticsReporter: AnalyticsReporter?
     private var simulateNotchOnNonNotchScreen: Bool
 
     private var profiles: [ScreenProfile] = []
@@ -27,7 +28,8 @@ final class OverlayCoordinator {
         geometryCalculator: AnchorGeometryCalculator? = nil,
         lifecycleDispatcher: ModuleLifecycleDispatcher? = nil,
         interactionStateMachine: InteractionStateMachine = InteractionStateMachine(),
-        energyGovernor: EnergyGovernor? = nil
+        energyGovernor: EnergyGovernor? = nil,
+        analyticsReporter: AnalyticsReporter? = nil
     ) {
         self.compositionRoot = compositionRoot
         self.topologyProvider = topologyProvider
@@ -39,6 +41,7 @@ final class OverlayCoordinator {
         self.lifecycleDispatcher = lifecycleDispatcher ?? ModuleLifecycleDispatcher()
         self.interactionStateMachine = interactionStateMachine
         self.energyGovernor = energyGovernor ?? compositionRoot.energyGovernor
+        self.analyticsReporter = analyticsReporter
     }
 
     func start() {
@@ -482,6 +485,10 @@ final class OverlayCoordinator {
         default:
             lifecycleDispatcher.send(.moduleDidAppear, to: moduleID)
             lifecycleDispatcher.send(.panelDidExpand(screenID: targetScreenID), to: moduleID)
+            // 从收起态展开 = 当天的一次「使用」。模块本身的上报收口在
+            // AppCompositionRoot.selectActiveModule，那条路径覆盖面板内切换标签页，
+            // 这里再报一次会重复。
+            analyticsReporter?.track(.appActive)
         }
     }
 }
