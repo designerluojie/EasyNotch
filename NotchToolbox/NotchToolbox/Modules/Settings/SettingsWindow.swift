@@ -6,6 +6,7 @@ struct SettingsWindow: View {
     @ObservedObject var viewModel: SettingsViewModel
     @ObservedObject var updateController: AppUpdateController
     let onClose: () -> Void
+    let analyticsReporter: AnalyticsReporter?
 
     @State private var selectedTab: SettingsTab = .general
     @State private var isTrafficHovered = false
@@ -89,6 +90,12 @@ struct SettingsWindow: View {
         .frame(width: SettingsWindowMetrics.outerSize.width, height: SettingsWindowMetrics.outerSize.height)
         .preferredColorScheme(.dark)
         .animation(.easeOut(duration: 0.12), value: viewModel.providerDraft)
+        .onAppear {
+            analyticsReporter?.track(.settingsPaneViewed(pane: selectedTab.analyticsName))
+        }
+        .onChange(of: selectedTab) { newValue in
+            analyticsReporter?.track(.settingsPaneViewed(pane: newValue.analyticsName))
+        }
     }
 
     private var sidebar: some View {
@@ -1500,6 +1507,14 @@ private enum SettingsTab: CaseIterable, Identifiable {
             return "SettingsTabFunctionIcon"
         case .about:
             return "SettingsTabInfoIcon"
+        }
+    }
+
+    var analyticsName: String {
+        switch self {
+        case .general: return "general"
+        case .features: return "features"
+        case .about: return "about"
         }
     }
 }

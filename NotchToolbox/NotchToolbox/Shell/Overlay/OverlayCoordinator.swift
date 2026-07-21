@@ -11,6 +11,7 @@ final class OverlayCoordinator {
     private let lifecycleDispatcher: ModuleLifecycleDispatcher
     private let interactionStateMachine: InteractionStateMachine
     private let energyGovernor: EnergyGovernor
+    private let analyticsReporter: AnalyticsReporter?
     private var simulateNotchOnNonNotchScreen: Bool
 
     private var profiles: [ScreenProfile] = []
@@ -27,7 +28,8 @@ final class OverlayCoordinator {
         geometryCalculator: AnchorGeometryCalculator? = nil,
         lifecycleDispatcher: ModuleLifecycleDispatcher? = nil,
         interactionStateMachine: InteractionStateMachine = InteractionStateMachine(),
-        energyGovernor: EnergyGovernor? = nil
+        energyGovernor: EnergyGovernor? = nil,
+        analyticsReporter: AnalyticsReporter? = nil
     ) {
         self.compositionRoot = compositionRoot
         self.topologyProvider = topologyProvider
@@ -39,6 +41,7 @@ final class OverlayCoordinator {
         self.lifecycleDispatcher = lifecycleDispatcher ?? ModuleLifecycleDispatcher()
         self.interactionStateMachine = interactionStateMachine
         self.energyGovernor = energyGovernor ?? compositionRoot.energyGovernor
+        self.analyticsReporter = analyticsReporter
     }
 
     func start() {
@@ -475,6 +478,7 @@ final class OverlayCoordinator {
         case .expanded(let previousScreenID, let previousModuleID):
             if previousModuleID != moduleID {
                 lifecycleDispatcher.send(.moduleDidAppear, to: moduleID)
+                analyticsReporter?.track(.moduleOpened(moduleID))
             }
             if previousScreenID != targetScreenID {
                 lifecycleDispatcher.send(.screenDidMigrate(to: targetScreenID), to: previousModuleID)
@@ -482,6 +486,9 @@ final class OverlayCoordinator {
         default:
             lifecycleDispatcher.send(.moduleDidAppear, to: moduleID)
             lifecycleDispatcher.send(.panelDidExpand(screenID: targetScreenID), to: moduleID)
+            // 从收起态展开：既是当天的一次「使用」，也是打开了某个模块
+            analyticsReporter?.track(.appActive)
+            analyticsReporter?.track(.moduleOpened(moduleID))
         }
     }
 }

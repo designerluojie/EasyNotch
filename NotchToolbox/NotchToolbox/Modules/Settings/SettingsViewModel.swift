@@ -20,6 +20,7 @@ final class SettingsViewModel: ObservableObject {
     private let configurationService: AIProviderConfigurationService?
     private let metadataStore: (any AIProviderMetadataStore)?
     private var cancellables: Set<AnyCancellable> = []
+    private var analyticsReporter: AnalyticsReporter?
 
     init(
         settingsStore: SettingsStore,
@@ -51,6 +52,10 @@ final class SettingsViewModel: ObservableObject {
             .store(in: &cancellables)
     }
 
+    func attachAnalytics(_ reporter: AnalyticsReporter) {
+        analyticsReporter = reporter
+    }
+
     var sortableModuleOrder: [NotchModuleID] {
         let configured = settings.moduleOrder.filter { $0 != .settings }
         return configured.isEmpty
@@ -60,14 +65,20 @@ final class SettingsViewModel: ObservableObject {
 
     func setLaunchAtLogin(_ value: Bool) {
         update { $0.launchAtLogin = value }
+        analyticsReporter?.track(.settingChanged(key: "launchAtLogin", value: "\(value)"))
     }
 
     func setAnalyticsEnabled(_ value: Bool) {
         update { $0.isAnalyticsEnabled = value }
+        // 仅在开启时上报；关闭动作若也上报，等于在用户已表达拒绝后仍发一次
+        if value {
+            analyticsReporter?.track(.settingChanged(key: "isAnalyticsEnabled", value: "true"))
+        }
     }
 
     func setGlobalShortcutEnabled(_ value: Bool) {
         update { $0.isGlobalShortcutEnabled = value }
+        analyticsReporter?.track(.settingChanged(key: "isGlobalShortcutEnabled", value: "\(value)"))
     }
 
     func setGlobalShortcut(_ value: KeyboardShortcutDescriptor) {
@@ -76,14 +87,17 @@ final class SettingsViewModel: ObservableObject {
 
     func setSimulateNotch(_ value: Bool) {
         update { $0.simulateNotchOnNonNotchScreen = value }
+        analyticsReporter?.track(.settingChanged(key: "simulateNotchOnNonNotchScreen", value: "\(value)"))
     }
 
     func setAnimationMode(_ value: AnimationMode) {
         update { $0.animationMode = value }
+        analyticsReporter?.track(.settingChanged(key: "animationMode", value: value.rawValue))
     }
 
     func setAnimationSpeed(_ value: AnimationSpeed) {
         update { $0.animationSpeed = value }
+        analyticsReporter?.track(.settingChanged(key: "animationSpeed", value: value.rawValue))
     }
 
     func setModuleOrder(_ value: [NotchModuleID]) {
@@ -114,6 +128,7 @@ final class SettingsViewModel: ObservableObject {
 
     func setFileStashCleanupPolicy(_ value: CleanupPolicy) {
         update { $0.fileStashAutoCleanupPolicy = value }
+        analyticsReporter?.track(.settingChanged(key: "fileStashAutoCleanupPolicy", value: value.rawValue))
     }
 
     func setClipboardMaxItems(_ value: Int) {
@@ -121,14 +136,17 @@ final class SettingsViewModel: ObservableObject {
             return
         }
         update { $0.clipboardMaxItems = value }
+        analyticsReporter?.track(.settingChanged(key: "clipboardMaxItems", value: "\(value)"))
     }
 
     func setClipboardCleanupPolicy(_ value: CleanupPolicy) {
         update { $0.clipboardAutoCleanupPolicy = value }
+        analyticsReporter?.track(.settingChanged(key: "clipboardAutoCleanupPolicy", value: value.rawValue))
     }
 
     func setAIChatHistoryRetention(_ value: AIChatHistoryRetention) {
         update { $0.aiChatHistoryRetention = value }
+        analyticsReporter?.track(.settingChanged(key: "aiChatHistoryRetention", value: value.rawValue))
     }
 
     func beginProviderConfiguration(_ provider: AIProviderKind) {
