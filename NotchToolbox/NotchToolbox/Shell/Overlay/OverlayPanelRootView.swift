@@ -19,12 +19,9 @@ struct OverlayPanelRootView: View {
     var body: some View {
         let visualState = OverlayPanelRootPresentation.visualState(for: panelModel.state)
         let showsHoverChrome = panelModel.state.isHoverHint || (panelModel.state.isIdle && panelModel.previousState?.isHoverHint == true)
-        let showsExpandedChrome = panelModel.state.isExpandedLike || (panelModel.state.isIdle && panelModel.previousState?.isExpandedLike == true)
-        let suppressRestChrome = OverlayPanelRootPresentation.shouldSuppressRestChromeDuringExpandedCarryover(
-            currentState: panelModel.state,
-            previousState: panelModel.previousState
-        )
-        let usesRootHoverTracking = OverlayPanelRootPresentation.shouldUseRootHoverTracking(for: panelModel.state)
+        let hasExpandedTransitionSession = panelModel.expandedCollapseTarget != nil
+        let showsExpandedChrome = panelModel.state.isExpandedLike || hasExpandedTransitionSession
+        let suppressRestChrome = hasExpandedTransitionSession && panelModel.state.isRestLike
         let restTransition = restVariantTransition
 
         ZStack(alignment: .top) {
@@ -48,7 +45,6 @@ struct OverlayPanelRootView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .preferredColorScheme(.dark)
-        .contentShape(Rectangle())
         .onDrop(
             of: [UTType.fileURL.identifier],
             delegate: ShellFileDropDelegate(
@@ -56,20 +52,6 @@ struct OverlayPanelRootView: View {
                 interactions: interactions
             )
         )
-        .onHover { isInside in
-            guard usesRootHoverTracking else {
-                return
-            }
-
-            if isInside {
-                interactions.pointerEntered(screenID: panelModel.screenID)
-            } else if shouldHonorExpandedHoverExit() {
-                // Moving onto interactive content inside the expanded panel makes
-                // SwiftUI report the root as un-hovered; only collapse if the real
-                // cursor has actually left the expanded frame.
-                interactions.pointerExited(screenID: panelModel.screenID)
-            }
-        }
     }
 
     @ViewBuilder
@@ -96,54 +78,51 @@ struct OverlayPanelRootView: View {
     }
 
     private var invisibleHotzoneButton: some View {
-        Button {
-            interactions.expand(screenID: panelModel.screenID)
-        } label: {
-            Color.clear
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .contentShape(Rectangle())
+        GeometryReader { proxy in
+            transparentIdleHitTarget(in: proxy.size)
         }
-        .buttonStyle(ShellChromeButtonStyle())
     }
 
     private var simulatedIdleNotchButton: some View {
-        Button {
-            interactions.expand(screenID: panelModel.screenID)
-        } label: {
-            ZStack(alignment: .top) {
+        GeometryReader { proxy in
+            let hitFrame = transparentIdleHitFrame(in: proxy.size)
+
+            ZStack(alignment: .topLeading) {
                 Color.clear
 
                 FigmaHoverNotchShape()
                     .fill(OverlayPanelChromeColors.shellFill)
                     .frame(
-                        width: topAttachedIdleBodyWidth,
+                        width: hitFrame.width,
                         height: panelModel.geometry?.idleVisibleHeight ?? 30
                     )
+                    .offset(x: hitFrame.minX, y: hitFrame.minY)
+
+                transparentIdleHitTarget(in: proxy.size)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .contentShape(Rectangle())
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .buttonStyle(ShellChromeButtonStyle())
     }
 
     private var centerHandlerIdleStripButton: some View {
-        Button {
-            interactions.expand(screenID: panelModel.screenID)
-        } label: {
-            ZStack(alignment: .top) {
+        GeometryReader { proxy in
+            let hitFrame = transparentIdleHitFrame(in: proxy.size)
+
+            ZStack(alignment: .topLeading) {
                 Color.clear
 
                 ShallowAttachedNotchShape()
                     .fill(OverlayPanelChromeColors.shellFill)
                     .frame(
-                        width: topAttachedIdleBodyWidth,
+                        width: hitFrame.width,
                         height: panelModel.geometry?.idleVisibleHeight ?? 6
                     )
+                    .offset(x: hitFrame.minX, y: hitFrame.minY)
+
+                transparentIdleHitTarget(in: proxy.size)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .contentShape(Rectangle())
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .buttonStyle(ShellChromeButtonStyle())
     }
 
     private var hoverHintBody: some View {
@@ -161,7 +140,17 @@ struct OverlayPanelRootView: View {
                         bodyFrame: hoverBodyFrame,
                         initialVisibleHeight: hoverInitialVisibleHeight,
                         isActive: panelModel.state.isHoverHint,
-                        animationPolicy: animationPolicy
+                        animationPolicy: animationPolicy,
+                        onPointerEntered: {
+                            interactions.pointerEntered(screenID: panelModel.screenID)
+                        },
+                        onPointerExited: {
+                            guard compositionRoot.suppressesPointerExitCollapse == false else {
+                                return
+                            }
+
+                            interactions.pointerExited(screenID: panelModel.screenID)
+                        }
                     ) {
                         interactions.expand(screenID: panelModel.screenID)
                     }
@@ -211,9 +200,17 @@ struct OverlayPanelRootView: View {
         shadowMetrics: NotchShadowMetrics
     ) -> some View {
         GeometryReader { proxy in
+            // Keep the hover target large enough for both the idle and hover
+            // bodies. The wide music strip grows from 32pt to 40pt when the
+            // pointer enters; if the hit target grows with it, a pointer near
+            // the lower edge can immediately be reported as exited again,
+            // causing the strip to oscillate between idle and hover.
             let bodyHitFrame = OverlayPanelRootPresentation.restVariantBodyHitFrame(
                 containerSize: proxy.size,
-                bodySize: bodySize
+                bodySize: restVariantHitBodySize(
+                    appearance: appearance,
+                    bodySize: bodySize
+                )
             )
 
             ZStack(alignment: .topLeading) {
@@ -252,6 +249,23 @@ struct OverlayPanelRootView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
+    }
+
+    private func restVariantHitBodySize(
+        appearance: OverlayPanelCollapsedAppearance,
+        bodySize: CGSize
+    ) -> CGSize {
+        guard appearance != .transparent,
+              let geometry = panelModel.geometry,
+              let request = currentRestVariantRequest else {
+            return bodySize
+        }
+
+        let hoverSize = geometry.visibleBodySize(for: request, isHovering: true)
+        return CGSize(
+            width: max(bodySize.width, hoverSize.width),
+            height: max(bodySize.height, hoverSize.height)
+        )
     }
 
     private func collapsedRestVariantChrome(
@@ -331,7 +345,7 @@ struct OverlayPanelRootView: View {
             isExpanding: isExpanding,
             defaultCollapseTargetSize: defaultCollapseTargetSize
         )
-        let transitionBottomCornerRadius = panelModel.state.isRestLike && panelModel.previousState?.isExpandedLike == true
+        let transitionBottomCornerRadius = panelModel.state.isRestLike && panelModel.expandedCollapseTarget != nil
             ? (panelModel.expandedCollapseTarget?.bottomCornerRadius ?? collapsedBottomCornerRadius(for: sourceAppearance))
             : collapsedBottomCornerRadius(for: sourceAppearance)
         return AnimatedExpandedChromeView(
@@ -351,6 +365,19 @@ struct OverlayPanelRootView: View {
             },
             onFileStashInternalDragStart: {
                 interactions.fileStashInternalDragStarted()
+            },
+            suppressesPointerExitCollapse: compositionRoot.suppressesPointerExitCollapse,
+            onPointerEntered: {
+                interactions.pointerEntered(screenID: panelModel.screenID)
+            },
+            onPointerExited: {
+                interactions.pointerExited(screenID: panelModel.screenID)
+            },
+            onActivate: {
+                interactions.expand(
+                    screenID: panelModel.screenID,
+                    moduleID: compositionRoot.activeModule
+                )
             }
         ) { appearance in
             restVariantContent(for: appearance)
@@ -360,18 +387,6 @@ struct OverlayPanelRootView: View {
             height: OverlayPanelChromeMetrics.expandedOuterSize(for: bodySize).height,
             alignment: .topLeading
         )
-        .contentShape(Rectangle())
-        .onHover { isInside in
-            if isInside {
-                interactions.pointerEntered(screenID: panelModel.screenID)
-            } else if shouldHonorExpandedHoverExit() {
-                interactions.pointerExited(screenID: panelModel.screenID)
-            }
-        }
-    }
-
-    private var topAttachedIdleBodyWidth: CGFloat {
-        panelModel.geometry?.idleFrame.width ?? 192
     }
 
     private var hoverBodyFrame: CGRect {
@@ -445,7 +460,7 @@ struct OverlayPanelRootView: View {
     }
 
     private var expandedCollapseRestContentAppearance: OverlayPanelCollapsedAppearance? {
-        guard panelModel.previousState?.isExpandedLike == true,
+        guard panelModel.state.isRestLike,
               let appearance = panelModel.expandedCollapseTarget?.appearance,
               appearance != .transparent else {
             return nil
@@ -532,8 +547,20 @@ struct OverlayPanelRootView: View {
             )
         }
 
+        if panelModel.state.isHoverHint {
+            let hoverSize = collapsedBodySize(
+                for: sourceAppearance,
+                request: currentRestVariantRequest,
+                isHovering: true,
+                defaultTransparentSize: OverlayPanelChromeMetrics.hoverBodySize
+            )
+            return centeredExpandedCollapseBodyFrame(
+                bodySize: bodySize,
+                collapsedSize: hoverSize
+            )
+        }
+
         if isExpanding == false,
-           panelModel.previousState?.isExpandedLike == true,
            let collapseTarget = panelModel.expandedCollapseTarget,
            let geometry = panelModel.geometry {
             let expandedOuterFrame = OverlayPanelChromeMetrics.expandedOuterFrame(
@@ -596,21 +623,33 @@ struct OverlayPanelRootView: View {
         }
     }
 
-    private func shouldHonorExpandedHoverExit(mouseLocation: CGPoint = NSEvent.mouseLocation) -> Bool {
-        guard compositionRoot.suppressesPointerExitCollapse == false else {
-            return false
-        }
+    private func transparentIdleHitTarget(in containerSize: CGSize) -> some View {
+        let hitFrame = transparentIdleHitFrame(in: containerSize)
 
-        guard panelModel.state.isExpandedLike,
-              let geometry = panelModel.geometry else {
-            return true
+        return Button {
+            interactions.expand(screenID: panelModel.screenID)
+        } label: {
+            Rectangle()
+                .fill(Color.black.opacity(OverlayPanelRootPresentation.restVariantHitTargetOpacity))
+                .frame(width: hitFrame.width, height: hitFrame.height)
+                .contentShape(Rectangle())
         }
+        .buttonStyle(ShellChromeButtonStyle())
+        .offset(x: hitFrame.minX, y: hitFrame.minY)
+        .onHover { isInside in
+            if isInside {
+                interactions.pointerEntered(screenID: panelModel.screenID)
+            } else if compositionRoot.suppressesPointerExitCollapse == false {
+                interactions.pointerExited(screenID: panelModel.screenID)
+            }
+        }
+    }
 
-        let expandedOuterFrame = OverlayPanelChromeMetrics.expandedOuterFrame(
-            for: compositionRoot.panelBodySize(for: compositionRoot.activeModule),
-            on: geometry.screenFrame
+    private func transparentIdleHitFrame(in containerSize: CGSize) -> CGRect {
+        OverlayPanelRootPresentation.transparentIdleBodyHitFrame(
+            containerSize: containerSize,
+            idleBodySize: panelModel.geometry?.idleFrame.size ?? containerSize
         )
-        return expandedOuterFrame.contains(mouseLocation) == false
     }
 
     private func animatedRestVariantTransitionButton(_ transition: RestVariantTransition) -> some View {
@@ -1160,30 +1199,45 @@ private struct AnimatedHoverChromeButton: View {
     let initialVisibleHeight: CGFloat
     let isActive: Bool
     let animationPolicy: NotchAnimationPolicy
+    let onPointerEntered: () -> Void
+    let onPointerExited: () -> Void
     let action: () -> Void
 
     @State private var currentVisibleHeight: CGFloat = OverlayPanelChromeMetrics.hoverBodySize.height
     @State private var currentShadowOpacity = OverlayPanelRootPresentation.hoverShadowEndOpacity
 
     var body: some View {
-        Button(action: action) {
-            ZStack(alignment: .topLeading) {
-                Color.clear
+        ZStack(alignment: .topLeading) {
+            Color.clear
 
-                VariableHeightHoverNotchShape(visibleHeight: currentVisibleHeight)
-                    .fill(OverlayPanelChromeColors.shellFill)
-                    .frame(width: bodyFrame.width, height: bodyFrame.height)
-                    .shadow(
-                        color: .black.opacity(currentShadowOpacity),
-                        radius: OverlayPanelChromeMetrics.hoverShadowRadius,
-                        y: OverlayPanelChromeMetrics.hoverShadowYOffset
-                    )
-                    .offset(x: bodyFrame.minX, y: bodyFrame.minY)
+            VariableHeightHoverNotchShape(visibleHeight: currentVisibleHeight)
+                .fill(OverlayPanelChromeColors.shellFill)
+                .frame(width: bodyFrame.width, height: bodyFrame.height)
+                .shadow(
+                    color: .black.opacity(currentShadowOpacity),
+                    radius: OverlayPanelChromeMetrics.hoverShadowRadius,
+                    y: OverlayPanelChromeMetrics.hoverShadowYOffset
+                )
+                .offset(x: bodyFrame.minX, y: bodyFrame.minY)
+                .allowsHitTesting(false)
+
+            Button(action: action) {
+                Rectangle()
+                    .fill(Color.black.opacity(OverlayPanelRootPresentation.restVariantHitTargetOpacity))
+                    .frame(width: bodyFrame.width, height: currentVisibleHeight)
+                    .contentShape(Rectangle())
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .contentShape(Rectangle())
+            .buttonStyle(ShellChromeButtonStyle())
+            .offset(x: bodyFrame.minX, y: bodyFrame.minY)
+            .onHover { isInside in
+                if isInside {
+                    onPointerEntered()
+                } else {
+                    onPointerExited()
+                }
+            }
         }
-        .buttonStyle(ShellChromeButtonStyle())
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
             currentVisibleHeight = isActive ? initialVisibleHeight : bodyFrame.height
             currentShadowOpacity = isActive
@@ -1307,6 +1361,10 @@ private struct AnimatedExpandedChromeView<CollapseContent: View>: View {
     let animationPolicy: NotchAnimationPolicy
     let onClipboardPasteSuccess: (() -> Void)?
     let onFileStashInternalDragStart: (() -> Void)?
+    let suppressesPointerExitCollapse: Bool
+    let onPointerEntered: () -> Void
+    let onPointerExited: () -> Void
+    let onActivate: () -> Void
     @ViewBuilder let collapseContent: (OverlayPanelCollapsedAppearance) -> CollapseContent
 
     @State private var expansionProgress: CGFloat = 1
@@ -1317,32 +1375,30 @@ private struct AnimatedExpandedChromeView<CollapseContent: View>: View {
     @State private var currentBodyHeight: CGFloat = 0
 
     var body: some View {
-        return GeometryReader { proxy in
-            let finalBodyFrame = OverlayPanelChromeMetrics.expandedBodyFrame(
-                for: bodySize,
-                in: proxy.size
+        // The panel may still report its old hover-sized GeometryReader bounds on
+        // the first layout pass. Its intended outer size is already known from
+        // `bodySize`, so use that stable coordinate space for the morph origin.
+        let finalBodyFrame = OverlayPanelChromeMetrics.expandedBodyFrame(for: bodySize)
+        let animationTarget = AnimationTarget(
+            isActive: isActive,
+            finalBodyFrame: finalBodyFrame,
+            collapsedBodyFrame: collapsedBodyFrame
+        )
+        let bodyFrame = currentBodyFrame(finalBodyFrame: finalBodyFrame)
+        let contentMaskFrame = OverlayPanelRootPresentation.expandedContentMaskFrame(
+            bodyFrame: bodyFrame,
+            expandedBodyFrame: finalBodyFrame
+        )
+        let collapseContentFrame = collapseRestAppearance.map {
+            OverlayPanelRootPresentation.restVariantContentFrame(
+                for: $0,
+                bodySize: collapsedBodyFrame.size
             )
-            let animationTarget = AnimationTarget(
-                isActive: isActive,
-                finalBodyFrame: finalBodyFrame,
-                collapsedBodyFrame: collapsedBodyFrame
-            )
-            let bodyFrame = currentBodyFrame(
-                finalBodyFrame: finalBodyFrame
-            )
-            let contentMaskFrame = OverlayPanelRootPresentation.expandedContentMaskFrame(
-                bodyFrame: bodyFrame,
-                expandedBodyFrame: finalBodyFrame
-            )
-            let collapseContentFrame = collapseRestAppearance.map {
-                OverlayPanelRootPresentation.restVariantContentFrame(
-                    for: $0,
-                    bodySize: collapsedBodyFrame.size
-                )
-            } ?? .zero
-            let collapseContentOriginX = bodyFrame.midX - (collapsedBodyFrame.width / 2) + collapseContentFrame.minX
-            let collapseContentOriginY = bodyFrame.minY + collapseContentFrame.minY
-            ZStack(alignment: .topLeading) {
+        } ?? .zero
+        let collapseContentOriginX = bodyFrame.midX - (collapsedBodyFrame.width / 2) + collapseContentFrame.minX
+        let collapseContentOriginY = bodyFrame.minY + collapseContentFrame.minY
+
+        return ZStack(alignment: .topLeading) {
                 Color.clear
 
                 MorphingExpandedNotchShape(
@@ -1385,6 +1441,10 @@ private struct AnimatedExpandedChromeView<CollapseContent: View>: View {
                     }
                     .opacity(OverlayPanelRootPresentation.expandedContentOpacity(progress: expansionProgress))
                     .offset(x: finalBodyFrame.minX, y: finalBodyFrame.minY)
+                    .allowsHitTesting(isActive)
+                    .onHover { isInside in
+                        handlePointerChange(isInside: isInside, bodyFrame: bodyFrame)
+                    }
 
                 if let collapseRestAppearance {
                     collapseContent(collapseRestAppearance)
@@ -1399,6 +1459,26 @@ private struct AnimatedExpandedChromeView<CollapseContent: View>: View {
                             )
                         )
                         .offset(x: collapseContentOriginX, y: collapseContentOriginY)
+                }
+
+                if !isActive {
+                    Button {
+                        guard isMouseInsideBody(bodyFrame) else {
+                            return
+                        }
+
+                        onActivate()
+                    } label: {
+                        Rectangle()
+                            .fill(Color.black.opacity(OverlayPanelRootPresentation.restVariantHitTargetOpacity))
+                            .frame(width: bodyFrame.width, height: bodyFrame.height)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(ShellChromeButtonStyle())
+                    .offset(x: bodyFrame.minX, y: bodyFrame.minY)
+                    .onHover { isInside in
+                        handlePointerChange(isInside: isInside, bodyFrame: bodyFrame)
+                    }
                 }
 
                 if isMorePresented && allowsNavigationPopover {
@@ -1422,21 +1502,19 @@ private struct AnimatedExpandedChromeView<CollapseContent: View>: View {
                         )
                     )
                 }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .onAppear {
-                let initialFrame = animateFromHover
-                    ? collapsedBodyFrame
-                    : (isActive ? finalBodyFrame : collapsedBodyFrame)
-                expansionProgress = animateFromHover ? 0 : (isActive ? 1 : 0)
-                setCurrentBodyFrame(initialFrame)
-                animateExpandedChrome(target: animationTarget)
-            }
-            .onChange(of: animationTarget) { newTarget in
-                animateExpandedChrome(target: newTarget)
-            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .onAppear {
+            let initialFrame = animateFromHover
+                ? collapsedBodyFrame
+                : (isActive ? finalBodyFrame : collapsedBodyFrame)
+            expansionProgress = animateFromHover ? 0 : (isActive ? 1 : 0)
+            setCurrentBodyFrame(initialFrame)
+            animateExpandedChrome(target: animationTarget)
+        }
+        .onChange(of: animationTarget) { newTarget in
+            animateExpandedChrome(target: newTarget)
+        }
         .animation(.timingCurve(0.22, 1.0, 0.36, 1.0, duration: 0.16), value: isMorePresented)
         .onChange(of: isMorePresented) { isPresented in
             compositionRoot.setNavigationPopoverPresented(isPresented)
@@ -1516,5 +1594,42 @@ private struct AnimatedExpandedChromeView<CollapseContent: View>: View {
         currentBodyMinY = frame.minY
         currentBodyWidth = frame.width
         currentBodyHeight = frame.height
+    }
+
+    private func handlePointerChange(isInside: Bool, bodyFrame: CGRect) {
+        if isInside {
+            // SwiftUI can retain the expanded NSTrackingArea while this button
+            // is shrinking. Reject stale enter events unless the real cursor is
+            // inside the transition's current target body in screen space.
+            guard isMouseInsideBody(bodyFrame) else {
+                return
+            }
+
+            onPointerEntered()
+            return
+        }
+
+        guard suppressesPointerExitCollapse == false,
+              isMouseInsideBody(bodyFrame) == false else {
+            return
+        }
+
+        onPointerExited()
+    }
+
+    private func isMouseInsideBody(_ bodyFrame: CGRect) -> Bool {
+        guard let currentScreenFrame else {
+            return false
+        }
+
+        let outerFrame = OverlayPanelChromeMetrics.expandedOuterFrame(
+            for: bodySize,
+            on: currentScreenFrame
+        )
+        let screenBodyFrame = OverlayPanelRootPresentation.expandedLocalBodyScreenFrame(
+            localBodyFrame: bodyFrame,
+            expandedOuterFrame: outerFrame
+        )
+        return screenBodyFrame.contains(NSEvent.mouseLocation)
     }
 }

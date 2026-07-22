@@ -108,8 +108,21 @@ final class PanelWindowController: OverlayPanelPresenting {
             return
         }
 
-        pendingIdleFrameResetTask?.cancel()
         let targetFrame = frame(for: resolvedState, geometry: geometry)
+        cancelPendingIdleFrameReset()
+
+        let preparesExpandedCoordinateSpace = previousState.isRestLike
+            && resolvedState.isExpandedLike
+            && panel.frame != targetFrame
+        if preparesExpandedCoordinateSpace {
+            // The morph view must never be laid out inside the old compact
+            // window. Resize without displaying first, then publish the state
+            // that creates the expanded view in its final, centered coordinate
+            // space.
+            panel.setFrame(targetFrame, display: false)
+            hostingView.layoutSubtreeIfNeeded()
+        }
+
         panelModel.geometry = geometry
         panelModel.previousState = previousState
         panelModel.state = resolvedState
@@ -117,6 +130,21 @@ final class PanelWindowController: OverlayPanelPresenting {
         if resolvedState.isRestLike == false {
             panelModel.latchedRestCollapsePresentation = nil
             clearPostExpandedCollapseRestLatch()
+        }
+
+        if preparesExpandedCoordinateSpace {
+            panel.displayIfNeeded()
+            panel.orderFrontRegardless()
+            return
+        }
+
+        if resolvedState.isHoverHint,
+           panelModel.expandedCollapseTarget != nil {
+            // Hovering while the expanded shell is still collapsing retargets
+            // that same morph to the 8pt hover body. Keep the expanded outer
+            // window until the session either reverses or fully settles.
+            panel.orderFrontRegardless()
+            return
         }
 
         if shouldDeferIdleFrameReset(from: previousState, to: resolvedState) {
@@ -223,12 +251,18 @@ final class PanelWindowController: OverlayPanelPresenting {
             return false
         }
 
-        // Inclusive of the strip's top edge, and unbounded above it — nothing sits
-        // above the notch, so a point on/over the top row still targets the strip.
-        let stripFrame = panel.frame
+        // Only recover the top-edge click AppKit does not deliver to SwiftUI.
+        // Interior clicks are handled by the SwiftUI button; accepting them here
+        // as well sends two expand requests and restarts the active animation.
+        guard let stripFrame = collapsedTopEdgeHitFrame(
+            presentation: presentation,
+            isHovering: panelModel.state.isHoverHint
+        ) else {
+            return false
+        }
         guard screenPoint.x >= stripFrame.minX,
               screenPoint.x <= stripFrame.maxX,
-              screenPoint.y >= stripFrame.minY else {
+              screenPoint.y >= stripFrame.maxY else {
             return false
         }
 
@@ -457,17 +491,14 @@ final class PanelWindowController: OverlayPanelPresenting {
 
     private func scheduleFrameReset(to frame: NSRect) {
         let delay: Double
-        let postExpandedCollapseTarget = panelModel.previousState?.isExpandedLike == true
-            ? panelModel.expandedCollapseTarget
-            : nil
+        let postExpandedCollapseTarget = panelModel.expandedCollapseTarget
 
         // Expanded→rest carryover needs a longer reset delay than the default
         // transitionDuration so the morph shell's interpolating spring fully
         // settles at the captured rest body frame before AppKit resets the
         // outer panel frame. A premature reset swaps morph shell → idleBody
         // mid-spring and produces a visible tail-frame snap.
-        if panelModel.previousState?.isExpandedLike == true,
-           panelModel.expandedCollapseTarget != nil {
+        if panelModel.expandedCollapseTarget != nil {
             delay = 0.6
         } else if let previousState = panelModel.previousState,
            OverlayPanelRootPresentation.shouldMorphVisibleRestVariants(
@@ -491,6 +522,7 @@ final class PanelWindowController: OverlayPanelPresenting {
                 return
             }
 
+            self.pendingIdleFrameResetTask = nil
             self.panel.setFrame(frame, display: true)
             self.panel.orderFrontRegardless()
             if let postExpandedCollapseTarget {
@@ -576,11 +608,6 @@ final class PanelWindowController: OverlayPanelPresenting {
             with: postExpandedCollapseRestLatch.presentation
         )
 
-        if postExpandedCollapseRestLatch.suppressesTransparentHover,
-           case .hoverHint(let screenID, .none) = presentationState {
-            return .idle(screenID: screenID, presentation: .none)
-        }
-
         return presentationState
     }
 
@@ -599,8 +626,7 @@ final class PanelWindowController: OverlayPanelPresenting {
 
     private func holdPostExpandedCollapseRestLatch(for target: ExpandedCollapseTarget) {
         let latch = PostExpandedCollapseRestLatch(
-            presentation: target.presentation,
-            suppressesTransparentHover: target.presentation == .none
+            presentation: target.presentation
         )
         postExpandedCollapseRestLatch = latch
         postExpandedCollapseRestLatchReleaseTask?.cancel()
@@ -623,6 +649,27 @@ final class PanelWindowController: OverlayPanelPresenting {
         postExpandedCollapseRestLatch = nil
         postExpandedCollapseRestLatchReleaseTask?.cancel()
         postExpandedCollapseRestLatchReleaseTask = nil
+    }
+
+    private func cancelPendingIdleFrameReset() {
+        pendingIdleFrameResetTask?.cancel()
+        pendingIdleFrameResetTask = nil
+    }
+
+    private func collapsedTopEdgeHitFrame(
+        presentation: ResolvedRestPresentation,
+        isHovering: Bool
+    ) -> CGRect? {
+        guard let geometry = panelModel.geometry else {
+            return nil
+        }
+
+        switch presentation {
+        case .none:
+            return isHovering ? geometry.hoverHintVisibleFrame : geometry.idleFrame
+        case .request(let request):
+            return geometry.visibleBodyFrame(for: request, isHovering: isHovering)
+        }
     }
 
     private func shouldContinueLatchedRestFrameReset(
@@ -759,7 +806,6 @@ final class PanelWindowController: OverlayPanelPresenting {
 
 private struct PostExpandedCollapseRestLatch: Equatable {
     let presentation: ResolvedRestPresentation
-    let suppressesTransparentHover: Bool
 }
 
 private final class NotchPanel: NSPanel {
