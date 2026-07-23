@@ -58,7 +58,6 @@ final class SettingsWindowController: SettingsPresenting {
                 analyticsReporter: compositionRoot.analyticsReporter
             )
         )
-
         configurePanel()
     }
 

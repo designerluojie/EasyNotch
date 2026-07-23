@@ -59,7 +59,7 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		BDAA20022FAD000000EE7001 /* Direct target metadata exclusions */ = {
+		BDAA20022FAD000000EE7001 /* Exceptions for "NotchToolbox" folder in "NotchToolbox" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				"Info-AppStore.plist",
@@ -68,7 +68,7 @@
 			);
 			target = BDDD72842FAB8896002EE7FF /* NotchToolbox */;
 		};
-		BDAA20032FAD000000EE7001 /* App Store target metadata exclusions */ = {
+		BDAA20032FAD000000EE7001 /* Exceptions for "NotchToolbox" folder in "EasyNotchAppStore" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				DirectMusicPlayers.xcassets,
@@ -80,18 +80,18 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		BDDD72872FAB8896002EE7FF /* NotchToolbox */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				BDAA20022FAD000000EE7001 /* Direct target metadata exclusions */,
-				BDAA20032FAD000000EE7001 /* App Store target metadata exclusions */,
-			);
-			path = NotchToolbox;
-			sourceTree = "<group>";
-		};
 		BDAA21022FAD000000EE7001 /* NotchToolboxAppStoreTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = NotchToolboxAppStoreTests;
+			sourceTree = "<group>";
+		};
+		BDDD72872FAB8896002EE7FF /* NotchToolbox */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				BDAA20022FAD000000EE7001 /* Exceptions for "NotchToolbox" folder in "NotchToolbox" target */,
+				BDAA20032FAD000000EE7001 /* Exceptions for "NotchToolbox" folder in "EasyNotchAppStore" target */,
+			);
+			path = NotchToolbox;
 			sourceTree = "<group>";
 		};
 		BDDD72952FAB8898002EE7FF /* NotchToolboxTests */ = {
@@ -458,50 +458,6 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
-		BDAA21092FAD000000EE7001 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 7;
-				DEVELOPMENT_TEAM = 7KRN87P2S6;
-				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 1.0.5;
-				PRODUCT_BUNDLE_IDENTIFIER = com.luojie.EasyNotchAppStoreTests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/EasyNotchAppStore.app/Contents/MacOS/EasyNotchAppStore";
-			};
-			name = Debug;
-		};
-		BDAA210A2FAD000000EE7001 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 7;
-				DEVELOPMENT_TEAM = 7KRN87P2S6;
-				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 1.0.5;
-				PRODUCT_BUNDLE_IDENTIFIER = com.luojie.EasyNotchAppStoreTests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/EasyNotchAppStore.app/Contents/MacOS/EasyNotchAppStore";
-			};
-			name = Release;
-		};
 		BDAA20082FAD000000EE7001 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -568,6 +524,50 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		BDAA21092FAD000000EE7001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 17;
+				DEVELOPMENT_TEAM = 7KRN87P2S6;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 1.0.5;
+				PRODUCT_BUNDLE_IDENTIFIER = com.luojie.EasyNotchAppStoreTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/EasyNotchAppStore.app/Contents/MacOS/EasyNotchAppStore";
+			};
+			name = Debug;
+		};
+		BDAA210A2FAD000000EE7001 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 17;
+				DEVELOPMENT_TEAM = 7KRN87P2S6;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 1.0.5;
+				PRODUCT_BUNDLE_IDENTIFIER = com.luojie.EasyNotchAppStoreTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/EasyNotchAppStore.app/Contents/MacOS/EasyNotchAppStore";
 			};
 			name = Release;
 		};
@@ -699,7 +699,7 @@
 				CODE_SIGN_ENTITLEMENTS = NotchToolbox/NotchToolbox.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 17;
 				DEVELOPMENT_TEAM = 7KRN87P2S6;
 				EASYNOTCH_APPCAST_FEED_URL = "";
 				EASYNOTCH_UMAMI_ENDPOINT = "";
@@ -715,7 +715,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 1.0.5;
+				MARKETING_VERSION = 1.0.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.luojie.NotchToolbox.debug;
 				PRODUCT_MODULE_NAME = NotchToolbox;
 				PRODUCT_NAME = EasyNotch;
@@ -738,9 +738,9 @@
 				CODE_SIGN_ENTITLEMENTS = NotchToolbox/NotchToolbox.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 17;
 				DEVELOPMENT_TEAM = 7KRN87P2S6;
-				EASYNOTCH_APPCAST_FEED_URL = "";
+				EASYNOTCH_APPCAST_FEED_URL = "https://easynotch.designbento.cn/updates/appcast.xml";
 				EASYNOTCH_UMAMI_ENDPOINT = "https://cloud.umami.is/api/send";
 				EASYNOTCH_UMAMI_WEBSITE_ID = "d26433d0-ebd5-41ed-8610-b18562c04071";
 				ENABLE_APP_SANDBOX = NO;
@@ -753,7 +753,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 1.0.5;
+				MARKETING_VERSION = 1.0.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.luojie.NotchToolbox;
 				PRODUCT_MODULE_NAME = NotchToolbox;
 				PRODUCT_NAME = EasyNotch;
@@ -853,20 +853,20 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		BDAA210B2FAD000000EE7001 /* Build configuration list for PBXNativeTarget "EasyNotchAppStoreTests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				BDAA21092FAD000000EE7001 /* Debug */,
-				BDAA210A2FAD000000EE7001 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 		BDAA200A2FAD000000EE7001 /* Build configuration list for PBXNativeTarget "EasyNotchAppStore" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				BDAA20082FAD000000EE7001 /* Debug */,
 				BDAA20092FAD000000EE7001 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		BDAA210B2FAD000000EE7001 /* Build configuration list for PBXNativeTarget "EasyNotchAppStoreTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BDAA21092FAD000000EE7001 /* Debug */,
+				BDAA210A2FAD000000EE7001 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
