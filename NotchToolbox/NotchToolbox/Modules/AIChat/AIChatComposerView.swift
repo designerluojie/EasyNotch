@@ -400,16 +400,18 @@ struct AIChatComposerView: View {
 
             stageImages(
                 panel.urls.compactMap { url in
-                    guard let payload = try? Data(contentsOf: url),
-                          let image = NSImage(data: payload) else {
-                        return nil
-                    }
+                    SecurityScopedResourceAccess.withAccess(to: url) {
+                        guard let payload = try? Data(contentsOf: url),
+                              let image = NSImage(data: payload) else {
+                            return nil
+                        }
 
-                    return AIChatImageCandidate(
-                        displayName: url.lastPathComponent,
-                        payload: payload,
-                        previewPayload: Self.previewPayload(from: image) ?? payload
-                    )
+                        return AIChatImageCandidate(
+                            displayName: url.lastPathComponent,
+                            payload: payload,
+                            previewPayload: Self.previewPayload(from: image) ?? payload
+                        )
+                    }
                 }
             )
         }

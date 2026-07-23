@@ -15,4 +15,9 @@ final class NotchAppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
     }
+
+    @IBAction
+    func showSettings(_ sender: Any?) {
+        shellRuntime?.showSettings()
+    }
 }

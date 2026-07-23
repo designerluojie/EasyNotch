@@ -16,6 +16,7 @@ final class NotchShellRuntime: NSObject {
     private let appLifecycleObserver: AppLifecycleObserver
     private let aiChatHistoryPruner: any AIChatHistoryPruning
     private let aiChatHistoryPruneDelay: Duration
+    private let settingsPresenter: (any SettingsPresenting)?
     private var isStarted = false
     private var aiChatHistoryPruneTask: Task<Void, Never>?
     private var settingsCancellables: Set<AnyCancellable> = []
@@ -51,6 +52,7 @@ final class NotchShellRuntime: NSObject {
             sharedServices: compositionRoot.sharedServices
         )
         self.aiChatHistoryPruneDelay = aiChatHistoryPruneDelay
+        self.settingsPresenter = panelPresenter as? any SettingsPresenting
         self.lifecycleDispatcher = ModuleLifecycleDispatcher(
             registry: compositionRoot.moduleRuntimeRegistry
         )
@@ -193,6 +195,10 @@ final class NotchShellRuntime: NSObject {
             self?.coordinator.refreshScreens(primaryScreenID: screenID)
         }
         onboardingCoordinator.start()
+    }
+
+    func showSettings() {
+        settingsPresenter?.show(centeredOn: NSScreen.main?.visibleFrame)
     }
 
     deinit {

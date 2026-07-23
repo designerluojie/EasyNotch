@@ -157,7 +157,7 @@ struct MusicModuleViewModel {
             return .empty(
                 EmptyPresentation(
                     message: "美好的一天，从音乐开始",
-                    launchTargets: Self.launchTargets(for: MusicPlayerCapability.v1Targets)
+                    launchTargets: Self.launchTargets(for: MusicPlayerCapability.distributionLaunchTargets)
                 )
             )
         case .permissionRequired(let requirement):
@@ -201,7 +201,7 @@ struct MusicModuleViewModel {
             return .empty(
                 EmptyPresentation(
                     message: "美好的一天，从音乐开始",
-                    launchTargets: Self.launchTargets(for: MusicPlayerCapability.v1Targets)
+                    launchTargets: Self.launchTargets(for: MusicPlayerCapability.distributionLaunchTargets)
                 )
             )
         case .metadataUnavailable(let displayName):
@@ -239,6 +239,8 @@ struct MusicModuleViewModel {
             return "Media Remote"
         case .adapterFallback:
             return "Adapter Fallback"
+        case .appleEvents:
+            return "Apple Events"
         }
     }
     private static func settingsAction(for kind: PermissionKind) -> MessagePresentation.SettingsAction? {
@@ -253,7 +255,10 @@ struct MusicModuleViewModel {
         }
     }
 
-    private static func launchTargets(for _: [MusicPlayerCapability]) -> [LaunchTarget] {
+    private static func launchTargets(for players: [MusicPlayerCapability]) -> [LaunchTarget] {
+        #if APP_STORE
+        return players.map { launchTarget(for: $0, isInteractive: true) }
+        #else
         [
             launchTarget(for: .appleMusic, isInteractive: true),
             launchTarget(for: .neteaseMusic, isInteractive: true),
@@ -262,6 +267,7 @@ struct MusicModuleViewModel {
             launchTarget(for: .qishuiMusic, isInteractive: true),
             launchTarget(for: .spotify, isInteractive: true)
         ]
+        #endif
     }
 
     private static func launchTarget(
@@ -278,7 +284,7 @@ struct MusicModuleViewModel {
     }
 
     private static func iconAsset(for capability: MusicPlayerCapability) -> MusicPlayerIconAsset {
-        MusicPlayerIconAsset(bundleID: capability.bundleID) ?? .qq
+        MusicPlayerIconAsset(bundleID: capability.bundleID) ?? .apple
     }
 }
 

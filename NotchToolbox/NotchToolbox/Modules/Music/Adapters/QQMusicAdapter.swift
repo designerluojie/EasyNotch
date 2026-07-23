@@ -1,5 +1,7 @@
 import Foundation
 
+#if DIRECT_DISTRIBUTION
+
 struct QQMusicAdapter: MusicPlayerAdapter {
     let capability = MusicPlayerCapability.qqMusic
 
@@ -126,3 +128,4 @@ extension QQMusicAdapter {
             || normalized.contains("failed while trying to determine the application with bundle identifier")
     }
 }
+#endif

@@ -14,6 +14,7 @@ struct MusicPlayerCapability: Equatable, Identifiable {
 }
 
 extension MusicPlayerCapability {
+    #if DIRECT_DISTRIBUTION
     static let qqMusic = MusicPlayerCapability(
         bundleID: "com.tencent.QQMusicMac",
         displayName: "QQ 音乐",
@@ -57,6 +58,7 @@ extension MusicPlayerCapability {
         skip: .verified,
         phase: .verified
     )
+    #endif
 
     // Apple Music/Spotify read via MediaRemote like everyone else and are controlled
     // through their official AppleScript dictionaries (AppleScriptMusicAdapter) — no
@@ -83,6 +85,7 @@ extension MusicPlayerCapability {
         phase: .verified
     )
 
+    #if DIRECT_DISTRIBUTION
     static let v1Targets = [
         qqMusic,
         neteaseMusic,
@@ -96,6 +99,22 @@ extension MusicPlayerCapability {
     ]
 
     static let allKnown = v1Targets + targetOnly
+    #else
+    static let targetOnly = [
+        appleMusic,
+        spotify
+    ]
+
+    static let allKnown = targetOnly
+    #endif
+
+    static var distributionLaunchTargets: [MusicPlayerCapability] {
+        #if APP_STORE
+        targetOnly
+        #else
+        v1Targets
+        #endif
+    }
 
     static func forBundleID(_ bundleID: String) -> MusicPlayerCapability? {
         allKnown.first { $0.bundleID == bundleID }
