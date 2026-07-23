@@ -824,6 +824,30 @@ struct PanelWindowControllerTests {
         #expect(controller.panelModel.state == .expanded(screenID: "built-in", moduleID: .music))
     }
 
+    @Test func topEdgeClickInsideExpandedPanelDoesNotCollapse() async {
+        let compositionRoot = Self.makeCompositionRoot(activeModule: .music, initialScreenID: "built-in")
+        let interactions = OverlayPanelInteractions()
+        let controller = PanelWindowController(
+            compositionRoot: compositionRoot,
+            interactions: interactions
+        )
+        let geometry = Self.topFlushGeometry
+        var collapseCount = 0
+        interactions.requestCollapse = { _ in collapseCount += 1 }
+
+        controller.present(state: .expanded(screenID: "built-in", moduleID: .music), geometry: geometry)
+        controller.handleGlobalMouseDown(
+            at: CGPoint(
+                x: geometry.screenFrame.midX,
+                y: geometry.screenFrame.maxY
+            )
+        )
+        await Task.yield()
+
+        #expect(collapseCount == 0)
+        #expect(controller.panelModel.state == .expanded(screenID: "built-in", moduleID: .music))
+    }
+
     @Test func clickInsideShadowPaddingStillCountsAsOutsideClick() async {
         let compositionRoot = Self.makeCompositionRoot(activeModule: .music, initialScreenID: "built-in")
         let interactions = OverlayPanelInteractions()
@@ -881,6 +905,27 @@ struct PanelWindowControllerTests {
         await Task.yield()
 
         #expect(expandedScreenID == "built-in")
+    }
+
+    @Test func collapsedExpandMouseDownHandlesVisibleBodyBeforeSwiftUIButtonMouseUp() async {
+        let compositionRoot = Self.makeCompositionRoot(activeModule: .music, initialScreenID: "built-in")
+        let interactions = OverlayPanelInteractions()
+        let controller = PanelWindowController(
+            compositionRoot: compositionRoot,
+            interactions: interactions
+        )
+        let geometry = Self.topFlushGeometry
+        var expandCount = 0
+        interactions.requestExpand = { _ in expandCount += 1 }
+
+        controller.present(state: .idle(screenID: "built-in"), geometry: geometry)
+        let wasHandled = controller.handleCollapsedExpandMouseDown(
+            at: CGPoint(x: geometry.idleFrame.midX, y: geometry.idleFrame.midY)
+        )
+        await Task.yield()
+
+        #expect(wasHandled)
+        #expect(expandCount == 1)
     }
 
     @Test func clickAwayFromCollapsedStripDoesNotExpand() async {
@@ -1036,7 +1081,7 @@ struct PanelWindowControllerTests {
         #expect(controller.panel.frame == geometry.headerlessMiniPanelHoverFrame)
     }
 
-    @Test func expandedCollapseSettleKeepsDefaultRestIdleAgainstImmediateHover() async {
+    @Test func expandedCollapseSettleHonorsImmediateDefaultRestHover() async {
         let compositionRoot = Self.makeCompositionRoot()
         compositionRoot.setPanelBodySize(CGSize(width: 580, height: 280), for: .music)
         let controller = PanelWindowController(compositionRoot: compositionRoot)
@@ -1063,10 +1108,9 @@ struct PanelWindowControllerTests {
 
         controller.present(state: .hoverHint(screenID: "built-in"), geometry: geometry)
 
-        #expect(controller.panelModel.state == .idle(screenID: "built-in"))
-        #expect(controller.panel.frame.size == geometry.idleFrame.size)
-        #expect(abs(controller.panel.frame.minX - geometry.idleFrame.minX) < 1)
-        #expect(abs(controller.panel.frame.minY - geometry.idleFrame.minY) < 1)
+        #expect(controller.panelModel.state == .hoverHint(screenID: "built-in"))
+        #expect(await Self.waitUntil { controller.panel.frame == geometry.hoverHintFrame })
+        #expect(geometry.idleFrame.minY - geometry.hoverHintVisibleFrame.minY == 8)
     }
 
     private static func makeCompositionRoot(

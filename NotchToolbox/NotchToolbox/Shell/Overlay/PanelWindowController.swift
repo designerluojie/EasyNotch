@@ -36,6 +36,7 @@ final class PanelWindowController: OverlayPanelPresenting {
 
     private static let renderBurstDuration: CFAbsoluteTime = 1.0
     private static let renderBurstInterval: DispatchTimeInterval = .milliseconds(16) // ~60 Hz
+    private static let expandedTopEdgeHitTolerance: CGFloat = 1
     // Only force a real re-render for the first few ticks after an expand/switch —
     // just enough to un-stick the deferred content commit. The rest of the window
     // is wake-only, so we don't re-render the heavy panel every frame (which drops
@@ -194,7 +195,7 @@ final class PanelWindowController: OverlayPanelPresenting {
               let dismissalScreenID = dismissalScreenID,
               let hitFrame = visibleHitTestFrame,
               panel.isVisible,
-              hitFrame.contains(screenPoint) == false else {
+              containsExpandedHitPoint(screenPoint, in: hitFrame) == false else {
             return false
         }
 
@@ -223,12 +224,18 @@ final class PanelWindowController: OverlayPanelPresenting {
             return false
         }
 
-        // Inclusive of the strip's top edge, and unbounded above it — nothing sits
-        // above the notch, so a point on/over the top row still targets the strip.
-        let stripFrame = panel.frame
-        guard screenPoint.x >= stripFrame.minX,
-              screenPoint.x <= stripFrame.maxX,
-              screenPoint.y >= stripFrame.minY else {
+        // Expand on mouse-down instead of waiting for SwiftUI Button's mouse-up.
+        // Entering the collapsed notch immediately swaps idle chrome for hover
+        // chrome; that replacement can cancel an in-flight Button gesture when
+        // the user moves in and clicks quickly.
+        guard let hitFrame = collapsedExpandHitFrame(
+            state: panelModel.state,
+            geometry: panelModel.geometry
+        ),
+              screenPoint.x >= hitFrame.minX,
+              screenPoint.x <= hitFrame.maxX,
+              screenPoint.y >= hitFrame.minY,
+              screenPoint.y <= hitFrame.maxY + Self.expandedTopEdgeHitTolerance else {
             return false
         }
 
@@ -245,7 +252,12 @@ final class PanelWindowController: OverlayPanelPresenting {
 
         localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
             let point = self?.screenPoint(for: event) ?? NSEvent.mouseLocation
-            self?.handleCollapsedExpandMouseDown(at: point)
+            // Do not also send a top-edge fallback click through to SwiftUI.
+            // On displays where AppKit does deliver it, that would schedule a
+            // second expand while the first window transition is still running.
+            if self?.handleCollapsedExpandMouseDown(at: point) == true {
+                return nil
+            }
             self?.handleGlobalMouseDown(at: point)
             return event
         }
@@ -280,6 +292,49 @@ final class PanelWindowController: OverlayPanelPresenting {
         default:
             return nil
         }
+    }
+
+    private func collapsedExpandHitFrame(
+        state: OverlayState,
+        geometry: TopAnchorGeometry?
+    ) -> CGRect? {
+        guard let geometry else {
+            return nil
+        }
+
+        let presentation: ResolvedRestPresentation
+        let isHovering: Bool
+        switch state {
+        case .idle(_, let statePresentation):
+            presentation = statePresentation
+            isHovering = false
+        case .hoverHint(_, let statePresentation):
+            presentation = statePresentation
+            isHovering = true
+        case .expanded, .collapsing, .toast:
+            return nil
+        }
+
+        switch presentation {
+        case .none:
+            return isHovering ? geometry.hoverHintVisibleFrame : geometry.hotzoneFrame
+        case .request(let request):
+            return geometry.visibleBodyFrame(for: request, isHovering: isHovering)
+        }
+    }
+
+    private func containsExpandedHitPoint(_ point: CGPoint, in frame: CGRect) -> Bool {
+        if frame.contains(point) {
+            return true
+        }
+
+        // CGRect.contains excludes maxY. The visible expanded body is flush
+        // with the screen top, so a click on that exact row must remain inside
+        // the panel rather than immediately triggering the outside-click close.
+        return point.x >= frame.minX
+            && point.x <= frame.maxX
+            && point.y >= frame.maxY - Self.expandedTopEdgeHitTolerance
+            && point.y <= frame.maxY + Self.expandedTopEdgeHitTolerance
     }
 
     private func bindCompositionRoot() {
@@ -572,16 +627,9 @@ final class PanelWindowController: OverlayPanelPresenting {
             return state
         }
 
-        let presentationState = state.replacingPresentation(
+        return state.replacingPresentation(
             with: postExpandedCollapseRestLatch.presentation
         )
-
-        if postExpandedCollapseRestLatch.suppressesTransparentHover,
-           case .hoverHint(let screenID, .none) = presentationState {
-            return .idle(screenID: screenID, presentation: .none)
-        }
-
-        return presentationState
     }
 
     private func stateRespectingExpandedCollapseTarget(
@@ -598,10 +646,7 @@ final class PanelWindowController: OverlayPanelPresenting {
     }
 
     private func holdPostExpandedCollapseRestLatch(for target: ExpandedCollapseTarget) {
-        let latch = PostExpandedCollapseRestLatch(
-            presentation: target.presentation,
-            suppressesTransparentHover: target.presentation == .none
-        )
+        let latch = PostExpandedCollapseRestLatch(presentation: target.presentation)
         postExpandedCollapseRestLatch = latch
         postExpandedCollapseRestLatchReleaseTask?.cancel()
         postExpandedCollapseRestLatchReleaseTask = Task { [weak self] in
@@ -759,7 +804,6 @@ final class PanelWindowController: OverlayPanelPresenting {
 
 private struct PostExpandedCollapseRestLatch: Equatable {
     let presentation: ResolvedRestPresentation
-    let suppressesTransparentHover: Bool
 }
 
 private final class NotchPanel: NSPanel {

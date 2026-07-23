@@ -134,8 +134,7 @@ final class NotchShellRuntime: NSObject {
                 return
             }
 
-            compositionRoot.fileStashViewModel.setDropTargeted(true)
-            coordinator.expand(moduleID: .fileStash, onScreenID: screenID)
+            coordinator.expandFileStashForDrop(onScreenID: screenID)
         }
         interactions.requestFileDragExit = { [weak self] _ in
             self?.compositionRoot.fileStashViewModel.setDropTargeted(false)

@@ -12,6 +12,7 @@ final class OverlayPanelInteractions: ObservableObject {
     private var internalDragMouseButtonPollingTask: Task<Void, Never>?
     private var localInternalDragEndMonitor: Any?
     private var globalInternalDragEndMonitor: Any?
+    private var isExpandRequestPending = false
 
     var requestExpand: ((String) -> Void)?
     var requestExpandModule: ((String, NotchModuleID) -> Void)?
@@ -46,17 +47,37 @@ final class OverlayPanelInteractions: ObservableObject {
     }
 
     func expand(screenID: String) {
+        guard isExpandRequestPending == false else {
+            return
+        }
+
+        isExpandRequestPending = true
         hotzoneController.cancelCollapseTimeout(screenID: screenID)
-        let requestExpand = requestExpand
-        Task { @MainActor in
+        Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+
+            self.isExpandRequestPending = false
+            let requestExpand = self.requestExpand
             requestExpand?(screenID)
         }
     }
 
     func expand(screenID: String, moduleID: NotchModuleID) {
+        guard isExpandRequestPending == false else {
+            return
+        }
+
+        isExpandRequestPending = true
         hotzoneController.cancelCollapseTimeout(screenID: screenID)
-        let requestExpandModule = requestExpandModule
-        Task { @MainActor in
+        Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+
+            self.isExpandRequestPending = false
+            let requestExpandModule = self.requestExpandModule
             requestExpandModule?(screenID, moduleID)
         }
     }
