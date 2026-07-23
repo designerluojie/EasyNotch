@@ -699,7 +699,7 @@
 				CODE_SIGN_ENTITLEMENTS = NotchToolbox/NotchToolbox.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 17;
+				CURRENT_PROJECT_VERSION = 18;
 				DEVELOPMENT_TEAM = 7KRN87P2S6;
 				EASYNOTCH_APPCAST_FEED_URL = "";
 				EASYNOTCH_UMAMI_ENDPOINT = "";
@@ -715,7 +715,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 1.0.6;
+				MARKETING_VERSION = 1.0.7;
 				PRODUCT_BUNDLE_IDENTIFIER = com.luojie.NotchToolbox.debug;
 				PRODUCT_MODULE_NAME = NotchToolbox;
 				PRODUCT_NAME = EasyNotch;
@@ -738,7 +738,7 @@
 				CODE_SIGN_ENTITLEMENTS = NotchToolbox/NotchToolbox.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 17;
+				CURRENT_PROJECT_VERSION = 18;
 				DEVELOPMENT_TEAM = 7KRN87P2S6;
 				EASYNOTCH_APPCAST_FEED_URL = "https://easynotch.designbento.cn/updates/appcast.xml";
 				EASYNOTCH_UMAMI_ENDPOINT = "https://cloud.umami.is/api/send";
@@ -753,7 +753,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 1.0.6;
+				MARKETING_VERSION = 1.0.7;
 				PRODUCT_BUNDLE_IDENTIFIER = com.luojie.NotchToolbox;
 				PRODUCT_MODULE_NAME = NotchToolbox;
 				PRODUCT_NAME = EasyNotch;
