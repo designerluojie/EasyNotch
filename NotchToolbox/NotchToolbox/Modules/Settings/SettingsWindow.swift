@@ -103,7 +103,8 @@ struct SettingsWindow: View {
             ForEach(SettingsTab.allCases) { tab in
                 SettingsTabButton(
                     tab: tab,
-                    isSelected: selectedTab == tab
+                    isSelected: selectedTab == tab,
+                    showsUpdateBadge: tab == .about && updateController.isUpdateAvailable
                 ) {
                     selectedTab = tab
                 }
@@ -493,6 +494,17 @@ private struct SettingsAboutPane: View {
         .overlay(alignment: .bottom) {
             PanelToastView(presenter: toast)
         }
+        .onChange(of: updateController.notice) { notice in
+            guard let notice else { return }
+            let emphasis: PanelToastEmphasis
+            switch notice.emphasis {
+            case .error: emphasis = .error
+            case .info: emphasis = .info
+            case .success: emphasis = .success
+            }
+            toast.show(notice.text, emphasis: emphasis)
+            updateController.clearNotice()
+        }
     }
 }
 
@@ -503,28 +515,31 @@ private struct SettingsUpdateButton: View {
 
     var body: some View {
         Button(action: updateController.performPrimaryAction) {
-            Text(updateController.buttonTitle)
-                .font(SettingsWindowTheme.bodyFont)
-                .foregroundStyle(.white)
-                .padding(.horizontal, 8)
-                .frame(height: 24)
-                .background(
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        .fill(Color.white.opacity(isHovered ? 0.08 : 0))
-                )
-                .overlay(alignment: .topTrailing) {
-                    if updateController.isUpdateAvailable {
-                        Circle()
-                            .fill(Color(red: 1, green: 70 / 255, blue: 78 / 255))
-                            .frame(width: 6, height: 6)
-                            .overlay(Circle().stroke(Color(red: 43 / 255, green: 43 / 255, blue: 43 / 255), lineWidth: 1))
-                            .offset(x: 3, y: -3)
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(Color.white.opacity(isHovered ? 0.08 : 0))
+                if let fraction = updateController.progressFraction {
+                    GeometryReader { proxy in
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .fill(Color.white.opacity(0.12))
+                            .frame(width: proxy.size.width * fraction)
                     }
                 }
+                HStack(spacing: 4) {
+                    Text(updateController.buttonTitle)
+                    if updateController.isUpdateAvailable {
+                        UpdateBadgeDot()
+                    }
+                }
+                .font(SettingsWindowTheme.bodyFont)
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+            }
+            .frame(width: 104, height: 24)
         }
         .buttonStyle(.plain)
-        .disabled(updateController.canCheckForUpdates == false)
-        .opacity(updateController.canCheckForUpdates ? 1 : 0.45)
+        .disabled(updateController.canCheckForUpdates == false || updateController.isInteractionLocked)
+        .opacity(updateController.canCheckForUpdates && updateController.isInteractionLocked == false ? 1 : 0.45)
         .onHover { isHovered = $0 }
         .animation(.easeOut(duration: SettingsControlInteractionMetrics.animationDuration), value: isHovered)
         .animation(.easeOut(duration: SettingsControlInteractionMetrics.animationDuration), value: updateController.isUpdateAvailable)
@@ -743,6 +758,7 @@ private struct SettingsSidebarGlassBackground: NSViewRepresentable {
 private struct SettingsTabButton: View {
     let tab: SettingsTab
     let isSelected: Bool
+    let showsUpdateBadge: Bool
     let action: () -> Void
 
     var body: some View {
@@ -757,6 +773,9 @@ private struct SettingsTabButton: View {
                 Text(tab.title)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.white)
+                if showsUpdateBadge {
+                    UpdateBadgeDot()
+                }
                 Spacer()
             }
             .frame(height: 36)
@@ -766,6 +785,14 @@ private struct SettingsTabButton: View {
             cornerRadius: 12,
             baseColor: isSelected ? Color.white.opacity(0.08) : .clear
         )
+    }
+}
+
+private struct UpdateBadgeDot: View {
+    var body: some View {
+        Circle()
+            .fill(Color(red: 1, green: 59 / 255, blue: 48 / 255))
+            .frame(width: 8, height: 8)
     }
 }
 

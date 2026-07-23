@@ -137,13 +137,19 @@ nonisolated struct OverlayPanelRootPresentation {
         }
     }
 
-    static func shouldUseRootHoverTracking(for state: OverlayState) -> Bool {
-        switch collapsedAppearance(for: state) {
-        case .transparent:
-            return true
-        case .wideNotchStrip, .headerlessMiniPanel:
-            return false
-        }
+    static func transparentIdleBodyHitFrame(
+        containerSize: CGSize,
+        idleBodySize: CGSize
+    ) -> CGRect {
+        let isHoverOuterContainer = abs(containerSize.width - OverlayPanelChromeMetrics.hoverOuterSize.width) < 0.5
+            && abs(containerSize.height - OverlayPanelChromeMetrics.hoverOuterSize.height) < 0.5
+
+        return CGRect(
+            x: (containerSize.width - idleBodySize.width) / 2,
+            y: isHoverOuterContainer ? OverlayPanelChromeMetrics.hoverVerticalInset : 0,
+            width: idleBodySize.width,
+            height: idleBodySize.height
+        )
     }
 
     static func restVariantBodyHitFrame(containerSize: CGSize, bodySize: CGSize) -> CGRect {
@@ -229,7 +235,7 @@ nonisolated struct OverlayPanelRootPresentation {
             return false
         }
 
-        if previousState.isHoverHint && nextState.isExpandedLike {
+        if previousState.isRestLike && nextState.isExpandedLike {
             return false
         }
 
@@ -459,6 +465,18 @@ nonisolated struct OverlayPanelRootPresentation {
             y: expandedOuterFrame.maxY - targetBodyFrame.maxY,
             width: targetBodyFrame.width,
             height: targetBodyFrame.height
+        )
+    }
+
+    static func expandedLocalBodyScreenFrame(
+        localBodyFrame: CGRect,
+        expandedOuterFrame: CGRect
+    ) -> CGRect {
+        CGRect(
+            x: expandedOuterFrame.minX + localBodyFrame.minX,
+            y: expandedOuterFrame.maxY - localBodyFrame.maxY,
+            width: localBodyFrame.width,
+            height: localBodyFrame.height
         )
     }
 

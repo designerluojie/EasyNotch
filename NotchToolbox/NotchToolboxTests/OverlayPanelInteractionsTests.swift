@@ -20,6 +20,20 @@ struct OverlayPanelInteractionsTests {
         #expect(requestedScreens == ["external"])
     }
 
+    @Test func coalescesRepeatedExpandRequestsBeforeTheNextMainActorTurn() async {
+        let interactions = OverlayPanelInteractions()
+        var requestedScreens: [String] = []
+        interactions.requestExpand = { screenID in
+            requestedScreens.append(screenID)
+        }
+
+        interactions.expand(screenID: "built-in")
+        interactions.expand(screenID: "built-in")
+
+        await Task.yield()
+        #expect(requestedScreens == ["built-in"])
+    }
+
     @Test func collapseRunsOnLaterMainActorTurn() async {
         let interactions = OverlayPanelInteractions()
         var requestedScreens: [String] = []

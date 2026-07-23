@@ -18,10 +18,13 @@ final class GlobalFileDragMonitor {
 
     private var draggedMonitor: Any?
     private var upMonitor: Any?
+    private var localDraggedMonitor: Any?
+    private var localUpMonitor: Any?
     private var isActive = false
 
     func start() {
-        guard draggedMonitor == nil, upMonitor == nil else {
+        guard draggedMonitor == nil, upMonitor == nil,
+              localDraggedMonitor == nil, localUpMonitor == nil else {
             return
         }
 
@@ -35,6 +38,22 @@ final class GlobalFileDragMonitor {
         ) { [weak self] _ in
             self?.handleUp()
         }
+        // Global monitors intentionally do not receive events while this app is
+        // active. Once the notch panel becomes the drag destination, the final
+        // mouse-up can therefore be local; observe both paths so the temporary
+        // drop prompt cannot remain latched after a cancelled/missed drop.
+        localDraggedMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDragged]
+        ) { [weak self] event in
+            self?.handleDragged()
+            return event
+        }
+        localUpMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseUp]
+        ) { [weak self] event in
+            self?.handleUp()
+            return event
+        }
     }
 
     func stop() {
@@ -44,8 +63,16 @@ final class GlobalFileDragMonitor {
         if let upMonitor {
             NSEvent.removeMonitor(upMonitor)
         }
+        if let localDraggedMonitor {
+            NSEvent.removeMonitor(localDraggedMonitor)
+        }
+        if let localUpMonitor {
+            NSEvent.removeMonitor(localUpMonitor)
+        }
         draggedMonitor = nil
         upMonitor = nil
+        localDraggedMonitor = nil
+        localUpMonitor = nil
         isActive = false
     }
 
@@ -85,6 +112,12 @@ final class GlobalFileDragMonitor {
         }
         if let upMonitor {
             NSEvent.removeMonitor(upMonitor)
+        }
+        if let localDraggedMonitor {
+            NSEvent.removeMonitor(localDraggedMonitor)
+        }
+        if let localUpMonitor {
+            NSEvent.removeMonitor(localUpMonitor)
         }
     }
 }

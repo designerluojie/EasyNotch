@@ -32,7 +32,9 @@
     <string>$(EASYNOTCH_UMAMI_WEBSITE_ID)</string>
     <key>SUFeedURL</key>
     <string>$(EASYNOTCH_APPCAST_FEED_URL)</string>
-    <key>SUEnableAutomaticChecks</key>
+    <key>SUAutomaticallyUpdate</key>
     <false/>
+    <key>SUScheduledCheckInterval</key>
+    <integer>604800</integer>
 </dict>
 </plist>

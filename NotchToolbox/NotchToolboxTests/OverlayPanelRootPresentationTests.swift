@@ -133,20 +133,20 @@ struct OverlayPanelRootPresentationTests {
         )
     }
 
-    @Test func rootHoverTrackingSkipsVisibleRestVariantChrome() {
-        let wideIdle = OverlayState.idle(
-            screenID: "built-in",
-            presentation: .request(RestVariantRequest(moduleID: .music, kind: .wideNotchStrip))
+    @Test func transparentIdleHitTargetExcludesHoverOuterWindowPadding() {
+        let retainedHoverOuterFrame = OverlayPanelRootPresentation.transparentIdleBodyHitFrame(
+            containerSize: OverlayPanelChromeMetrics.hoverOuterSize,
+            idleBodySize: CGSize(width: 185, height: 32)
         )
-        let headerlessHover = OverlayState.hoverHint(
-            screenID: "built-in",
-            presentation: .request(RestVariantRequest(moduleID: .pomodoro, kind: .headerlessMiniPanel))
+        let compactIdleFrame = OverlayPanelRootPresentation.transparentIdleBodyHitFrame(
+            containerSize: CGSize(width: 185, height: 32),
+            idleBodySize: CGSize(width: 185, height: 32)
         )
 
-        #expect(OverlayPanelRootPresentation.shouldUseRootHoverTracking(for: wideIdle) == false)
-        #expect(OverlayPanelRootPresentation.shouldUseRootHoverTracking(for: headerlessHover) == false)
-        #expect(OverlayPanelRootPresentation.shouldUseRootHoverTracking(for: .idle(screenID: "built-in")) == true)
-        #expect(OverlayPanelRootPresentation.shouldUseRootHoverTracking(for: .expanded(screenID: "built-in", moduleID: .music)) == true)
+        #expect(retainedHoverOuterFrame == CGRect(x: 57.5, y: 40, width: 185, height: 32))
+        #expect(retainedHoverOuterFrame.contains(CGPoint(x: 150, y: 60)))
+        #expect(retainedHoverOuterFrame.contains(CGPoint(x: 150, y: 100)) == false)
+        #expect(compactIdleFrame == CGRect(x: 0, y: 0, width: 185, height: 32))
     }
 
     @Test func visibleRestVariantHitTargetUsesNonZeroOpacityForMacHitTesting() {
@@ -234,6 +234,24 @@ struct OverlayPanelRootPresentationTests {
 
         #expect(wideLocalFrame == CGRect(x: 266, y: 0, width: 248, height: 32))
         #expect(headerlessLocalFrame == CGRect(x: 230, y: 0, width: 320, height: 128))
+    }
+
+    @Test func expandedTransitionHitGateConvertsTargetBackToScreenCoordinates() {
+        let screenFrame = CGRect(x: 0, y: 0, width: 1512, height: 982)
+        let expandedOuterFrame = OverlayPanelChromeMetrics.expandedOuterFrame(
+            for: CGSize(width: 580, height: 280),
+            on: screenFrame
+        )
+        let collapsedLocalFrame = CGRect(x: 297.5, y: 0, width: 185, height: 32)
+
+        let collapsedScreenFrame = OverlayPanelRootPresentation.expandedLocalBodyScreenFrame(
+            localBodyFrame: collapsedLocalFrame,
+            expandedOuterFrame: expandedOuterFrame
+        )
+
+        #expect(collapsedScreenFrame == CGRect(x: 663.5, y: 950, width: 185, height: 32))
+        #expect(collapsedScreenFrame.contains(CGPoint(x: 756, y: 966)))
+        #expect(collapsedScreenFrame.contains(CGPoint(x: 756, y: 900)) == false)
     }
 
     @Test func expandedContentMaskFrameIsRelativeToExpandedBodyFrame() {
@@ -460,6 +478,12 @@ struct OverlayPanelRootPresentationTests {
     }
 
     @Test func expandingFromHoverSkipsWindowFrameAnimation() {
+        #expect(
+            OverlayPanelRootPresentation.shouldAnimateWindowFrameTransition(
+                from: .idle(screenID: "built-in"),
+                to: .expanded(screenID: "built-in", moduleID: .music)
+            ) == false
+        )
         #expect(
             OverlayPanelRootPresentation.shouldAnimateWindowFrameTransition(
                 from: .hoverHint(screenID: "built-in"),

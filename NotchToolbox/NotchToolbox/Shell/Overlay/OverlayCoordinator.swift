@@ -78,6 +78,24 @@ final class OverlayCoordinator {
     }
 
     func expand(moduleID: NotchModuleID, onScreenID screenID: String?) {
+        // A file-drop prompt belongs only to an active drag session. If an
+        // earlier system drag failed to deliver its final exit event, do not let
+        // that transient state leak into a later click-open of File Stash.
+        if moduleID == .fileStash {
+            compositionRoot.fileStashViewModel.setDropTargeted(false)
+        }
+        performExpand(moduleID: moduleID, onScreenID: screenID)
+    }
+
+    /// Opens File Stash for a live external file drag. Keep this separate from
+    /// the normal expand path so a user-initiated open can always clear a stale
+    /// drop-hover state without suppressing the real drop affordance.
+    func expandFileStashForDrop(onScreenID screenID: String?) {
+        compositionRoot.fileStashViewModel.setDropTargeted(true)
+        performExpand(moduleID: .fileStash, onScreenID: screenID)
+    }
+
+    private func performExpand(moduleID: NotchModuleID, onScreenID screenID: String?) {
         guard let profile = activeProfile() ?? profiles.first else {
             return
         }
@@ -150,6 +168,9 @@ final class OverlayCoordinator {
             compositionRoot.overlayState,
             event: .pointerEntered(screenID: targetProfile.id)
         )
+        guard state != compositionRoot.overlayState else {
+            return
+        }
         applyState(state)
     }
 
@@ -169,6 +190,9 @@ final class OverlayCoordinator {
             pendingPointerExitCollapseModuleID = moduleID
         }
 
+        guard state != previousState else {
+            return
+        }
         applyState(state)
     }
 
@@ -330,11 +354,10 @@ final class OverlayCoordinator {
         fileDropPrearmedScreenID = profile.id
         // Show the "release to stash" prompt immediately — we already know a file
         // is being dragged, so there's no reason to first show the neutral state.
-        compositionRoot.fileStashViewModel.setDropTargeted(true)
         // Open via hover→expand (not idle→expand) so the panel uses the exact
         // same morph as a click-open instead of the faster window-frame animation.
         pointerEntered(onScreenID: profile.id)
-        expand(moduleID: .fileStash, onScreenID: profile.id)
+        expandFileStashForDrop(onScreenID: profile.id)
     }
 
     private func fileDropKeepOpenRegion(screenFrame: CGRect) -> CGRect {

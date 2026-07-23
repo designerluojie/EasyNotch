@@ -11,22 +11,24 @@ struct BookmarkResolver {
         // Security-scoped so the persisted data survives into the sandboxed App
         // Store build without a later migration. Harmless in the non-sandboxed
         // build (creation/resolution work without the app-scope entitlement).
-        let bookmarkData = try url.bookmarkData(
-            options: [.withSecurityScope],
-            includingResourceValuesForKeys: nil,
-            relativeTo: nil
-        )
-        let kind = itemKind(for: url)
+        try SecurityScopedResourceAccess.withAccess(to: url) {
+            let bookmarkData = try url.bookmarkData(
+                options: [.withSecurityScope],
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            )
+            let kind = itemKind(for: url)
 
-        return FileStashRecord(
-            id: UUID(),
-            displayName: url.lastPathComponent,
-            bookmarkData: bookmarkData,
-            itemKind: kind,
-            typeLabel: typeLabel(for: url, kind: kind),
-            addedAt: addedAt,
-            lastResolvedPath: url.path(percentEncoded: false)
-        )
+            return FileStashRecord(
+                id: UUID(),
+                displayName: url.lastPathComponent,
+                bookmarkData: bookmarkData,
+                itemKind: kind,
+                typeLabel: typeLabel(for: url, kind: kind),
+                addedAt: addedAt,
+                lastResolvedPath: url.path(percentEncoded: false)
+            )
+        }
     }
 
     func resolve(_ record: FileStashRecord) -> FileStashItem {

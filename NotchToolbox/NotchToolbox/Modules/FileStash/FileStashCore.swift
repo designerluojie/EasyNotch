@@ -7,14 +7,21 @@ final class FileStashCore: ObservableObject {
 
     private let store: FileStashStore
     private let cleanupService: FileStashCleanupService?
+    private let resourceRegistry: SecurityScopedResourceRegistry
 
-    init(store: FileStashStore, cleanupService: FileStashCleanupService? = nil) throws {
+    init(
+        store: FileStashStore,
+        cleanupService: FileStashCleanupService? = nil,
+        resourceRegistry: SecurityScopedResourceRegistry = SecurityScopedResourceRegistry()
+    ) throws {
         self.store = store
         self.cleanupService = cleanupService
+        self.resourceRegistry = resourceRegistry
         if let cleanupService {
             _ = try? cleanupService.runIfNeeded()
         }
         self.items = try store.loadItems()
+        updateResourceAccess()
     }
 
     @discardableResult
@@ -24,12 +31,14 @@ final class FileStashCore: ObservableObject {
             _ = try cleanupService.runIfNeeded()
             items = try store.loadItems()
         }
+        updateResourceAccess()
         return items
     }
 
     @discardableResult
     func delete(id: UUID) throws -> [FileStashItem] {
         items = try store.delete(id: id)
+        updateResourceAccess()
         return items
     }
 
@@ -38,5 +47,10 @@ final class FileStashCore: ObservableObject {
             _ = try? cleanupService.runIfNeeded()
         }
         items = (try? store.loadItems()) ?? items
+        updateResourceAccess()
+    }
+
+    private func updateResourceAccess() {
+        resourceRegistry.replace(with: items.compactMap(\.resolvedURL))
     }
 }

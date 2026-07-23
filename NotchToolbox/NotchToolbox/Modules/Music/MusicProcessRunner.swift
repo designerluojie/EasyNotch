@@ -10,6 +10,7 @@ struct MusicProcessOutput: Equatable, Sendable {
     let status: Int32
 }
 
+#if DIRECT_DISTRIBUTION
 struct FoundationMusicProcessRunner: MusicProcessRunning {
     private let beforeLaunch: @Sendable () async throws -> Void
 
@@ -181,3 +182,4 @@ nonisolated private final class LockedProcessData: @unchecked Sendable {
         return value
     }
 }
+#endif

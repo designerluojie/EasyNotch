@@ -1,5 +1,7 @@
 import Foundation
 
+#if DIRECT_DISTRIBUTION
+
 struct NowPlayingSnapshotProvider: MusicSnapshotProviding {
     private let processRunner: any MusicProcessRunning
     private let executableCandidates: [String]
@@ -485,6 +487,7 @@ private extension MusicPlayerCapability {
         )
     }
 }
+#endif
 
 private extension String {
     var trimmedNonEmpty: String? {

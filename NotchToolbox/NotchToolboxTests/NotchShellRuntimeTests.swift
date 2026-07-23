@@ -244,7 +244,18 @@ struct NotchShellRuntimeTests {
         shortcutService.trigger()
         await Task.yield()
 
-        #expect(presenter.presentations.last?.state == .idle(screenID: "built-in"))
+        #expect(presenter.presentations.last?.state == .idle(
+            screenID: "built-in",
+            presentation: .request(
+                RestVariantRequest(
+                    moduleID: .music,
+                    kind: .wideNotchStrip,
+                    preferredWidth: 248,
+                    lifetime: .persistent,
+                    isInteractive: true
+                )
+            )
+        ))
     }
 
     @Test func globalShortcutSettingChangesRegisterAndUnregisterShortcutService() async throws {
@@ -422,6 +433,34 @@ struct NotchShellRuntimeTests {
         interactions.fileDragEntered(screenID: "built-in")
         await Task.yield()
         interactions.fileDragExited(screenID: "built-in")
+        await Task.yield()
+
+        #expect(compositionRoot.fileStashViewModel.phase == .expandedEmpty)
+        #expect(presenter.presentations.last?.state == .expanded(screenID: "built-in", moduleID: .fileStash))
+    }
+
+    @Test func manuallyOpeningFileStashClearsAStaleDropPrompt() async throws {
+        let compositionRoot = try Self.makeCompositionRoot(activeModule: .music, initialScreenID: "built-in")
+        let interactions = OverlayPanelInteractions()
+        let presenter = RuntimeSpyOverlayPanelPresenter()
+        let runtime = NotchShellRuntime(
+            compositionRoot: compositionRoot,
+            interactions: interactions,
+            topologyProvider: RuntimeStubDisplayTopologyProvider(snapshots: [
+                Self.notchSnapshot(id: "built-in")
+            ]),
+            panelPresenter: presenter,
+            primaryScreenID: "built-in",
+            simulateNotchOnNonNotchScreen: true
+        )
+
+        runtime.start()
+        interactions.fileDragEntered(screenID: "built-in")
+        await Task.yield()
+        #expect(compositionRoot.fileStashViewModel.phase == .dragHoverImport)
+
+        // Simulate a missed drop-exit callback followed by a normal click-open.
+        interactions.expand(screenID: "built-in", moduleID: .fileStash)
         await Task.yield()
 
         #expect(compositionRoot.fileStashViewModel.phase == .expandedEmpty)

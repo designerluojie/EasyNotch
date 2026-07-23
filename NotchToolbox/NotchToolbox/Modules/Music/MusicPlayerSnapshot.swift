@@ -11,6 +11,7 @@ enum MusicSnapshotSource: Equatable {
     case mediaRemote
     case nowPlayingCLI
     case adapterFallback
+    case appleEvents
 }
 
 struct MusicPlayerSnapshot: Equatable {

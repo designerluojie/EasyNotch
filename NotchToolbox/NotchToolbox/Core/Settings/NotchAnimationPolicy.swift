@@ -35,7 +35,13 @@ nonisolated struct NotchAnimationPolicy: Equatable {
     func expandedSpring(isActive: Bool) -> Animation {
         .interpolatingSpring(
             duration: expandedTransitionDuration,
-            bounce: isActive ? growBounce : collapseBounce
+            // A full-width panel turns even the natural 0.2 bounce into a
+            // conspicuous expand → contract → expand flash. Natural expansion
+            // is monotonic; the explicit springy mode keeps only a restrained
+            // amount of overshoot.
+            bounce: isActive
+                ? (mode == .springy ? 0.08 : 0)
+                : collapseBounce
         )
     }
 

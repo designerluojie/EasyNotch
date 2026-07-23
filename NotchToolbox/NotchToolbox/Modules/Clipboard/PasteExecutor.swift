@@ -25,6 +25,7 @@ final class PasteExecutor {
 
     func write(item: ClipboardHistoryItem) throws -> ClipboardPastebackTicket {
         let pasteboardItems: [NSPasteboardItem]
+        var resourceLeases: [SecurityScopedResourceLease] = []
 
         switch item.payload {
         case .inline, .figma:
@@ -39,6 +40,7 @@ final class PasteExecutor {
             pasteboardItems = [pasteboardItem]
         case let .fileReferences(references):
             let resolvedURLs = try referenceValidator.validate(references)
+            resourceLeases = resolvedURLs.map(SecurityScopedResourceLease.init(url:))
             pasteboardItems = resolvedURLs.map { url in
                 let pasteboardItem = NSPasteboardItem()
                 pasteboardItem.setString(url.absoluteString, forType: .fileURL)
@@ -46,7 +48,9 @@ final class PasteExecutor {
             }
         }
 
-        try pasteboardClient.write(items: pasteboardItems)
+        try withExtendedLifetime(resourceLeases) {
+            try pasteboardClient.write(items: pasteboardItems)
+        }
 
         return ClipboardPastebackTicket(
             contentHash: item.contentHash,

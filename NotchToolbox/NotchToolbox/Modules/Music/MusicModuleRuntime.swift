@@ -15,6 +15,7 @@ private struct NoopMusicPlayerController: MusicPlayerControlling {
     func perform(_ action: MusicControlAction, for bundleID: String?) async throws {}
 }
 
+#if DIRECT_DISTRIBUTION
 struct DefaultMusicPlayerController: MusicPlayerControlling {
     private let adapters: [String: any MusicPlayerAdapter]
     private let processRunner: any MusicProcessRunning
@@ -82,6 +83,11 @@ struct DefaultMusicPlayerController: MusicPlayerControlling {
 
         try await adapter.perform(action)
     }
+}
+#endif
+
+private struct NoopAccessibilityTrustChecker: AccessibilityTrustChecking {
+    func isTrustedForMediaKeyPosting() -> Bool { false }
 }
 
 @MainActor
@@ -161,13 +167,13 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
         controlConfirmationRefreshCount: Int = 3,
         pollSleep: @escaping @Sendable (UInt64) async throws -> Void = { try await Task.sleep(nanoseconds: $0) }
     ) {
-        let resolvedState = initialState ?? .empty(players: MusicPlayerCapability.v1Targets)
+        let resolvedState = initialState ?? .empty(players: MusicPlayerCapability.distributionLaunchTargets)
 
         self.moduleState = resolvedState
         self.collapsedSummary = resolvedState.collapsedSummary
         self.lastProviderError = nil
         self.sessionResolver = sessionResolver ?? ActiveMusicSessionResolver(
-            v1BundleIDs: Set(MusicPlayerCapability.v1Targets.map(\.bundleID))
+            v1BundleIDs: Set(MusicPlayerCapability.distributionLaunchTargets.map(\.bundleID))
         )
         self.currentEnergyMode = energyPolicy.closedMode
         self.pollSchedule = Self.collapsedPollSchedule(for: resolvedState)
@@ -178,6 +184,16 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
         self.postLaunchObservationDelayNanoseconds = postLaunchObservationDelayNanoseconds
         self.controlConfirmationRefreshCount = max(0, controlConfirmationRefreshCount)
         self.pollSleep = pollSleep
+        #if APP_STORE
+        self.snapshotProvider = snapshotProvider ?? AppStoreMusicSnapshotProvider()
+        let resolvedTrustChecker = accessibilityTrustChecker ?? NoopAccessibilityTrustChecker()
+        self.accessibilityTrustChecker = resolvedTrustChecker
+        if let playerController {
+            self.playerController = playerController
+        } else {
+            self.playerController = AppStoreMusicPlayerController()
+        }
+        #else
         let resolvedProcessRunner = processRunner ?? FoundationMusicProcessRunner()
         self.snapshotProvider = snapshotProvider ?? NowPlayingSnapshotProvider(
             processRunner: resolvedProcessRunner
@@ -193,6 +209,7 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
                 accessibilityTrustChecker: resolvedTrustChecker
             )
         }
+        #endif
         self.canonicalTimeline = MusicCanonicalTimeline(state: resolvedState)
 
         if initialState == nil {
@@ -247,11 +264,11 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
             applyPostRefreshPollingStrategy()
         } catch let error as MusicProviderError {
             lastProviderError = error
-            updateModuleState(.empty(players: MusicPlayerCapability.v1Targets))
+            updateModuleState(.empty(players: MusicPlayerCapability.distributionLaunchTargets))
             applyPostRefreshPollingStrategy()
         } catch {
             lastProviderError = .metadataCommandFailed(stderr: error.localizedDescription)
-            updateModuleState(.empty(players: MusicPlayerCapability.v1Targets))
+            updateModuleState(.empty(players: MusicPlayerCapability.distributionLaunchTargets))
             applyPostRefreshPollingStrategy()
         }
     }
@@ -263,7 +280,7 @@ class MusicModuleRuntime: ObservableObject, NotchModuleRuntime {
         do {
             try await playerController.launch(bundleID: bundleID)
             guard await establishLaunchedSession(for: bundleID) else {
-                updateModuleState(.empty(players: MusicPlayerCapability.v1Targets))
+                updateModuleState(.empty(players: MusicPlayerCapability.distributionLaunchTargets))
                 startPostLaunchObservation(for: bundleID)
                 return
             }
