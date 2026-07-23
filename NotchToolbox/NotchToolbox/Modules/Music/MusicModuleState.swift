@@ -22,7 +22,7 @@ enum MusicModuleState: Equatable {
 extension MusicModuleState {
     static func fromResolvedSnapshot(_ snapshot: MusicPlayerSnapshot?) -> MusicModuleState {
         guard let snapshot else {
-            return .empty(players: MusicPlayerCapability.v1Targets)
+            return .empty(players: MusicPlayerCapability.distributionLaunchTargets)
         }
         guard snapshot.capability.phase == .verified else {
             return .unsupportedActivePlayer(displayName: snapshot.displayName)
@@ -37,7 +37,7 @@ extension MusicModuleState {
         // becomes an error when the player claims to be playing.
         switch snapshot.playbackState {
         case .stopped, .unknown:
-            return .empty(players: MusicPlayerCapability.v1Targets)
+            return .empty(players: MusicPlayerCapability.distributionLaunchTargets)
         case .playing, .paused:
             break
         }

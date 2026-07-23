@@ -244,7 +244,18 @@ struct NotchShellRuntimeTests {
         shortcutService.trigger()
         await Task.yield()
 
-        #expect(presenter.presentations.last?.state == .idle(screenID: "built-in"))
+        #expect(presenter.presentations.last?.state == .idle(
+            screenID: "built-in",
+            presentation: .request(
+                RestVariantRequest(
+                    moduleID: .music,
+                    kind: .wideNotchStrip,
+                    preferredWidth: 248,
+                    lifetime: .persistent,
+                    isInteractive: true
+                )
+            )
+        ))
     }
 
     @Test func globalShortcutSettingChangesRegisterAndUnregisterShortcutService() async throws {

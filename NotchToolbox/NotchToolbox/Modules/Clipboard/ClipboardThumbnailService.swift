@@ -31,23 +31,25 @@ struct ClipboardThumbnailService {
     }
 
     func makeReferenceThumbnail(for url: URL) -> ClipboardThumbnailSnapshot? {
-        if url.hasDirectoryPath == false,
-           looksLikeImageFile(url),
-           let data = try? Data(contentsOf: url),
-           let snapshot = makeInlineImageThumbnail(
-               from: data,
-               preferredFileName: "image-file-thumbnail-\(url.lastPathComponent)"
-           ) {
-            return snapshot
+        SecurityScopedResourceAccess.withAccess(to: url) {
+            if url.hasDirectoryPath == false,
+               looksLikeImageFile(url),
+               let data = try? Data(contentsOf: url),
+               let snapshot = makeInlineImageThumbnail(
+                   from: data,
+                   preferredFileName: "image-file-thumbnail-\(url.lastPathComponent)"
+               ) {
+                return snapshot
+            }
+
+            let kind: ClipboardThumbnailKind = url.hasDirectoryPath ? .folderPreview : .filePreview
+            let image = workspace.icon(forFile: url.path(percentEncoded: false))
+            let fileName = url.hasDirectoryPath
+                ? "folder-thumbnail-\(url.lastPathComponent).png"
+                : "file-thumbnail-\(url.lastPathComponent).png"
+
+            return makeSnapshot(from: image, fileName: fileName, kind: kind)
         }
-
-        let kind: ClipboardThumbnailKind = url.hasDirectoryPath ? .folderPreview : .filePreview
-        let image = workspace.icon(forFile: url.path(percentEncoded: false))
-        let fileName = url.hasDirectoryPath
-            ? "folder-thumbnail-\(url.lastPathComponent).png"
-            : "file-thumbnail-\(url.lastPathComponent).png"
-
-        return makeSnapshot(from: image, fileName: fileName, kind: kind)
     }
 
     private func makeSnapshot(

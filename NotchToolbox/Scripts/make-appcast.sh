@@ -69,7 +69,7 @@ if [[ -n "$RELEASE_NOTES" ]]; then
 fi
 
 "$GENERATE_APPCAST" \
-    --download-url-prefix "${DOWNLOAD_URL_PREFIX%/}" \
+    --download-url-prefix "${DOWNLOAD_URL_PREFIX%/}/" \
     --embed-release-notes \
     --maximum-versions 3 \
     "$OUTPUT_DIR"

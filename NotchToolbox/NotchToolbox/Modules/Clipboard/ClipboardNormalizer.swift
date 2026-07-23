@@ -33,6 +33,8 @@ struct ClipboardNormalizer {
         }
 
         if snapshot.fileURLs.isEmpty == false {
+            let resourceLeases = snapshot.fileURLs.map(SecurityScopedResourceLease.init(url:))
+            defer { withExtendedLifetime(resourceLeases) {} }
             let references = try snapshot.fileURLs.map { url in
                 ClipboardFileReference(
                     fileName: url.lastPathComponent,

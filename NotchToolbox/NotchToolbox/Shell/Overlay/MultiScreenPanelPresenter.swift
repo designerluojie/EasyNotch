@@ -1,7 +1,7 @@
 import Foundation
 
 @MainActor
-final class MultiScreenPanelPresenter: OverlayPanelPresenting {
+final class MultiScreenPanelPresenter: OverlayPanelPresenting, SettingsPresenting {
     private let compositionRoot: AppCompositionRoot
     private let interactions: OverlayPanelInteractions
     private let updateController: AppUpdateController
@@ -34,6 +34,10 @@ final class MultiScreenPanelPresenter: OverlayPanelPresenting {
             controllers[screenID]?.dismiss()
             controllers[screenID] = nil
         }
+    }
+
+    func show(centeredOn screenFrame: CGRect?) {
+        settingsController.show(centeredOn: screenFrame)
     }
 
     func controller(for screenID: String) -> PanelWindowController {

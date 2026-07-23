@@ -109,8 +109,21 @@ final class PanelWindowController: OverlayPanelPresenting {
             return
         }
 
-        pendingIdleFrameResetTask?.cancel()
         let targetFrame = frame(for: resolvedState, geometry: geometry)
+        cancelPendingIdleFrameReset()
+
+        let preparesExpandedCoordinateSpace = previousState.isRestLike
+            && resolvedState.isExpandedLike
+            && panel.frame != targetFrame
+        if preparesExpandedCoordinateSpace {
+            // The morph view must never be laid out inside the old compact
+            // window. Resize without displaying first, then publish the state
+            // that creates the expanded view in its final, centered coordinate
+            // space.
+            panel.setFrame(targetFrame, display: false)
+            hostingView.layoutSubtreeIfNeeded()
+        }
+
         panelModel.geometry = geometry
         panelModel.previousState = previousState
         panelModel.state = resolvedState
@@ -118,6 +131,21 @@ final class PanelWindowController: OverlayPanelPresenting {
         if resolvedState.isRestLike == false {
             panelModel.latchedRestCollapsePresentation = nil
             clearPostExpandedCollapseRestLatch()
+        }
+
+        if preparesExpandedCoordinateSpace {
+            panel.displayIfNeeded()
+            panel.orderFrontRegardless()
+            return
+        }
+
+        if resolvedState.isHoverHint,
+           panelModel.expandedCollapseTarget != nil {
+            // Hovering while the expanded shell is still collapsing retargets
+            // that same morph to the 8pt hover body. Keep the expanded outer
+            // window until the session either reverses or fully settles.
+            panel.orderFrontRegardless()
+            return
         }
 
         if shouldDeferIdleFrameReset(from: previousState, to: resolvedState) {
@@ -512,17 +540,14 @@ final class PanelWindowController: OverlayPanelPresenting {
 
     private func scheduleFrameReset(to frame: NSRect) {
         let delay: Double
-        let postExpandedCollapseTarget = panelModel.previousState?.isExpandedLike == true
-            ? panelModel.expandedCollapseTarget
-            : nil
+        let postExpandedCollapseTarget = panelModel.expandedCollapseTarget
 
         // Expanded→rest carryover needs a longer reset delay than the default
         // transitionDuration so the morph shell's interpolating spring fully
         // settles at the captured rest body frame before AppKit resets the
         // outer panel frame. A premature reset swaps morph shell → idleBody
         // mid-spring and produces a visible tail-frame snap.
-        if panelModel.previousState?.isExpandedLike == true,
-           panelModel.expandedCollapseTarget != nil {
+        if panelModel.expandedCollapseTarget != nil {
             delay = 0.6
         } else if let previousState = panelModel.previousState,
            OverlayPanelRootPresentation.shouldMorphVisibleRestVariants(
@@ -546,6 +571,7 @@ final class PanelWindowController: OverlayPanelPresenting {
                 return
             }
 
+            self.pendingIdleFrameResetTask = nil
             self.panel.setFrame(frame, display: true)
             self.panel.orderFrontRegardless()
             if let postExpandedCollapseTarget {
@@ -668,6 +694,27 @@ final class PanelWindowController: OverlayPanelPresenting {
         postExpandedCollapseRestLatch = nil
         postExpandedCollapseRestLatchReleaseTask?.cancel()
         postExpandedCollapseRestLatchReleaseTask = nil
+    }
+
+    private func cancelPendingIdleFrameReset() {
+        pendingIdleFrameResetTask?.cancel()
+        pendingIdleFrameResetTask = nil
+    }
+
+    private func collapsedTopEdgeHitFrame(
+        presentation: ResolvedRestPresentation,
+        isHovering: Bool
+    ) -> CGRect? {
+        guard let geometry = panelModel.geometry else {
+            return nil
+        }
+
+        switch presentation {
+        case .none:
+            return isHovering ? geometry.hoverHintVisibleFrame : geometry.idleFrame
+        case .request(let request):
+            return geometry.visibleBodyFrame(for: request, isHovering: isHovering)
+        }
     }
 
     private func shouldContinueLatchedRestFrameReset(

@@ -1,5 +1,7 @@
 import Foundation
 
+#if DIRECT_DISTRIBUTION
+
 // Controls players that publish a real AppleScript dictionary (Spotify, Apple Music)
 // by scripting the app directly: `tell application "Spotify" to playpause`. Unlike the
 // QQ path there is no System Events UI scripting involved, so control needs only the
@@ -61,3 +63,4 @@ struct AppleScriptMusicAdapter: MusicPlayerAdapter {
         try QQMusicAdapter.throwIfCommandFailed(output)
     }
 }
+#endif

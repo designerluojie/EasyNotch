@@ -33,6 +33,7 @@ protocol AccessibilityTrustChecking: Sendable {
     func isTrustedForMediaKeyPosting() -> Bool
 }
 
+#if DIRECT_DISTRIBUTION
 nonisolated struct AccessibilityTrustChecker: AccessibilityTrustChecking {
     func isTrustedForMediaKeyPosting() -> Bool {
         AXIsProcessTrusted()
@@ -155,3 +156,4 @@ private extension NSEventMediaKeyEventDispatcher {
         cgEvent.post(tap: .cghidEventTap)
     }
 }
+#endif

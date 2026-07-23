@@ -14,7 +14,7 @@ struct SettingsWindowTests {
         controller.show(centeredOn: screenFrame)
 
         #expect(controller.panel.level.rawValue == NSWindow.Level.statusBar.rawValue + 1)
-        #expect(controller.panel.frame.size == SettingsWindowMetrics.windowSize)
+        #expect(controller.panel.frame.size == SettingsWindowMetrics.outerSize)
         #expect(controller.panel.frame.midX == screenFrame.midX)
         #expect(controller.panel.frame.midY == screenFrame.midY)
         #expect(controller.panel.isVisible)

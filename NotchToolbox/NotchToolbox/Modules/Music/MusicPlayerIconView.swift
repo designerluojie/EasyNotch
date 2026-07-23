@@ -2,16 +2,19 @@ import SwiftUI
 
 enum MusicPlayerIconAsset: String, Equatable {
     case apple = "MusicPlayerApple"
+    #if DIRECT_DISTRIBUTION
     case netease = "MusicPlayerNetease"
     case qq = "MusicPlayerQQ"
     case kugou = "MusicPlayerKugou"
     case soda = "MusicPlayerSoda"
+    #endif
     case spotify = "MusicPlayerSpotify"
 
     init?(bundleID: String) {
         switch bundleID {
         case "com.apple.Music":
             self = .apple
+        #if DIRECT_DISTRIBUTION
         case "com.netease.163music":
             self = .netease
         case "com.tencent.QQMusicMac":
@@ -20,6 +23,7 @@ enum MusicPlayerIconAsset: String, Equatable {
             self = .kugou
         case "com.soda.music":
             self = .soda
+        #endif
         case "com.spotify.client":
             self = .spotify
         default:
